@@ -4,6 +4,7 @@ use crate::i18n::tx;
 use crate::tr;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use egui::text::{CCursor, CCursorRange};
 use egui::{Align, Color32, FontId, Id, Key, KeyboardShortcut, Modifiers, Rect, Sense, Stroke, TextureHandle, TextureOptions, Ui, pos2, vec2};
@@ -17,6 +18,7 @@ use crate::edit::{self, Sel};
 use crate::highlight;
 use crate::history::{self, Store, Version};
 use crate::icons::Icon;
+use crate::images;
 use crate::recovery::{self, Orphan, Recovery};
 use crate::ruler::{self, RULER};
 use crate::sample::SAMPLE;
@@ -903,26 +905,87 @@ impl App {
         }
     }
 
-    /// Inserts a picture from the document's folder, the only place Typst may read it from.
-    fn insert_image(&mut self, ctx: &egui::Context) {
-        let Some(dir) = self.path.as_deref().and_then(Path::parent).map(Path::to_path_buf) else {
-            self.status = tx("save-the-document-before-inserting-images-they").into();
-            return;
-        };
-        let Some(file) =
-            rfd::FileDialog::new().set_directory(&dir).add_filter(tx("images"), &["png", "jpg", "jpeg", "gif", "svg", "webp"]).pick_file()
-        else {
-            return;
-        };
-        match file.strip_prefix(&dir) {
-            Ok(relative) => {
-                let relative = relative.to_string_lossy().replace('\\', "/");
-                let escaped = relative.replace('"', "\\\"");
-                let snippet = format!("#figure(\n  image(\"{escaped}\"),\n  caption: [Legenda],\n)\n");
-                self.edit(ctx, |t, s| edit::insert_plain(t, s, &snippet));
-            }
-            Err(_) => self.status = tx("the-image-has-to-be-in-the").into(),
+    /// The folder pictures go in, or says why this document can't take any.
+    fn images_folder(&mut self) -> Option<PathBuf> {
+        // A guest's folder is its own: the others would be left with a document that can't find the file.
+        if self.session.as_ref().is_some_and(|s| !s.is_host()) {
+            self.status = tx("only-the-host-of-a-session-can-add-images").into();
+            return None;
         }
+        let dir = self.path.as_deref().and_then(Path::parent).map(Path::to_path_buf);
+        if dir.is_none() {
+            self.status = tx("save-the-document-before-inserting-images-they").into();
+        }
+        dir
+    }
+
+    fn insert_image(&mut self, ctx: &egui::Context) {
+        let Some(dir) = self.images_folder() else { return };
+        if let Some(file) = rfd::FileDialog::new().set_directory(&dir).add_filter(tx("images"), &images::EXTENSIONS).pick_file() {
+            self.bring_images(ctx, &[file], &[]);
+        }
+    }
+
+    /// Takes pictures dragged onto the window or pasted, before the editor sees them as text.
+    fn receive_images(&mut self, ctx: &egui::Context) {
+        let dropped: Vec<PathBuf> = ctx.input_mut(|i| std::mem::take(&mut i.raw.dropped_files)).iter().map(|f| f.path().to_path_buf()).collect();
+        let focused = ctx.memory(egui::Memory::focused);
+        let (mut files, mut pixels) = (dropped, Vec::new());
+        // In a field of a pane, a paste is for that field.
+        if focused.is_none() || focused == Some(Id::unique(EDITOR)) {
+            ctx.input_mut(|i| {
+                i.events.retain(|event| match event {
+                    egui::Event::PasteImage(image) => {
+                        pixels.push(image.clone());
+                        false
+                    }
+                    egui::Event::Paste(text) => match images::files_in_text(text) {
+                        Some(list) if list.iter().all(|f| images::is_image(f)) => {
+                            files.extend(list);
+                            false
+                        }
+                        _ => true,
+                    },
+                    _ => true,
+                });
+            });
+        }
+        self.bring_images(ctx, &files, &pixels);
+    }
+
+    /// Puts a figure at the caret for each picture, all as one change.
+    fn bring_images(&mut self, ctx: &egui::Context, files: &[PathBuf], pixels: &[Arc<egui::ColorImage>]) {
+        if files.is_empty() && pixels.is_empty() {
+            return;
+        }
+        let Some(dir) = self.images_folder() else { return };
+        let stamp = chrono::Local::now().format("%Y-%m-%d-%H%M%S").to_string();
+        let from_files = files.iter().map(|file| images::adopt(&dir, file));
+        let from_pixels = pixels.iter().map(|image| images::adopt_pixels(&dir, image, &stamp));
+        let (mut snippet, mut failure) = (String::new(), None);
+        for result in from_files.chain(from_pixels) {
+            match result {
+                Ok(path) => snippet += &edit::file_snippet(&path),
+                Err(id) => failure = Some(id),
+            }
+        }
+        if !snippet.is_empty() {
+            self.edit(ctx, |t, s| edit::insert_block(t, s, &snippet));
+        }
+        if let Some(id) = failure {
+            self.status = tx(id).into();
+        }
+    }
+
+    /// Says what letting go will do, while a file is carried over the window.
+    fn drop_hint(&self, ctx: &egui::Context, t: &Tokens) {
+        if ctx.input(|i| i.raw.hovered_files.is_empty()) {
+            return;
+        }
+        let area = ctx.content_rect();
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, Id::unique("drop-hint")));
+        painter.rect_filled(area, 0.0, t.grid_bg.gamma_multiply(0.8));
+        painter.text(area.center(), egui::Align2::CENTER_CENTER, tx("drop-to-insert-the-image-at-the-caret"), FontId::proportional(20.0), t.text);
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
@@ -947,6 +1010,7 @@ impl App {
         if self.backstage.is_some() {
             return;
         }
+        self.receive_images(ctx);
         if pressed(Modifiers::COMMAND, Key::Space) {
             self.ask_completions(ctx, true);
         }
@@ -1743,6 +1807,7 @@ impl App {
             return;
         }
         let t = Tokens::get(&ctx);
+        self.drop_hint(&ctx, &t);
         self.title_bar(ui, &t, &name);
         self.top_bar(ui, &t);
         // The foot is split off by hand: a bottom panel reserves what its content used, not what it
@@ -2242,7 +2307,7 @@ impl App {
             self.table_dialog = Some(TableDialog { rows: 3, cols: 3, header: true, figure: false });
         }
         sep(ui, tx("tables"));
-        if tool(ui, Icon::Picture, tx("image-from-the-documents-folder")).clicked() {
+        if tool(ui, Icon::Picture, tx("image-from-a-file")).clicked() {
             self.insert_image(&ctx);
         }
         if tool(ui, Icon::Shapes, tx("figure-with-caption")).clicked() {

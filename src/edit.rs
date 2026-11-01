@@ -112,6 +112,12 @@ pub fn insert_plain(buffer: &mut String, (a, b): Sel, text: &str) -> Sel {
     (c, c)
 }
 
+/// Inserts a block of its own: starting on a new line unless the caret is already at the start of one.
+pub fn insert_block(buffer: &mut String, (a, b): Sel, text: &str) -> Sel {
+    let at_start = buffer.get(..byte_of(buffer, a)).is_none_or(|before| before.is_empty() || before.ends_with('\n'));
+    if at_start { insert_plain(buffer, (a, b), text) } else { insert_plain(buffer, (a, b), &format!("\n{text}")) }
+}
+
 /// What the Files pane inserts for a file of the project, by its path from the document's folder.
 pub fn file_snippet(path: &str) -> String {
     let quoted = path.replace('\\', "\\\\").replace('"', "\\\"");

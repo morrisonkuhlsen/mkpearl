@@ -1,5 +1,5 @@
 //! Renders a window offscreen to a PNG, without touching the desktop.
-//! `cargo run --example shot -- out.png splash` or `… out.png [tab] [dark] [error]`
+//! `cargo run --example shot -- out.png splash` or `… out.png [tab] [dark] [error] [dropping]`
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -108,6 +108,10 @@ fn main() {
             harness.step();
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+    if args.iter().any(|a| a == "dropping") {
+        harness.input_mut().hovered_files.push(egui::HoveredFile { path: Some("foto.png".into()), mime: "image/png".to_string() });
+        harness.step();
     }
     if args.iter().any(|a| a == "versions") {
         harness.state_mut().view_version(1);
