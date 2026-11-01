@@ -27,6 +27,7 @@ pub struct DocWorld {
     fonts: Arc<FontStore>,
     files: FileStore<SystemFiles>,
     main: Source,
+    root: PathBuf,
 }
 
 fn main_id(path: Option<&Path>) -> Option<FileId> {
@@ -40,12 +41,13 @@ impl DocWorld {
     pub fn new(fonts: Arc<FontStore>, path: Option<&Path>) -> Option<Self> {
         let root: PathBuf = path.and_then(Path::parent).map(Path::to_path_buf).filter(|p| !p.as_os_str().is_empty()).or_else(|| std::env::current_dir().ok())?;
         let downloader = SystemDownloader::new(concat!("pearl/", env!("CARGO_PKG_VERSION")));
-        let files = SystemFiles::new(FsRoot::new(root), SystemPackages::new(downloader));
+        let files = SystemFiles::new(FsRoot::new(root.clone()), SystemPackages::new(downloader));
         Some(Self {
             library: LazyHash::new(Library::default()),
             fonts,
             files: FileStore::new(files),
             main: Source::new(main_id(path)?, String::new()),
+            root,
         })
     }
 
@@ -100,6 +102,35 @@ impl World for DocWorld {
 impl typst_ide::IdeWorld for DocWorld {
     fn upcast(&self) -> &dyn World {
         self
+    }
+
+    /// The project's files, so `image("` completes to them. Bounded: a document in a huge folder
+    /// mustn't stall the analysis.
+    fn files(&self) -> Vec<FileId> {
+        const MAX_FILES: usize = 1000;
+        const MAX_DEPTH: usize = 4;
+        let mut out = Vec::new();
+        let mut pending = vec![(self.root.clone(), 0)];
+        while let Some((dir, depth)) = pending.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            for entry in entries.flatten() {
+                if out.len() >= MAX_FILES {
+                    return out;
+                }
+                let path = entry.path();
+                if entry.file_name().to_string_lossy().starts_with('.') {
+                    continue;
+                }
+                if path.is_dir() {
+                    if depth < MAX_DEPTH && entry.file_name() != "target" {
+                        pending.push((path, depth + 1));
+                    }
+                } else if let Ok(vpath) = VirtualPath::virtualize(&self.root, &path) {
+                    out.push(RootedPath::new(VirtualRoot::Project, vpath).intern());
+                }
+            }
+        }
+        out
     }
 }
 

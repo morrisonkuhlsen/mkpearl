@@ -25,6 +25,8 @@ use crate::world::{DocWorld, load_fonts};
 pub const RENDER_SCALE: f32 = 2.5;
 /// The largest texture every GPU takes, used until the interface reports the real limit.
 const SAFE_TEXTURE_SIDE: usize = 2048;
+/// Most suggestions kept; the list is for reading, and typing narrows it.
+const MAX_SUGGESTIONS: usize = 200;
 /// Most pages kept rasterised in the cache beyond the current document.
 const CACHE_SLACK: usize = 32;
 
@@ -35,6 +37,20 @@ pub enum Job {
     /// Shows the place in the pages for a byte offset of the source.
     Locate { byte: usize },
     ExportPdf(PathBuf),
+    /// What could be typed at a byte offset. `explicit`: asked for with Ctrl+Space.
+    Complete { request: u64, byte: usize, explicit: bool },
+}
+
+/// One suggestion of the autocompletion.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Suggestion {
+    pub label: String,
+    /// What goes in the text, with `${…}` placeholders.
+    pub apply: String,
+    /// A short description, in Typst's own English.
+    pub detail: Option<String>,
+    /// One word for the kind of thing it is.
+    pub kind: &'static str,
 }
 
 #[derive(Clone)]
@@ -64,6 +80,8 @@ pub enum Event {
     Compiled { pages: Option<Vec<Page>>, diags: Vec<Diag>, millis: u128 },
     JumpToSource { byte: usize },
     JumpToPage { page: usize, y_pt: f32, x_pt: f32 },
+    /// The answer to [`Job::Complete`]: suggestions replacing the text from `from` to the caret.
+    Completions { request: u64, from: usize, suggestions: Vec<Suggestion> },
     /// The files of the project the document read (path from its folder, path on disk).
     Dependencies(Vec<(String, PathBuf)>),
     Exported(Result<PathBuf, String>),
@@ -130,9 +148,12 @@ impl Worker {
             // Only the newest text matters; other jobs keep their order after it.
             let mut compile = None;
             let mut others = Vec::new();
+            let mut complete = None;
             for job in std::iter::once(first).chain(jobs.try_iter()) {
                 match job {
                     Job::Compile { text, path } => compile = Some((text, path)),
+                    // Only the newest question matters too: answers to old ones go unused.
+                    Job::Complete { request, byte, explicit } => complete = Some((request, byte, explicit)),
                     other => others.push(other),
                 }
             }
@@ -141,6 +162,9 @@ impl Worker {
             }
             for job in others {
                 self.other(job);
+            }
+            if let Some((request, byte, explicit)) = complete {
+                self.complete(request, byte, explicit);
             }
         }
     }
@@ -217,7 +241,7 @@ impl Worker {
 
     fn other(&mut self, job: Job) {
         match job {
-            Job::Compile { .. } => {}
+            Job::Compile { .. } | Job::Complete { .. } => {}
             Job::Click { page, x, y } => self.click(page, x, y),
             Job::Locate { byte } => self.locate(byte),
             Job::ExportPdf(path) => {
@@ -225,6 +249,51 @@ impl Worker {
                 self.emit(Event::Exported(result));
             }
         }
+    }
+
+    fn complete(&mut self, request: u64, byte: usize, explicit: bool) {
+        let Some(world) = &mut self.world else { return };
+        let original = world.source().text().to_string();
+        if !original.is_char_boundary(byte) {
+            return;
+        }
+        let doc = self.doc.as_ref();
+        // Analysis runs the document's code: a panic in it must not take the compiler thread along.
+        let ask = |world: &DocWorld| {
+            let source = world.source();
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| typst_ide::autocomplete(world, doc, source, byte, explicit))).ok().flatten()
+        };
+        let mut found = ask(world).filter(|(_, c)| !c.is_empty());
+        // Typst analyses a call by running the document, which a bracket still open stops: `#set
+        // text(` suggests nothing. Then, for this question only, close what's open at the caret.
+        if found.is_none() && !world.source().root().errors_and_warnings().0.is_empty() {
+            let closers = crate::edit::open_brackets(&original, byte);
+            if !closers.is_empty() {
+                let mut repaired = original.clone();
+                repaired.insert_str(byte, &closers);
+                world.update(&repaired);
+                found = ask(world);
+                world.update(&original);
+            }
+        }
+        let (from, completions) = found.unwrap_or((byte, Vec::new()));
+        // Typst offers everything that fits the place; narrowing it to what's been typed is ours.
+        let query = original.get(from..byte).unwrap_or_default();
+        let mut ranked: Vec<(u8, typst_ide::Completion)> =
+            completions.into_iter().filter_map(|c| Some((crate::edit::match_rank(query, &c.label)?, c))).collect();
+        // Among equals the shortest is the likeliest: `align` before `alignment`.
+        ranked.sort_by_key(|(rank, c)| (*rank, c.label.chars().count()));
+        let suggestions = ranked
+            .into_iter()
+            .take(MAX_SUGGESTIONS)
+            .map(|(_, c)| Suggestion {
+                apply: c.apply.as_ref().unwrap_or(&c.label).to_string(),
+                label: c.label.to_string(),
+                detail: c.detail.map(|d| d.to_string()),
+                kind: kind_name(&c.kind),
+            })
+            .collect();
+        self.emit(Event::Completions { request, from, suggestions });
     }
 
     fn click(&self, page: usize, x: f64, y: f64) {
@@ -252,6 +321,22 @@ impl Worker {
         let doc = self.doc.as_ref().ok_or("O documento ainda não compilou.")?;
         let bytes = typst_pdf::pdf(doc, &PdfOptions::default()).map_err(|errors| errors.iter().map(|e| e.message.to_string()).collect::<Vec<_>>().join("; "))?;
         std::fs::write(path, bytes).map_err(|e| e.to_string())
+    }
+}
+
+fn kind_name(kind: &typst_ide::CompletionKind) -> &'static str {
+    use typst_ide::CompletionKind as K;
+    match kind {
+        K::Syntax => "sintaxe",
+        K::Func => "função",
+        K::Type => "tipo",
+        K::Param => "parâmetro",
+        K::Constant => "valor",
+        K::Path => "arquivo",
+        K::Package => "pacote",
+        K::Label => "rótulo",
+        K::Font => "fonte",
+        K::Symbol(_) => "símbolo",
     }
 }
 
@@ -338,6 +423,81 @@ mod tests {
         let doc: String = codes.iter().map(|c| format!("$ x {c} y $\n")).collect();
         let (pages, diags) = compile(&doc);
         assert!(pages.is_some(), "{diags:?}");
+    }
+
+    /// Compiles `text` and asks what fits at the end of it.
+    fn suggestions(text: &str, explicit: bool) -> (usize, Vec<Suggestion>) {
+        let c = Compiler::start().unwrap();
+        c.send(Job::Compile { text: text.into(), path: None });
+        c.send(Job::Complete { request: 7, byte: text.len(), explicit });
+        loop {
+            if let Event::Completions { request, from, suggestions } = c.events.recv_timeout(Duration::from_secs(120)).unwrap() {
+                assert_eq!(request, 7);
+                return (from, suggestions);
+            }
+        }
+    }
+
+    #[test]
+    fn functions_complete_after_a_hash() {
+        let (from, found) = suggestions("olá #ali", false);
+        assert_eq!(from, "olá #".len());
+        let align = found.iter().find(|s| s.label == "align").unwrap();
+        assert_eq!(align.kind, "função");
+        assert!(align.apply.starts_with("align"));
+        assert!(align.detail.is_some());
+    }
+
+    #[test]
+    fn parameters_complete_inside_a_call() {
+        let (_, found) = suggestions("#set text(", true);
+        assert!(found.iter().any(|s| s.label == "fill" && s.kind == "parâmetro"), "{found:?}");
+    }
+
+    #[test]
+    fn suggestions_are_narrowed_to_what_was_typed_closest_first() {
+        let (_, found) = suggestions("#ali", false);
+        assert_eq!(found.first().map(|s| s.label.as_str()), Some("align"));
+        assert!(found.iter().all(|s| crate::edit::match_rank("ali", &s.label).is_some()), "{found:?}");
+    }
+
+    #[test]
+    fn the_repair_for_a_question_does_not_stay_in_the_document() {
+        let c = Compiler::start().unwrap();
+        c.send(Job::Compile { text: "#set text(".into(), path: None });
+        c.send(Job::Complete { request: 1, byte: 10, explicit: true });
+        loop {
+            if let Event::Completions { .. } = c.events.recv_timeout(Duration::from_secs(120)).unwrap() {
+                break;
+            }
+        }
+        // Clicking asks about the text as it is, and exporting still works from the last good one.
+        c.send(Job::Complete { request: 2, byte: 10, explicit: true });
+        c.send(Job::Compile { text: "#set text(".into(), path: None });
+        loop {
+            if let Event::Compiled { pages, diags, .. } = c.events.recv_timeout(Duration::from_secs(120)).unwrap() {
+                assert!(pages.is_none() && diags.iter().any(|d| d.error), "the unclosed bracket is still an error");
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn plain_prose_asks_for_nothing_unless_requested() {
+        let (_, found) = suggestions("um texto comum", false);
+        assert!(found.is_empty(), "{found:?}");
+    }
+
+    #[test]
+    fn math_symbols_complete() {
+        let (_, found) = suggestions("$ alp", true);
+        assert!(found.iter().any(|s| s.label == "alpha"), "{found:?}");
+    }
+
+    #[test]
+    fn a_broken_document_still_completes() {
+        let (_, found) = suggestions("#nao_existe(\n#ali", false);
+        assert!(found.iter().any(|s| s.label == "align"), "{found:?}");
     }
 
     #[test]

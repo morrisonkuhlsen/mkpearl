@@ -8,7 +8,7 @@ use egui::{Align, Color32, FontId, Id, Key, KeyboardShortcut, Modifiers, Rect, S
 
 use self::backstage::Page as FilePage;
 use crate::collab::{Change, Session};
-use crate::compiler::{Compiler, Diag, Event, Job, Page};
+use crate::compiler::{Compiler, Diag, Event, Job, Page, Suggestion};
 use crate::edit::{self, Sel};
 use crate::highlight;
 use crate::sample::SAMPLE;
@@ -148,6 +148,16 @@ const PEOPLE_COLORS: [Color32; 6] = [
     Color32::from_rgb(0x2E, 0x85, 0x40),
 ];
 
+/// The suggestions on show under the caret.
+struct Completions {
+    /// Replacing the text from here to the caret.
+    from: usize,
+    /// The caret they were asked for; once it moves they no longer apply.
+    caret: usize,
+    suggestions: Vec<Suggestion>,
+    selected: usize,
+}
+
 struct TableDialog {
     rows: usize,
     cols: usize,
@@ -194,6 +204,11 @@ pub struct App {
     /// The File view, when open, on this page.
     backstage: Option<FilePage>,
     theme: ThemeChoice,
+    completions: Option<Completions>,
+    /// The newest question asked of the compiler; older answers are dropped.
+    completion_request: u64,
+    /// Scroll the list to the selected suggestion on the next frame.
+    completion_scroll: bool,
     /// The session being edited together, if any.
     session: Option<Session>,
     share_dialog: Option<ShareDialog>,
@@ -247,6 +262,9 @@ impl App {
             files: Vec::new(),
             backstage: None,
             theme: ThemeChoice::load(),
+            completions: None,
+            completion_request: 0,
+            completion_scroll: false,
             session: None,
             share_dialog: None,
             user_name: crate::recent::read_setting("name.txt")
@@ -287,6 +305,11 @@ impl App {
 
     pub fn is_dirty(&self) -> bool {
         self.dirty
+    }
+
+    /// The labels of the suggestions on show.
+    pub fn completion_labels(&self) -> Vec<String> {
+        self.completions.as_ref().map_or_else(Vec::new, |c| c.suggestions.iter().map(|s| s.label.clone()).collect())
     }
 
     /// The people here besides this one, when in a session.
@@ -381,6 +404,15 @@ impl App {
                 Event::JumpToPage { page, y_pt, x_pt } => {
                     self.scroll_page = Some((page, y_pt));
                     self.marker = Some((page, pos2(x_pt, y_pt), ctx.input(|i| i.time)));
+                }
+                Event::Completions { request, from, suggestions } => {
+                    if request == self.completion_request {
+                        let (a, b) = self.selection(ctx);
+                        let caret = edit::byte_of(&self.text, a);
+                        // No list for nothing, or once a selection or another place makes it moot.
+                        self.completions = (a == b && !suggestions.is_empty() && from <= caret).then_some(Completions { from, caret, suggestions, selected: 0 });
+                        self.completion_scroll = true;
+                    }
                 }
                 Event::Dependencies(files) => {
                     if let Some(session) = &self.session {
@@ -639,6 +671,10 @@ impl App {
         if self.backstage.is_some() {
             return;
         }
+        if pressed(Modifiers::COMMAND, Key::Space) {
+            self.ask_completions(ctx, true);
+        }
+        self.completion_keys(ctx);
         // Before the editor sees them: its own history doesn't suit a session (see `undo`).
         if self.session.is_some() {
             if pressed(shift, Key::Z) || pressed(Modifiers::COMMAND, Key::Y) {
@@ -671,6 +707,68 @@ impl App {
         }
         if pressed(Modifiers::COMMAND, Key::J) {
             self.locate(ctx);
+        }
+    }
+
+    /// Asks what could be typed at the caret. The compile for the current text was sent before this,
+    /// and the compiler takes them in that order.
+    fn ask_completions(&mut self, ctx: &egui::Context, explicit: bool) {
+        let (a, b) = self.selection(ctx);
+        self.completion_request += 1;
+        if a != b {
+            self.completions = None;
+            return;
+        }
+        self.compiler.send(Job::Complete { request: self.completion_request, byte: edit::byte_of(&self.text, a), explicit });
+    }
+
+    /// Whether what was just typed may start or narrow a completion: not after a space or line end.
+    fn worth_completing(&self, ctx: &egui::Context) -> bool {
+        let (a, b) = self.selection(ctx);
+        a == b && a > 0 && self.text.chars().nth(a - 1).is_some_and(|c| !c.is_whitespace())
+    }
+
+    fn accept_completion(&mut self, ctx: &egui::Context, index: usize) {
+        let Some(list) = self.completions.take() else { return };
+        let Some(chosen) = list.suggestions.get(index) else { return };
+        self.completion_request += 1;
+        let apply = chosen.apply.clone();
+        // Up to the caret as it is now: a letter may have been typed since the list was asked for.
+        let (caret, _) = self.selection(ctx);
+        let to = edit::byte_of(&self.text, caret).max(list.from);
+        self.edit(ctx, |text, _| edit::apply_completion(text, list.from, to, &apply));
+    }
+
+    /// The keys a list on show takes before the editor sees them.
+    fn completion_keys(&mut self, ctx: &egui::Context) {
+        let pressed = |k: Key| ctx.input_mut(|i| i.consume_key(Modifiers::NONE, k));
+        if self.completions.is_none() {
+            return;
+        }
+        if pressed(Key::Escape) {
+            self.completions = None;
+            self.completion_request += 1;
+            // egui lets go of the focus on Esc before anyone can take the key.
+            self.want_focus = true;
+            return;
+        }
+        let down = pressed(Key::ArrowDown);
+        let up = pressed(Key::ArrowUp);
+        let accept = pressed(Key::Enter) || pressed(Key::Tab);
+        if let Some(list) = &mut self.completions {
+            let n = list.suggestions.len().max(1);
+            if down {
+                list.selected = (list.selected + 1) % n;
+                self.completion_scroll = true;
+            }
+            if up {
+                list.selected = (list.selected + n - 1) % n;
+                self.completion_scroll = true;
+            }
+            if accept {
+                let index = list.selected;
+                self.accept_completion(ctx, index);
+            }
         }
     }
 
@@ -1951,6 +2049,8 @@ impl App {
             ui.painter().layout_job(job)
         };
         let mut changed = false;
+        let mut caret_rect = None;
+        let mut focused = false;
         egui::ScrollArea::vertical().id_salt("source-scroll").auto_shrink([false, false]).show(ui, |ui| {
             let min_h = ui.available_height();
             ui.horizontal_top(|ui| {
@@ -1997,6 +2097,10 @@ impl App {
                     painter.rect_filled(tag, 0.0, color);
                     painter.galley(tag.min + vec2(3.0, 0.0), name, Color32::WHITE);
                 }
+                if let Some(range) = output.cursor_range {
+                    caret_rect = Some(output.galley.pos_from_cursor(range.primary).translate(output.galley_pos.to_vec2()));
+                }
+                focused = output.response.has_focus();
                 if scroll_caret && let Some(range) = output.cursor_range {
                     let caret = output.galley.pos_from_cursor(range.primary);
                     scroll_to = Some(caret.translate(output.galley_pos.to_vec2()));
@@ -2010,6 +2114,77 @@ impl App {
             self.dirty = true;
             self.changed_at = ctx.input(|i| i.time);
             self.compile();
+            if self.worth_completing(&ctx) {
+                self.ask_completions(&ctx, false);
+            } else {
+                self.completions = None;
+                self.completion_request += 1;
+            }
+        }
+        // A list belongs to the place it was asked for: moving the caret or leaving closes it.
+        let caret_now = self.selection(&ctx);
+        let moved = self.completions.as_ref().is_some_and(|c| caret_now.0 != caret_now.1 || edit::byte_of(&self.text, caret_now.0) != c.caret);
+        let pointer_on_list = self.completions.is_some() && ctx.input(|i| i.pointer.any_down());
+        if !changed && (moved || (!focused && !pointer_on_list && !want_focus)) {
+            self.completions = None;
+        }
+        if let Some(caret) = caret_rect {
+            self.completion_popup(&ctx, caret, t);
+        }
+    }
+
+    /// The suggestions, under the caret (over it when there's no room below), with what the chosen
+    /// one does beside the list's foot.
+    fn completion_popup(&mut self, ctx: &egui::Context, caret: Rect, t: &Tokens) {
+        const WIDTH: f32 = 360.0;
+        const LIST_H: f32 = 200.0;
+        const ROW_H: f32 = 24.0;
+        let Some(list) = &self.completions else { return };
+        let screen = ctx.content_rect();
+        let selected = list.selected;
+        let detail = list.suggestions.get(selected).and_then(|s| s.detail.clone());
+        // Room for the list and two or three lines of description.
+        let total = LIST_H + 70.0;
+        let top = if caret.bottom() + total > screen.bottom() { caret.top() - total } else { caret.bottom() + 2.0 };
+        let left = caret.left().min(screen.right() - WIDTH - 12.0).max(screen.left());
+        let scroll_now = std::mem::take(&mut self.completion_scroll);
+        let mut clicked = None;
+        let Some(list) = &self.completions else { return };
+        egui::Area::new(Id::unique("completions")).order(egui::Order::Foreground).fixed_pos(pos2(left, top)).constrain(true).show(ctx, |ui| {
+            egui::Frame::popup(ui.style()).fill(t.menu_bg).stroke(Stroke::new(1.0, t.separator)).inner_margin(4).show(ui, |ui| {
+                ui.set_width(WIDTH);
+                egui::ScrollArea::vertical().id_salt("completion-list").max_height(LIST_H).auto_shrink([false, true]).show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    for (i, s) in list.suggestions.iter().enumerate() {
+                        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
+                        resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, i == selected, &s.label));
+                        if i == selected {
+                            ui.painter().rect_filled(rect, 0.0, t.accent_soft);
+                            ui.painter().rect_filled(Rect::from_min_size(rect.min, vec2(3.0, rect.height())), 0.0, t.accent);
+                            if scroll_now {
+                                ui.scroll_to_rect(rect, None);
+                            }
+                        } else if resp.hovered() {
+                            ui.painter().rect_filled(rect, 0.0, t.hover);
+                        }
+                        let right = rect.right() - 74.0;
+                        let name = ui.painter().with_clip_rect(Rect::from_min_max(rect.min, pos2(right, rect.bottom())).intersect(ui.clip_rect()));
+                        name.text(pos2(rect.left() + 9.0, rect.center().y), egui::Align2::LEFT_CENTER, &s.label, FontId::monospace(13.0), t.text);
+                        ui.painter().text(pos2(rect.right() - 6.0, rect.center().y), egui::Align2::RIGHT_CENTER, s.kind, theme::ui_font(11.5), t.text_dim);
+                        if resp.clicked() {
+                            clicked = Some(i);
+                        }
+                    }
+                });
+                if let Some(detail) = detail {
+                    ui.separator();
+                    let text = detail.replace('`', "").replace("[", "").replace("]", "");
+                    ui.add(egui::Label::new(egui::RichText::new(text).font(theme::ui_font(12.0)).color(t.text_dim)).wrap());
+                }
+            });
+        });
+        if let Some(index) = clicked {
+            self.accept_completion(ctx, index);
         }
     }
 
@@ -2386,6 +2561,12 @@ fn resize_edges(ctx: &egui::Context) {
     }
 }
 
+impl eframe::App for App {
+    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        self.show(ui);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2396,11 +2577,5 @@ mod tests {
         assert_eq!(fit_zoom(1800.0, 595.0), MAX_FIT_ZOOM);
         assert_eq!(fit_zoom(0.0, 595.0), 0.2);
         assert_eq!(fit_zoom(500.0, 0.0), MAX_FIT_ZOOM);
-    }
-}
-
-impl eframe::App for App {
-    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
-        self.show(ui);
     }
 }

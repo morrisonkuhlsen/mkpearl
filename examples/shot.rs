@@ -35,6 +35,7 @@ fn main() {
         println!("{out}");
         return;
     }
+    let completing = args.iter().any(|a| a == "complete");
     if args.get(1).is_some_and(|a| a == "session") {
         session_shot(&out);
         return;
@@ -84,6 +85,15 @@ fn main() {
         std::thread::sleep(Duration::from_millis(20));
     }
     harness.run_steps(90);
+    if completing {
+        harness.event(egui::Event::Text("#set text(".to_string()));
+        for _ in 0..40 {
+            harness.step();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        harness.key_press(egui::Key::ArrowDown);
+        harness.run_steps(4);
+    }
     println!("{}", harness.state().status());
     harness.render().expect("render").save(&out).expect("save");
     println!("{out}");

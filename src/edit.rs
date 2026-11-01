@@ -124,6 +124,91 @@ pub fn file_snippet(path: &str) -> String {
     }
 }
 
+/// How well `label` fits what's been typed, ignoring case: 0 the same, 1 starts with it, 2 contains
+/// it, 3 has its letters in order; `None` when it doesn't fit.
+pub fn match_rank(query: &str, label: &str) -> Option<u8> {
+    let (query, label) = (query.to_lowercase(), label.to_lowercase());
+    if query == label {
+        return Some(0);
+    }
+    if label.starts_with(&query) {
+        return Some(1);
+    }
+    if label.contains(&query) {
+        return Some(2);
+    }
+    let mut letters = label.chars();
+    query.chars().all(|q| letters.any(|l| l == q)).then_some(3)
+}
+
+/// What closes the brackets still open at `byte`, innermost first. Strings and comments don't count.
+pub fn open_brackets(text: &str, byte: usize) -> String {
+    let mut stack = Vec::new();
+    let mut in_string = false;
+    let mut chars = text.get(..byte).unwrap_or(text).chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                chars.next();
+            }
+            '"' => in_string = !in_string,
+            _ if in_string => {}
+            '/' if chars.peek() == Some(&'/') => {
+                for next in chars.by_ref() {
+                    if next == '\n' {
+                        break;
+                    }
+                }
+            }
+            '(' => stack.push(')'),
+            '[' => stack.push(']'),
+            '{' => stack.push('}'),
+            ')' | ']' | '}' if stack.last() == Some(&c) => {
+                stack.pop();
+            }
+            _ => {}
+        }
+    }
+    let closers: String = stack.iter().rev().collect();
+    if in_string { format!("\"{closers}") } else { closers }
+}
+
+/// A completion's text without its `${…}` placeholders, and where the first placeholder is, as a
+/// char range of the plain text (the caret, or what's to be typed over).
+pub fn expand_snippet(snippet: &str) -> (String, Option<Sel>) {
+    let mut plain = String::with_capacity(snippet.len());
+    let mut first = None;
+    let mut rest = snippet;
+    while let Some((before, after)) = rest.split_once("${") {
+        let Some((name, tail)) = after.split_once('}') else { break };
+        plain.push_str(before);
+        let start = plain.chars().count();
+        plain.push_str(name);
+        first.get_or_insert((start, start + name.chars().count()));
+        rest = tail;
+    }
+    plain.push_str(rest);
+    (plain, first)
+}
+
+/// Replaces the bytes `from..to` with a completion; the selection lands on its first placeholder,
+/// or after it when it has none.
+pub fn apply_completion(text: &mut String, from: usize, to: usize, snippet: &str) -> Sel {
+    let (from, to) = (from.min(text.len()), to.min(text.len()));
+    let (from, to) = (from.min(to), to.max(from));
+    let (plain, first) = expand_snippet(snippet);
+    let Some(_) = text.get(from..to) else { return (char_of(text, to), char_of(text, to)) };
+    let start = char_of(text, from);
+    text.replace_range(from..to, &plain);
+    match first {
+        Some((a, b)) => (start + a, start + b),
+        None => {
+            let end = start + plain.chars().count();
+            (end, end)
+        }
+    }
+}
+
 /// The selected text.
 pub fn selected(text: &str, (a, b): Sel) -> &str {
     text.get(byte_of(text, a)..byte_of(text, b)).unwrap_or_default()
@@ -251,6 +336,57 @@ mod tests {
         let mut t = "ab".to_string();
         assert_eq!(insert_plain(&mut t, (1, 1), "x|y"), (4, 4));
         assert_eq!(t, "ax|yb");
+    }
+
+    #[test]
+    fn snippets_lose_their_placeholders_and_mark_the_first() {
+        assert_eq!(expand_snippet("align"), ("align".to_string(), None));
+        assert_eq!(expand_snippet("align(${})"), ("align()".to_string(), Some((6, 6))));
+        assert_eq!(expand_snippet("*${strong}*"), ("*strong*".to_string(), Some((1, 7))));
+        assert_eq!(expand_snippet("\"${text}\": ${}"), ("\"text\": ".to_string(), Some((1, 5))));
+        assert_eq!(expand_snippet("ação ${é} ${}"), ("ação é ".to_string(), Some((5, 6))));
+        // An unclosed placeholder is plain text, not a panic.
+        assert_eq!(expand_snippet("a${b"), ("a${b".to_string(), None));
+    }
+
+    #[test]
+    fn a_completion_replaces_what_was_typed() {
+        let mut t = "é #ali fim".to_string();
+        let from = "é #".len();
+        let sel = apply_completion(&mut t, from, from + 3, "align(${})");
+        assert_eq!(t, "é #align() fim");
+        assert_eq!(sel, (9, 9));
+    }
+
+    #[test]
+    fn hostile_completion_ranges_do_not_panic() {
+        let mut t = "ação".to_string();
+        apply_completion(&mut t, 2, 2, "x"); // inside the ç
+        assert_eq!(t, "ação");
+        apply_completion(&mut t, 99, 999, "y");
+        assert_eq!(t, "açãoy");
+    }
+
+    #[test]
+    fn matches_rank_from_exact_to_scattered() {
+        assert_eq!(match_rank("align", "align"), Some(0));
+        assert_eq!(match_rank("ALI", "align"), Some(1));
+        assert_eq!(match_rank("lig", "align"), Some(2));
+        assert_eq!(match_rank("agn", "align"), Some(3));
+        assert_eq!(match_rank("xyz", "align"), None);
+        assert_eq!(match_rank("", "align"), Some(1));
+    }
+
+    #[test]
+    fn open_brackets_are_found_innermost_first() {
+        assert_eq!(open_brackets("#set text(", 10), ")");
+        assert_eq!(open_brackets("#f(a, [b", 8), "])");
+        assert_eq!(open_brackets("#f(a) ok", 8), "");
+        assert_eq!(open_brackets("#f(\"(\", ", 8), ")");
+        assert_eq!(open_brackets("#f(\"ab", 6), "\")");
+        assert_eq!(open_brackets("// (\n#g(", 8), ")");
+        assert_eq!(open_brackets("sem par )", 9), "");
+        assert_eq!(open_brackets("ação", 999), "");
     }
 
     #[test]
