@@ -1,0 +1,32 @@
+[package]
+name = "pearl"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+comemo = "*"
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "links", "wayland", "x11"] }
+egui = "0.37"
+image = { version = "0.25", default-features = false, features = ["png"] }
+getrandom = "0.4.3"
+rfd = "0.17"
+snow = "0.10.0"
+typst = "0.15.1"
+typst-assets = { version = "0.15.1", features = ["fonts"] }
+typst-ide = "0.15.1"
+typst-kit = { version = "0.15.1", features = ["embedded-fonts", "scan-fonts", "system-files", "system-downloader"] }
+typst-layout = "0.15.1"
+typst-pdf = "0.15.1"
+typst-render = "0.15.1"
+yrs = "0.28.0"
+
+[dev-dependencies]
+egui_kittest = { version = "0.37", features = ["wgpu"] }
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

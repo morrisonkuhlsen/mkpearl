@@ -1,0 +1,16 @@
+Pearl
+
+The interface follows MK Matrix (https://github.com/morrisonkuhlsen/mkmatrix): src/theme.rs,
+src/icons.rs and src/widgets.rs, src/app/backstage.rs and the title bar in src/app.rs are adapted from it, Copyright (c) 2026
+Morrison Kühlsen and the MK Matrix contributors, itself a fork of GridCraft, Copyright (c) 2026 ArtCraft
+Team and the GridCraft contributors; all under MIT OR Apache-2.0. See LICENSE-MIT and LICENSE-APACHE.
+Real-time editing uses yrs (MIT) and snow (Apache-2.0 OR MIT).
+
+Pearl carries none of their brand files and is not made or endorsed by them.
+
+The structure of src/splash.rs follows MK Perth's splash screen (MIT OR Apache-2.0). The picture in
+assets/splash.png was supplied by the project's owner.
+
+Typesetting is done by Typst (https://github.com/typst/typst), Apache-2.0.
+
+Bundled fonts (SIL Open Font License 1.1): Inter and JetBrains Mono; see assets/fonts/OFL-*.txt.
