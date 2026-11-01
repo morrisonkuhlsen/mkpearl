@@ -40,6 +40,7 @@ fn main() -> eframe::Result {
     // Before the splash, so the fonts and the first compile are ready when the window opens.
     let mut app = pearl::app::App::new(path).map_err(|e| eframe::Error::AppCreation(e.into()))?;
     app.enable_recovery();
+    app.enable_save_prompt();
     if !args.iter().any(|a| a == "--no-splash") {
         show_splash()?;
     }

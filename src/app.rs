@@ -335,6 +335,8 @@ pub struct App {
     spell_menu: Option<SpellMenu>,
     licenses: bool,
     recovery: Option<Recovery>,
+    /// Whether a picture brought into an unsaved document asks where to save it.
+    asks_to_save: bool,
     recovery_written_at: f64,
     orphans: Vec<Orphan>,
     orphans_later: bool,
@@ -435,6 +437,7 @@ impl App {
             spell_menu: None,
             licenses: false,
             recovery: None,
+            asks_to_save: false,
             recovery_written_at: f64::NEG_INFINITY,
             orphans: Vec::new(),
             orphans_later: false,
@@ -912,11 +915,11 @@ impl App {
             self.status = tx("only-the-host-of-a-session-can-add-images").into();
             return None;
         }
-        let dir = self.path.as_deref().and_then(Path::parent).map(Path::to_path_buf);
-        if dir.is_none() {
+        // Pictures need a folder: an unsaved document gets one now, rather than the picture being lost.
+        if self.path.is_none() && !(self.asks_to_save && self.save(true)) {
             self.status = tx("save-the-document-before-inserting-images-they").into();
         }
-        dir
+        self.path.as_deref().and_then(Path::parent).map(Path::to_path_buf)
     }
 
     fn insert_image(&mut self, ctx: &egui::Context) {
@@ -2863,6 +2866,12 @@ impl App {
                 self.autosave = false;
             }
         }
+    }
+
+    /// Lets a picture brought into an unsaved document open the dialog to save it. Off in tests,
+    /// where a dialog would wait for a person.
+    pub fn enable_save_prompt(&mut self) {
+        self.asks_to_save = true;
     }
 
     /// Starts keeping copies of unsaved text, and looks for what an earlier run left.
