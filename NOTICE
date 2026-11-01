@@ -15,6 +15,17 @@ docs/brand/LICENSE.md.
 The structure of src/splash.rs follows MK Perth's splash screen (MIT OR Apache-2.0). The picture in
 assets/splash.png was supplied by the project's owner.
 
-Typesetting is done by Typst (https://github.com/typst/typst), Apache-2.0.
+Typesetting is done by Typst (https://github.com/typst/typst), Apache-2.0. Pearl is not made or
+endorsed by the Typst project.
 
-Bundled fonts (SIL Open Font License 1.1): Inter and JetBrains Mono; see assets/fonts/OFL-*.txt.
+Fonts in the interface (SIL Open Font License 1.1): Inter and JetBrains Mono; see assets/fonts/OFL-*.txt.
+
+Fonts inside the program through Typst and the interface toolkit, unmodified: DejaVu Sans Mono, Foxit,
+Libertinus Serif, New Computer Modern, Hack, Noto Emoji, Ubuntu and others, each under its own terms.
+One of them, NewCM10-Regular, is under the GNU GPL version 3 or later with the Font Exception and the
+Distribution Exception; its source is at https://ctan.org/pkg/newcomputermodern. That exception is what
+keeps it from covering Pearl, as long as the font stays unmodified and Pearl stays under a licence
+compatible with the GPL version 3.
+
+The full terms of everything above and of every package Pearl is built from are in
+THIRD-PARTY-LICENSES.txt, and in the program under Sobre o Pearl.

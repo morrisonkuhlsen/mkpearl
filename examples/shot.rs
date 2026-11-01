@@ -64,6 +64,13 @@ fn main() {
             app.open_side(6);
         }
     }
+    if args.iter().any(|a| a == "licenses") {
+        app.open_licenses();
+    }
+    if args.iter().any(|a| a == "recovery") {
+        // Set XDG_DATA_HOME to a folder of its own for this: it looks there for what a run left.
+        app.enable_recovery();
+    }
     if args.iter().any(|a| a == "file") {
         app.open_file_view();
     }

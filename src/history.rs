@@ -82,7 +82,7 @@ pub struct Store {
     dir: PathBuf,
 }
 
-fn private_folder(dir: &Path) -> std::io::Result<()> {
+pub(crate) fn private_folder(dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     #[cfg(unix)]
     {

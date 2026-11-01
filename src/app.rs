@@ -14,6 +14,7 @@ use crate::compiler::{Compiler, Diag, Event, Job, Page, Suggestion};
 use crate::edit::{self, Sel};
 use crate::highlight;
 use crate::history::{self, Store, Version};
+use crate::recovery::{self, Orphan, Recovery};
 use crate::ruler::{self, RULER};
 use crate::sample::SAMPLE;
 use crate::icons::Icon;
@@ -23,6 +24,8 @@ use crate::widgets::{field_menu, glyphs, group_begin, group_end, icon_button_mon
 mod backstage;
 
 const TABS: [&str; 6] = ["Página Inicial", "Inserir", "Layout da Página", "Referências", "Matemática", "Exibir"];
+/// Seconds between copies of unsaved text while it keeps changing.
+const RECOVERY_EVERY: f64 = 3.0;
 /// Holds "off" when the rulers are hidden.
 const RULER_FILE: &str = "ruler.txt";
 /// Where a saved API key is kept, readable by this user alone.
@@ -245,6 +248,11 @@ pub struct App {
     find: Option<String>,
     find_focus: bool,
     about: bool,
+    licenses: bool,
+    recovery: Option<Recovery>,
+    recovery_written_at: f64,
+    orphans: Vec<Orphan>,
+    orphans_later: bool,
     side: Option<Side>,
     line_numbers: bool,
     ruler: bool,
@@ -333,6 +341,11 @@ impl App {
             find: None,
             find_focus: false,
             about: false,
+            licenses: false,
+            recovery: None,
+            recovery_written_at: f64::NEG_INFINITY,
+            orphans: Vec::new(),
+            orphans_later: false,
             side: None,
             line_numbers: true,
             ruler: crate::recent::read_setting(RULER_FILE).is_none_or(|v| v.trim() != "off"),
@@ -1609,6 +1622,7 @@ impl App {
         }
 
         self.autosave_tick(&ctx);
+        self.recovery_tick(&ctx);
         if self.backstage.is_some() {
             self.backstage_ui(ui);
             self.dialogs(&ctx);
@@ -2643,6 +2657,146 @@ impl App {
         }
     }
 
+    /// Starts keeping copies of unsaved text, and looks for what an earlier run left.
+    pub fn enable_recovery(&mut self) {
+        let Some(base) = history::data_folder() else { return };
+        let dir = base.join("pearl").join("recovery");
+        self.orphans = recovery::orphans(&dir);
+        match Recovery::start(&dir) {
+            Ok(run) => self.recovery = Some(run),
+            Err(e) => self.status = format!("Sem cópia de segurança nesta sessão: {e}"),
+        }
+    }
+
+    pub fn open_licenses(&mut self) {
+        self.licenses = true;
+    }
+
+    /// The documents an earlier run left unsaved, by name.
+    pub fn recoverable(&self) -> Vec<String> {
+        self.orphans.iter().map(|o| document_name(o.document.as_deref())).collect()
+    }
+
+    pub fn has_recovery_copy(&self) -> bool {
+        self.recovery.as_ref().is_some_and(Recovery::is_written)
+    }
+
+    /// The program is closing as it should.
+    pub fn finish_recovery(&mut self) {
+        if let Some(run) = self.recovery.take() {
+            run.finish();
+        }
+    }
+
+    fn write_recovery(&mut self) -> bool {
+        let Some(run) = self.recovery.as_mut() else { return false };
+        match run.write(self.path.as_deref(), &self.text) {
+            Ok(()) => {
+                self.recovery_written_at = self.time_now;
+                true
+            }
+            Err(e) => {
+                // Said once, not every few seconds.
+                self.status = format!("A cópia de segurança parou: {e}");
+                self.recovery = None;
+                false
+            }
+        }
+    }
+
+    /// Keeps the copy of unsaved text current, at most every few seconds however fast the typing.
+    fn recovery_tick(&mut self, ctx: &egui::Context) {
+        let Some(run) = self.recovery.as_mut() else { return };
+        if !self.dirty {
+            run.clear();
+            self.recovery_written_at = f64::NEG_INFINITY;
+            return;
+        }
+        if self.changed_at <= self.recovery_written_at && run.is_written() {
+            return;
+        }
+        let wait = self.recovery_written_at + RECOVERY_EVERY - self.time_now;
+        if wait > 0.0 {
+            ctx.request_repaint_after_secs(wait as f32);
+        } else {
+            self.write_recovery();
+        }
+    }
+
+    /// Brings back a copy over a document with nothing unsaved. What the file says stays in its
+    /// history, and the old copy goes only once this run has its own.
+    fn recover(&mut self, ctx: &egui::Context, index: usize) {
+        let orphan = self.orphans.remove(index);
+        let name = document_name(orphan.document.as_deref());
+        let file = orphan.document.clone().filter(|p| p.exists());
+        let moved = orphan.document.is_some() && file.is_none();
+        self.start_document(ctx, String::new());
+        if let Some(path) = file {
+            self.open_path(ctx, path);
+        }
+        self.text.clone_from(&orphan.text);
+        self.dirty = true;
+        self.time_now = ctx.input(|i| i.time);
+        self.changed_at = self.time_now;
+        self.set_selection(ctx, (0, 0));
+        self.compile();
+        if self.write_recovery() {
+            orphan.discard();
+        }
+        self.status = if moved {
+            format!("{name} recuperado. O arquivo original não existe mais: salve em outro lugar.")
+        } else {
+            format!("{name} recuperado.")
+        };
+    }
+
+    fn recovery_dialog(&mut self, ctx: &egui::Context) {
+        if self.orphans.is_empty() || self.orphans_later {
+            return;
+        }
+        let blocked = if self.session.is_some() {
+            Some("Saia da sessão antes de recuperar.")
+        } else if self.dirty {
+            Some("Salve o documento aberto antes de recuperar.")
+        } else {
+            None
+        };
+        let now = history::now_ms();
+        let (mut recover, mut discard, mut later) = (None, None, false);
+        egui::Window::new("Recuperar documentos").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+            ui.label("O Pearl foi encerrado sem salvar estes documentos:");
+            ui.add_space(6.0);
+            for (i, orphan) in self.orphans.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label(egui::RichText::new(document_name(orphan.document.as_deref())).strong());
+                        let lines = orphan.text.lines().count();
+                        ui.small(format!("{}, {lines} {}", history::describe(orphan.stamp, now), if lines == 1 { "linha" } else { "linhas" }));
+                    });
+                    ui.add_space(16.0);
+                    let button = ui.add_enabled(blocked.is_none(), egui::Button::new("Recuperar"));
+                    if button.clicked() {
+                        recover = Some(i);
+                    }
+                    if let Some(why) = blocked {
+                        button.on_disabled_hover_text(why);
+                    }
+                    if ui.button("Descartar").clicked() {
+                        discard = Some(i);
+                    }
+                });
+            }
+            ui.add_space(6.0);
+            later = ui.button("Depois").on_hover_text("Pergunta de novo na próxima vez que o Pearl abrir").clicked();
+        });
+        if let Some(i) = recover {
+            self.recover(ctx, i);
+        } else if let Some(i) = discard {
+            self.orphans.remove(i).discard();
+        }
+        self.orphans_later = later;
+    }
+
     fn step_zoom(&mut self, dir: i32) {
         let z = self.zoom.unwrap_or(self.fit_zoom);
         let next = if dir > 0 { ZOOMS.iter().copied().find(|v| *v > z + 0.01).unwrap_or(2.5) } else { ZOOMS.iter().rev().copied().find(|v| *v < z - 0.01).unwrap_or(0.5) };
@@ -3137,9 +3291,27 @@ impl App {
                 ui.label(format!("Pearl {}", env!("CARGO_PKG_VERSION")));
                 ui.label("Editor de documentos em Rust, com composição por Typst.");
                 ui.label("Scripta manent.");
+                ui.add_space(6.0);
+                if ui.link("Licenças de terceiros").clicked() {
+                    self.licenses = true;
+                }
             });
             self.about = open;
         }
+        if self.licenses {
+            let mut open = true;
+            egui::Window::new("Licenças de terceiros").open(&mut open).collapsible(false).default_size([720.0, 520.0]).pivot(egui::Align2::CENTER_CENTER).default_pos(ctx.content_rect().center()).show(ctx, |ui| {
+                let lines = crate::licenses::lines();
+                let height = ui.text_style_height(&egui::TextStyle::Monospace);
+                egui::ScrollArea::both().id_salt("licenses").auto_shrink([false, false]).show_rows(ui, height, lines.len(), |ui, rows| {
+                    for line in &lines[rows] {
+                        ui.add(egui::Label::new(egui::RichText::new(*line).monospace()).extend());
+                    }
+                });
+            });
+            self.licenses = open;
+        }
+        self.recovery_dialog(ctx);
         if let Some(mut query) = self.find.take() {
             let mut keep = true;
             let (mut next, mut previous, mut edited) = (false, false, false);
@@ -3354,6 +3526,14 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         self.show(ui);
     }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.finish_recovery();
+    }
+}
+
+fn document_name(path: Option<&Path>) -> String {
+    path.and_then(Path::file_name).map_or_else(|| "Sem título".to_string(), |n| n.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]
