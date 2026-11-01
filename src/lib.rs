@@ -16,6 +16,7 @@ pub mod recent;
 pub mod recovery;
 pub mod ruler;
 pub mod sample;
+pub mod spell;
 pub mod splash;
 pub mod templates;
 pub mod theme;

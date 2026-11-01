@@ -17,6 +17,12 @@ no row.
 | Inter's licence | The Inter Project Authors | `assets/fonts/OFL-Inter.txt` | As it says |
 | JetBrains Mono Regular | The JetBrains Mono Project Authors | `assets/fonts/JetBrainsMono-Regular.ttf` | SIL Open Font License 1.1 |
 | JetBrains Mono's licence | The JetBrains Mono Project Authors | `assets/fonts/OFL-JetBrainsMono.txt` | As it says |
+| VERO dictionary, affixes | Raimundo Santos Moura and the VERO team | `assets/dict/pt_BR/pt_BR.aff`; LibreOffice's dictionaries repository, unmodified | LGPLv3 and Mozilla Public License |
+| VERO dictionary, words | Raimundo Santos Moura and the VERO team | `assets/dict/pt_BR/pt_BR.dic`; LibreOffice's dictionaries repository, unmodified | LGPLv3 and Mozilla Public License |
+| VERO's notes, in Portuguese | Raimundo Santos Moura and the VERO team | `assets/dict/pt_BR/README_pt_BR.txt`; LibreOffice's dictionaries repository, unmodified | LGPLv3 and Mozilla Public License |
+| VERO's notes, in English | Raimundo Santos Moura and the VERO team | `assets/dict/pt_BR/README_en.txt`; LibreOffice's dictionaries repository, unmodified | LGPLv3 and Mozilla Public License |
+| LGPLv3's text | Free Software Foundation | `assets/dict/pt_BR/LICENSE-LGPL-3.0.txt` | As it says |
+| MPL 2.0's text | Mozilla Foundation | `assets/dict/pt_BR/LICENSE-MPL-2.0.txt` | As it says |
 
 Fonts and data inside the program through its dependencies are listed in
 `THIRD-PARTY-LICENSES.txt`.

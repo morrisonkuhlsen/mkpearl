@@ -20,6 +20,7 @@ use crate::icons::Icon;
 use crate::recovery::{self, Orphan, Recovery};
 use crate::ruler::{self, RULER};
 use crate::sample::SAMPLE;
+use crate::spell::{self, Speller};
 use crate::theme::{self, ThemeChoice, Tokens};
 use crate::widgets::{field_menu, glyphs, group_begin, group_end, icon_button_mono, labelled, sep, toggle, tool, tool_menu};
 
@@ -29,6 +30,12 @@ mod backstage;
 const TABS: [&str; 6] = ["home-2", "insert", "page-layout", "references", "math", "view"];
 /// Seconds between copies of unsaved text while it keeps changing.
 const RECOVERY_EVERY: f64 = 3.0;
+/// Holds "off" when spell checking is off.
+const SPELL_FILE: &str = "spell.txt";
+/// The words added to the dictionary, one per line.
+const PERSONAL_FILE: &str = "dictionary.txt";
+/// Seconds after the last change before the new words are checked.
+const SPELL_DELAY: f64 = 0.4;
 /// Holds "off" when the rulers are hidden.
 const RULER_FILE: &str = "ruler.txt";
 /// Where a saved API key is kept, readable by this user alone.
@@ -314,6 +321,16 @@ pub struct App {
     find: Option<String>,
     find_focus: bool,
     about: bool,
+    spell: Option<Speller>,
+    spell_on: bool,
+    /// Each word checked so far, and whether it's right.
+    spell_known: std::collections::HashMap<String, bool>,
+    spell_personal: std::collections::HashSet<String>,
+    /// Goes up when `spell_known` changes, so the colours are worked out anew.
+    spell_generation: u64,
+    /// The hash of the text whose words have been sent.
+    spell_sent: Option<u64>,
+    spell_menu: Option<SpellMenu>,
     licenses: bool,
     recovery: Option<Recovery>,
     recovery_written_at: f64,
@@ -407,6 +424,13 @@ impl App {
             find: None,
             find_focus: false,
             about: false,
+            spell: Some(Speller::start()),
+            spell_on: crate::recent::read_setting(SPELL_FILE).is_none_or(|v| v.trim() != "off"),
+            spell_known: spell_personal_words().iter().map(|w| (w.clone(), true)).collect(),
+            spell_personal: spell_personal_words(),
+            spell_generation: 0,
+            spell_sent: None,
+            spell_menu: None,
             licenses: false,
             recovery: None,
             recovery_written_at: f64::NEG_INFINITY,
@@ -1712,6 +1736,7 @@ impl App {
 
         self.autosave_tick(&ctx);
         self.recovery_tick(&ctx);
+        self.spell_tick(&ctx);
         if self.backstage.is_some() {
             self.backstage_ui(ui);
             self.dialogs(&ctx);
@@ -2424,6 +2449,9 @@ impl App {
             }
         }
         sep(ui, tx("panes"));
+        if toggle(ui, Icon::Validation, tx("spelling"), tx("underlines-misspelt-words-portuguese-from-brazil"), self.spell_on).clicked() {
+            self.set_spell(!self.spell_on);
+        }
         if toggle(ui, Icon::Ruler, tx("ruler"), tx("rulers-in-centimetres-around-the-pages"), self.ruler).clicked() {
             self.set_ruler(!self.ruler);
         }
@@ -2911,6 +2939,157 @@ impl App {
         self.orphans_later = later;
     }
 
+    pub fn set_spell(&mut self, on: bool) {
+        self.spell_on = on;
+        self.spell_menu = None;
+        crate::recent::write_setting(SPELL_FILE, if on { "on" } else { "off" });
+    }
+
+    /// The words of the text on show known to be misspelt, in order.
+    pub fn misspelt_words(&self) -> Vec<String> {
+        if !self.spell_on || !spell::in_known_language(&self.text) {
+            return Vec::new();
+        }
+        spell::document_words(&self.text)
+            .into_iter()
+            .filter_map(|r| self.text.get(r))
+            .filter(|w| self.spell_known.get(*w) == Some(&false))
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// Takes the dictionary's answers, and asks about new words once the typing pauses.
+    fn spell_tick(&mut self, ctx: &egui::Context) {
+        let Some(speller) = &self.spell else { return };
+        let _ = speller.repaint.set(ctx.clone());
+        let (mut fresh, mut failed) = (false, None);
+        for event in speller.events.try_iter() {
+            match event {
+                spell::Event::Checked(answers) => {
+                    fresh |= !answers.is_empty();
+                    self.spell_known.extend(answers);
+                }
+                spell::Event::Suggested(word, found) => {
+                    if let Some(menu) = self.spell_menu.as_mut().filter(|m| m.word == word) {
+                        menu.suggestions = Some(found);
+                    }
+                }
+                spell::Event::Failed(why) => failed = Some(why),
+            }
+        }
+        self.spell_generation += u64::from(fresh);
+        if let Some(why) = failed {
+            self.status = tr!("spelling-stopped", error = why);
+            self.spell = None;
+            return;
+        }
+        if !self.spell_on {
+            return;
+        }
+        let hash = egui::epaint::util::hash(&self.text);
+        if self.spell_sent == Some(hash) {
+            return;
+        }
+        let wait = self.changed_at + SPELL_DELAY - self.time_now;
+        if wait > 0.0 {
+            ctx.request_repaint_after_secs(wait as f32);
+            return;
+        }
+        self.spell_sent = Some(hash);
+        if !spell::in_known_language(&self.text) {
+            return;
+        }
+        let mut new: Vec<String> = spell::document_words(&self.text)
+            .into_iter()
+            .filter_map(|r| self.text.get(r))
+            .filter(|w| !self.spell_known.contains_key(*w))
+            .map(str::to_string)
+            .collect();
+        new.sort_unstable();
+        new.dedup();
+        if !new.is_empty()
+            && let Some(speller) = &self.spell
+        {
+            speller.check(new);
+        }
+    }
+
+    /// Opens the menu of the misspelt word at this byte, if there's one there.
+    pub fn open_spell_menu(&mut self, byte: usize, at: egui::Pos2) {
+        let Some(range) = spell::word_at(&self.text, byte) else { return };
+        let Some(word) = self.text.get(range.clone()).map(str::to_string) else { return };
+        if !self.spell_on || self.spell_known.get(&word) != Some(&false) {
+            return;
+        }
+        if let Some(speller) = &self.spell {
+            speller.suggest(&word);
+        }
+        self.spell_menu = Some(SpellMenu { word, range, at, suggestions: None });
+    }
+
+    /// Replaces the word, unless someone in the session changed that text meanwhile.
+    fn replace_word(&mut self, ctx: &egui::Context, menu: &SpellMenu, with: &str) {
+        if self.text.get(menu.range.clone()) != Some(menu.word.as_str()) {
+            self.status = tx("the-word-has-changed-meanwhile").to_string();
+            return;
+        }
+        let range = menu.range.clone();
+        self.edit(ctx, |text, _| {
+            text.replace_range(range.clone(), with);
+            let end = edit::char_of(text, range.start + with.len());
+            (end, end)
+        });
+    }
+
+    fn know_word(&mut self, word: &str, keep: bool) {
+        self.spell_known.insert(word.to_string(), true);
+        self.spell_generation += 1;
+        if keep {
+            self.spell_personal.insert(word.to_string());
+            let mut words: Vec<&str> = self.spell_personal.iter().map(String::as_str).collect();
+            words.sort_unstable();
+            crate::recent::write_setting(PERSONAL_FILE, &words.join("\n"));
+        }
+    }
+
+    fn spell_menu_ui(&mut self, ctx: &egui::Context) {
+        let Some(menu) = self.spell_menu.take() else { return };
+        let (mut replace, mut ignore, mut add) = (None, false, false);
+        let area = egui::Area::new(Id::unique("spell-menu")).order(egui::Order::Foreground).fixed_pos(menu.at).show(ctx, |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.set_min_width(170.0);
+                match &menu.suggestions {
+                    None => {
+                        ui.weak(tx("looking"));
+                    }
+                    Some(found) if found.is_empty() => {
+                        ui.weak(tx("no-suggestions"));
+                    }
+                    Some(found) => {
+                        for suggestion in found {
+                            if ui.button(egui::RichText::new(suggestion).strong()).clicked() {
+                                replace = Some(suggestion.clone());
+                            }
+                        }
+                    }
+                }
+                ui.separator();
+                ignore = ui.button(tx("ignore")).on_hover_text(tx("until-pearl-closes")).clicked();
+                add = ui.button(tx("add-to-the-dictionary")).on_hover_text(tx("on-this-computer")).clicked();
+            });
+        });
+        let outside = ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p)));
+        if let Some(with) = replace {
+            self.replace_word(ctx, &menu, &with);
+        } else if ignore {
+            self.know_word(&menu.word, false);
+        } else if add {
+            self.know_word(&menu.word, true);
+        } else if !outside && !ctx.input(|i| i.key_pressed(Key::Escape)) {
+            self.spell_menu = Some(menu);
+        }
+    }
+
     fn step_zoom(&mut self, dir: i32) {
         let z = self.zoom.unwrap_or(self.fit_zoom);
         let next = if dir > 0 {
@@ -2951,12 +3130,16 @@ impl App {
         let current_match = self.find.as_ref().map(|_| self.selection(&ctx));
         let waiting = self.session.as_ref().is_some_and(Session::is_waiting);
         let carets = self.session.as_ref().map_or_else(Vec::new, Session::cursors);
-        let App { text, colored, .. } = self;
+        let spell_active = self.spell_on && self.spell.is_some() && spell::in_known_language(&self.text);
+        let spell_generation = self.spell_generation;
+        let App { text, colored, spell_known, .. } = self;
         let mut layouter = |ui: &Ui, buffer: &dyn egui::TextBuffer, wrap: f32| {
             let src = buffer.as_str();
-            let hash = egui::epaint::util::hash(src);
+            let hash = egui::epaint::util::hash((src, spell_active, spell_generation));
             if !matches!(colored, Some((h, p, _)) if *h == hash && *p == palette) {
-                *colored = Some((hash, palette, highlight::job(src, font.clone(), &tokens)));
+                let misspelt = |word: &str| spell_known.get(word) == Some(&false);
+                let misspelt: Option<&dyn Fn(&str) -> bool> = if spell_active { Some(&misspelt) } else { None };
+                *colored = Some((hash, palette, highlight::job(src, font.clone(), &tokens, misspelt)));
             }
             let mut job = colored.as_ref().map_or_else(egui::text::LayoutJob::default, |c| c.2.clone());
             job.wrap.max_width = wrap;
@@ -2966,6 +3149,7 @@ impl App {
         let mut caret_rect = None;
         let mut focused = false;
         let mut hover_byte = None;
+        let mut asked_about = None;
         let mut hover_pos = None;
         let mut kept = None;
         egui::ScrollArea::vertical().id_salt("source-scroll").auto_shrink([false, false]).show(ui, |ui| {
@@ -3023,6 +3207,12 @@ impl App {
                     kept = Some((p.min(q), p.max(q)));
                 }
                 // What's under the pointer: nothing when it's off the text or past a line's end.
+                if output.response.secondary_clicked()
+                    && let Some(p) = output.response.interact_pointer_pos()
+                {
+                    let cursor = output.galley.cursor_from_pos(p - output.galley_pos);
+                    asked_about = Some((edit::byte_of(text, cursor.index.into()), p));
+                }
                 hover_byte = ui.ctx().pointer_hover_pos().filter(|_| output.response.hovered()).and_then(|p| {
                     let cursor = output.galley.cursor_from_pos(p - output.galley_pos);
                     let at = output.galley.pos_from_cursor(cursor).translate(output.galley_pos.to_vec2());
@@ -3082,6 +3272,10 @@ impl App {
             self.completions = None;
         }
         self.hover_tick(&ctx, hover_byte, hover_pos, changed, t);
+        if let Some((byte, at)) = asked_about {
+            self.open_spell_menu(byte, at);
+        }
+        self.spell_menu_ui(&ctx);
         if let Some(caret) = caret_rect {
             self.completion_popup(&ctx, caret, t);
         }
@@ -3693,6 +3887,19 @@ impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.finish_recovery();
     }
+}
+
+/// The menu of a misspelt word.
+struct SpellMenu {
+    word: String,
+    range: std::ops::Range<usize>,
+    at: egui::Pos2,
+    /// `None` until the dictionary answers.
+    suggestions: Option<Vec<String>>,
+}
+
+fn spell_personal_words() -> std::collections::HashSet<String> {
+    crate::recent::read_setting(PERSONAL_FILE).map_or_else(Default::default, |text| spell::parse_personal(&text))
 }
 
 fn document_name(path: Option<&Path>) -> String {

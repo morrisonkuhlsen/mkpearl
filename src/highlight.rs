@@ -1,7 +1,7 @@
 //! Typst syntax colours for the editor, from Typst's own parser.
 
 use egui::text::{LayoutJob, TextFormat};
-use egui::{Color32, FontId};
+use egui::{Color32, FontId, Stroke};
 use typst::syntax::{LinkedNode, SyntaxKind, Tag, highlight, parse};
 
 use crate::theme::{Syntax, Tokens};
@@ -19,11 +19,31 @@ fn color(tag: Tag, s: &Style) -> Color32 {
     }
 }
 
-struct Style {
+struct Style<'a> {
     font: FontId,
     base: Color32,
     danger: Color32,
     syntax: Syntax,
+    /// Whether a word is known to be misspelt.
+    misspelt: Option<&'a dyn Fn(&str) -> bool>,
+}
+
+/// Text with its misspelt words underlined.
+fn append_text(job: &mut LayoutJob, text: &str, format: &TextFormat, style: &Style) {
+    let Some(misspelt) = style.misspelt else {
+        job.append(text, 0.0, format.clone());
+        return;
+    };
+    let mut at = 0;
+    for word in crate::spell::word_ranges(text) {
+        let Some(this) = text.get(word.clone()).filter(|w| misspelt(w)) else { continue };
+        job.append(text.get(at..word.start).unwrap_or_default(), 0.0, format.clone());
+        let mut marked = format.clone();
+        marked.underline = Stroke::new(1.5, style.danger);
+        job.append(this, 0.0, marked);
+        at = word.end;
+    }
+    job.append(text.get(at..).unwrap_or_default(), 0.0, format.clone());
 }
 
 fn walk(job: &mut LayoutJob, src: &str, node: &LinkedNode, inherited: Option<Tag>, style: &Style) {
@@ -31,7 +51,12 @@ fn walk(job: &mut LayoutJob, src: &str, node: &LinkedNode, inherited: Option<Tag
     if node.children().len() == 0 {
         let mut format = TextFormat::simple(style.font.clone(), tag.map_or(style.base, |t| color(t, style)));
         format.italics = matches!(tag, Some(Tag::Emph | Tag::Comment));
-        job.append(src.get(node.range()).unwrap_or_default(), 0.0, format);
+        let leaf = src.get(node.range()).unwrap_or_default();
+        if node.kind() == SyntaxKind::Text {
+            append_text(job, leaf, &format, style);
+        } else {
+            job.append(leaf, 0.0, format);
+        }
         return;
     }
     for child in node.children() {
@@ -40,10 +65,10 @@ fn walk(job: &mut LayoutJob, src: &str, node: &LinkedNode, inherited: Option<Tag
 }
 
 /// The source as coloured text. Parsing is error tolerant and keeps every byte of the source.
-pub fn job(text: &str, font: FontId, t: &Tokens) -> LayoutJob {
+pub fn job(text: &str, font: FontId, t: &Tokens, misspelt: Option<&dyn Fn(&str) -> bool>) -> LayoutJob {
     let root = parse(text);
     let mut job = LayoutJob::default();
-    walk(&mut job, text, &LinkedNode::new(&root), None, &Style { font, base: t.text, danger: t.danger, syntax: t.syntax });
+    walk(&mut job, text, &LinkedNode::new(&root), None, &Style { font, base: t.text, danger: t.danger, syntax: t.syntax, misspelt });
     job
 }
 
@@ -89,7 +114,7 @@ mod tests {
     #[test]
     fn highlighting_keeps_the_text_intact() {
         for src in ["= Título\n*forte* $x^2$ #let a = 1\n", "#table(", "$ unclosed", "", "/* c"] {
-            assert_eq!(job(src, FontId::monospace(12.0), &Tokens::dark()).text, src);
+            assert_eq!(job(src, FontId::monospace(12.0), &Tokens::dark(), None).text, src);
         }
     }
 }

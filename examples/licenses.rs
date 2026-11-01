@@ -85,6 +85,13 @@ pub fn generate(project: &Path) -> String {
     out += &rule("Fonts in Pearl's interface: JetBrains Mono (SIL Open Font License 1.1)");
     out += &read(&project.join("assets/fonts/OFL-JetBrainsMono.txt"));
 
+    out += &rule("The VERO dictionary: its notes");
+    out += &read(&project.join("assets/dict/pt_BR/README_pt_BR.txt"));
+    out += &rule("The VERO dictionary: GNU Lesser General Public License version 3");
+    out += &read(&project.join("assets/dict/pt_BR/LICENSE-LGPL-3.0.txt"));
+    out += &rule("The VERO dictionary: Mozilla Public License 2.0");
+    out += &read(&project.join("assets/dict/pt_BR/LICENSE-MPL-2.0.txt"));
+
     out += &rule("Packages");
     let mut texts: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut without = Vec::new();

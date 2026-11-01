@@ -29,5 +29,9 @@ Distribution Exception; its source is at https://ctan.org/pkg/newcomputermodern.
 keeps it from covering Pearl, as long as the font stays unmodified and Pearl stays under a licence
 compatible with the GPL version 3.
 
+Spell checking uses spellbook (MPL-2.0) and the VERO dictionary for Brazilian Portuguese, unmodified,
+by Raimundo Santos Moura and his team, under the LGPLv3 and the Mozilla Public License; see assets/dict/pt_BR/
+and https://pt-br.libreoffice.org/projetos/projeto-vero-verificador-ortografico/.
+
 The full terms of everything above and of every package Pearl is built from are in
 THIRD-PARTY-LICENSES.txt, and in the program under Sobre o Pearl.

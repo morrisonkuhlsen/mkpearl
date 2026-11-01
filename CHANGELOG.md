@@ -14,5 +14,7 @@ Every release of Pearl, newest first, in the spirit of
 - Version history for saved documents: see what changed, look at past pages and restore.
 - Rulers in centimetres around the pages, with the margins shaded.
 - Recovery: text left unsaved by a crash is offered back when Pearl opens again.
+- Spell checking in Brazilian Portuguese: misspelt words underlined, and a right click for suggestions,
+  ignoring a word or adding it to your dictionary.
 - Third-party licences, readable under About.
 - English and Brazilian Portuguese: choose under File, Options; it starts in the system's language.
