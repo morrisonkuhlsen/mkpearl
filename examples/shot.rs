@@ -44,7 +44,7 @@ fn main() {
     if let Some(tab) = args.get(1) {
         app.set_tab(tab);
     }
-    for (flag, side) in [("details", 0), ("outline", 1), ("files", 2), ("symbols", 3), ("problems", 4), ("claude", 5)] {
+    for (flag, side) in [("details", 0), ("outline", 1), ("files", 2), ("symbols", 3), ("problems", 4), ("claude", 5), ("versions", 6)] {
         if args.iter().any(|a| a == flag) {
             app.open_side(side);
         }
@@ -57,6 +57,13 @@ fn main() {
         ThemeChoice::Light
     };
     app.start_with_theme(choice);
+    if let Some(file) = args.iter().find_map(|a| a.strip_prefix("open=")) {
+        app = App::new(Some(std::path::PathBuf::from(file))).expect("open");
+        app.start_with_theme(choice);
+        if args.iter().any(|a| a == "versions") {
+            app.open_side(6);
+        }
+    }
     if args.iter().any(|a| a == "file") {
         app.open_file_view();
     }
@@ -88,6 +95,14 @@ fn main() {
     if args.iter().any(|a| a == "hover") {
         harness.event(egui::Event::PointerMoved(egui::pos2(8.0 + 44.0 + 46.0 + 4.0 + 3.0 * 7.8, 237.0)));
         for _ in 0..80 {
+            harness.step();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    if args.iter().any(|a| a == "versions") {
+        harness.state_mut().view_version(1);
+        harness.state_mut().preview_version(true);
+        for _ in 0..40 {
             harness.step();
             std::thread::sleep(Duration::from_millis(10));
         }

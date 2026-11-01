@@ -182,6 +182,10 @@ impl App {
                 if nav_item(ui, Page::Info.icon(), Page::Info.label(), page == Page::Info).clicked() {
                     page = Page::Info;
                 }
+                if nav_item(ui, Icon::Clock, "Histórico de versões", false).clicked() {
+                    self.side = Some(super::Side::Versions);
+                    close = true;
+                }
                 if nav_item(ui, Icon::Save, "Salvar", false).clicked() {
                     if self.path.is_some() {
                         close |= self.save(false);

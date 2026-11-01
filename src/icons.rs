@@ -112,6 +112,7 @@ pub enum Icon {
     Landscape,
     SheetRtl,
     Paper,
+    Ruler,
     PrintArea,
     Script,
     Pen,
@@ -248,6 +249,7 @@ impl Icon {
         Icon::Landscape,
         Icon::SheetRtl,
         Icon::Paper,
+        Icon::Ruler,
         Icon::PrintArea,
         Icon::Script,
         Icon::Pen,
@@ -413,7 +415,7 @@ impl Icon {
             | Book | Home | Info => ink::TERRACOTTA,
             Bold | Italic | Underline | Strike | Borders | BorderAll | BorderNone | BorderOutside | BorderThick | Fill | FontColor | AlignTop
             | AlignMiddle | AlignBottom | AlignLeft | AlignCenter | AlignRight | Orientation | IndentDec | IndentInc | Wrap | Merge | Freeze
-            | Zoom | Gridlines | Normal | PageLayout | PageBreak | Margins | Orient | Portrait | Landscape | SheetRtl | Paper | PrintArea
+            | Zoom | Gridlines | Normal | PageLayout | PageBreak | Margins | Orient | Portrait | Landscape | SheetRtl | Paper | Ruler | PrintArea
             | Header | Footer | Theme => ink::SLATE,
             Currency | Percent | Comma | DecInc | DecDec | CondFormat | FormatTable | CellStyles | Insert | Delete | Format | SortFilter | Filter
             | SortAsc | SortDesc | Duplicates | TextColumns | Validation | Group | Ungroup | Subtotal => ink::MUSTARD,
@@ -747,6 +749,12 @@ fn paint_with(p: &Painter, rect: Rect, icon: Icon, c: Color32, pal: &Palette) {
             page(&g, c);
             for y in [7.5, 10.0, 12.5] {
                 g.stroke(&[(5.5, y), (10.5, y)], muted);
+            }
+        }
+        Icon::Ruler => {
+            g.frame(1.5, 5.0, 14.5, 11.0, c);
+            for (k, x) in [4.0, 6.5, 9.0, 11.5].into_iter().enumerate() {
+                g.stroke(&[(x, 5.0), (x, if k % 2 == 0 { 8.5 } else { 7.5 })], muted);
             }
         }
         Icon::PageBreak => {

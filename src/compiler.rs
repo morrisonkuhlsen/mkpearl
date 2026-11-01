@@ -11,9 +11,10 @@ use std::time::Instant;
 
 use typst::WorldExt;
 use typst::diag::Severity;
-use typst::introspection::PagedPosition;
+use typst::foundations::{Label, Value};
+use typst::introspection::{Introspector, MetadataElem, PagedPosition};
 use typst::layout::{Abs, Point};
-use typst::utils::hash128;
+use typst::utils::{PicoStr, hash128};
 use typst_ide::Jump;
 use typst_layout::PagedDocument;
 use typst_pdf::PdfOptions;
@@ -67,6 +68,8 @@ pub struct Page {
     pub hash: u128,
     pub width_pt: f32,
     pub height_pt: f32,
+    /// Distances from the page's left, right, top and bottom edges to its writing area, in points.
+    pub margins: Option<[f32; 4]>,
     pub pixels: Pixels,
 }
 
@@ -131,13 +134,15 @@ struct Worker {
     fonts: Arc<typst_kit::fonts::FontStore>,
     world: Option<DocWorld>,
     path: Option<PathBuf>,
+    probe_world: Option<DocWorld>,
+    probe_path: Option<PathBuf>,
     doc: Option<PagedDocument>,
     rendered: HashMap<u128, Pixels>,
 }
 
 impl Worker {
     fn new(events: Sender<Event>, wake: Arc<OnceLock<egui::Context>>, max_side: Arc<AtomicUsize>) -> Self {
-        Self { events, wake, max_side, fonts: load_fonts(), world: None, path: None, doc: None, rendered: HashMap::new() }
+        Self { events, wake, max_side, fonts: load_fonts(), world: None, path: None, probe_world: None, probe_path: None, doc: None, rendered: HashMap::new() }
     }
 
     fn emit(&self, event: Event) {
@@ -178,6 +183,32 @@ impl Worker {
         }
     }
 
+    /// The size and margins of a page at the end of this text. It compiles in a world of its own, so
+    /// the text and the positions everything else works from aren't touched, and a document it
+    /// can't be added to (a body wrapped in `columns()`, say) just goes without.
+    fn measure_margins(&mut self, text: &str, path: Option<&std::path::Path>) -> Option<(f32, f32, [f32; 4])> {
+        if self.probe_world.is_none() || self.probe_path.as_deref() != path {
+            self.probe_world = DocWorld::new(Arc::clone(&self.fonts), path);
+            self.probe_path = path.map(std::path::Path::to_path_buf);
+        }
+        let world = self.probe_world.as_mut()?;
+        world.update(&format!("{text}{MARGIN_PROBE}"));
+        let world = &*world;
+        let Ok(warned) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| typst::compile::<PagedDocument>(world))) else {
+            self.probe_world = None;
+            return None;
+        };
+        let doc = warned.output.ok()?;
+        let label = Label::new(PicoStr::intern("pearl-margins"))?;
+        let found = doc.introspector().query_label(label).ok()?;
+        let value = found.to_packed::<MetadataElem>()?.value.clone();
+        let Value::Array(numbers) = value else { return None };
+        let report: Vec<f64> = numbers.into_iter().filter_map(|n| n.cast::<f64>().ok()).collect();
+        let size = doc.pages().last()?.frame.size();
+        let margins = margins_from(&report, size.x.to_pt(), size.y.to_pt())?;
+        Some((size.x.to_pt() as f32, size.y.to_pt() as f32, margins))
+    }
+
     fn compile(&mut self, text: &str, path: Option<PathBuf>) {
         let started = Instant::now();
         if self.world.is_none() || self.path != path {
@@ -197,6 +228,7 @@ impl Worker {
             self.world = None;
             return;
         };
+        let path_for_probe = self.path.clone();
         let to_diag = |d: &typst::diag::SourceDiagnostic| {
             let in_main = d.span.id() == Some(typst::World::main(world));
             Diag { error: d.severity == Severity::Error, message: d.message.to_string(), byte: if in_main { world.range(d.span).map(|r| r.start) } else { None } }
@@ -204,8 +236,13 @@ impl Worker {
         let mut diags: Vec<Diag> = warned.warnings.iter().map(to_diag).collect();
         let pages = match warned.output {
             Ok(doc) => {
-                let pages = self.render(&doc);
+                let mut pages = self.render(&doc);
                 self.doc = Some(doc);
+                if let Some((width, height, margins)) = self.measure_margins(text, path_for_probe.as_deref()) {
+                    for page in pages.iter_mut().filter(|p| (p.width_pt - width).abs() < 0.01 && (p.height_pt - height).abs() < 0.01) {
+                        page.margins = Some(margins);
+                    }
+                }
                 Some(pages)
             }
             Err(errors) => {
@@ -240,7 +277,7 @@ impl Worker {
                     Pixels { size: [map.width() as usize, map.height() as usize], rgba: Arc::new(map.take_demultiplied()) }
                 })
                 .clone();
-            out.push(Page { hash, width_pt: size.x.to_pt() as f32, height_pt: size.y.to_pt() as f32, pixels });
+            out.push(Page { hash, width_pt: size.x.to_pt() as f32, height_pt: size.y.to_pt() as f32, margins: None, pixels });
         }
         if self.rendered.len() > out.len() + CACHE_SLACK {
             self.rendered.retain(|h, _| out.iter().any(|p| p.hash == *h));
@@ -369,6 +406,19 @@ fn kind_name(kind: &typst_ide::CompletionKind) -> &'static str {
 }
 
 /// Pixels per point for a page: the usual scale, or less when the page wouldn't fit in a texture.
+/// A last page that reports where its writing area lies. Typst keeps no margins on the pages it
+/// returns, and what it places on them says nothing reliable about them, so it is asked. `page()`
+/// inherits the document's settings; one column makes the area's width the whole width.
+const MARGIN_PROBE: &str = "\n#page(columns: 1)[#layout(size => context [#metadata((here().position().x / 1pt, here().position().y / 1pt, size.width / 1pt, size.height / 1pt)) <pearl-margins>])]\n";
+
+/// A page's left, right, top and bottom margins from what the probe reported, if they make sense:
+/// a page of automatic height has no bottom to measure from, for one.
+fn margins_from(report: &[f64], width: f64, height: f64) -> Option<[f32; 4]> {
+    let &[x, y, w, h] = report else { return None };
+    let margins = [x, width - x - w, y, height - y - h];
+    margins.iter().all(|m| m.is_finite() && *m > -0.01).then(|| margins.map(|m| m.max(0.0) as f32))
+}
+
 fn page_scale(width_pt: f64, height_pt: f64, max_side: usize) -> f64 {
     let longest = width_pt.max(height_pt).max(1.0);
     // Render rounds to the nearest pixel, so stay a pixel clear of the limit.
@@ -392,6 +442,63 @@ mod tests {
                 _ => {}
             }
         }
+    }
+
+    fn margins_of(text: &str) -> [f32; 4] {
+        let (pages, diags) = compile(text);
+        assert!(diags.iter().all(|d| !d.error), "{:?}", diags.iter().map(|d| &d.message).collect::<Vec<_>>());
+        pages.unwrap()[0].margins.unwrap()
+    }
+
+    fn assert_cm(got: [f32; 4], want: [f32; 4]) {
+        for (g, w) in got.iter().zip(want) {
+            assert!((g * 2.54 / 72.0 - w).abs() < 0.01, "{got:?} is not {want:?} cm");
+        }
+    }
+
+    #[test]
+    fn the_page_margins_are_read_from_the_layout() {
+        let set = "#set page(margin: (left: 1cm, right: 2cm, top: 3cm, bottom: 4cm))";
+        assert_cm(margins_of(&format!("{set}\nA")), [1.0, 2.0, 3.0, 4.0]);
+        assert_cm(margins_of(&format!("{set}\n#lorem(900)")), [1.0, 2.0, 3.0, 4.0]);
+        assert_cm(margins_of(&format!("{set}\n")), [1.0, 2.0, 3.0, 4.0]);
+        assert_cm(margins_of("#set page(margin: 0pt)\nA"), [0.0; 4]);
+        // Typst's default on A4: 2.5/21 of the shorter side.
+        let default = 2.5;
+        assert_cm(margins_of("A"), [default; 4]);
+        assert_cm(margins_of(crate::sample::SAMPLE), [default; 4]);
+        // The tables and figures on a page aren't its body, and columns don't narrow it.
+        assert_cm(margins_of("#set page(columns: 2, margin: (x: 1cm, y: 2cm))\n#lorem(500)"), [1.0, 1.0, 2.0, 2.0]);
+        assert_cm(margins_of(&format!("{set}\n#figure(table(columns: 2)[a][b], caption: [c])\n// fim")), [1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn measuring_the_margins_changes_nothing_in_the_document() {
+        let (pages, diags) = compile("A\n#pagebreak()\nB\n#context counter(page).final().first()");
+        assert_eq!(pages.as_ref().unwrap().len(), 2);
+        assert!(diags.is_empty());
+        assert!(pages.unwrap().iter().all(|p| p.margins.is_some()));
+    }
+
+    #[test]
+    fn a_page_that_cant_be_measured_goes_without_margins() {
+        for text in ["#set page(height: auto)\nA", "#show: body => columns(2, body)\nA"] {
+            let (pages, diags) = compile(text);
+            assert!(diags.iter().all(|d| !d.error), "{text}");
+            assert_eq!(pages.unwrap()[0].margins, None, "{text}");
+        }
+        // Another paper at the end: the probe's size doesn't match the earlier page.
+        let (pages, _) = compile("A\n#set page(\"a5\")\nB");
+        let pages = pages.unwrap();
+        assert_eq!(pages.len(), 2);
+        assert_eq!(pages[0].margins, None);
+        assert!(pages[1].margins.is_some());
+    }
+
+    #[test]
+    fn what_decorates_a_page_is_not_mistaken_for_its_body() {
+        let set = "#set page(margin: (left: 1cm, right: 2cm, top: 15cm, bottom: 4cm), header: [cabeçalho], footer: [rodapé], background: rect(width: 100%, height: 100%), foreground: [f], numbering: \"1\")";
+        assert_cm(margins_of(&format!("{set}\nA")), [1.0, 2.0, 15.0, 4.0]);
     }
 
     #[test]

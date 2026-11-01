@@ -42,7 +42,10 @@ fn two_windows_edit_one_document_with_a_picture() {
     std::fs::create_dir_all(root.join("fig")).unwrap();
     // The test must not touch the user's list of recent documents.
     // SAFETY: this binary has this one test, and it sets this before any thread reads the variable.
-    unsafe { std::env::set_var("XDG_CONFIG_HOME", root.join("config")) };
+    unsafe {
+        std::env::set_var("XDG_CONFIG_HOME", root.join("config"));
+        std::env::set_var("XDG_DATA_HOME", root.join("data"));
+    }
     image::RgbImage::new(4, 4).save(root.join("fig/foto.png")).unwrap();
     let file = root.join("doc.typ");
     std::fs::write(&file, "= Título\n#image(\"fig/foto.png\", width: 1cm)\n").unwrap();

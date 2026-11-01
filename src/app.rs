@@ -13,6 +13,8 @@ use crate::collab::{Change, Session};
 use crate::compiler::{Compiler, Diag, Event, Job, Page, Suggestion};
 use crate::edit::{self, Sel};
 use crate::highlight;
+use crate::history::{self, Store, Version};
+use crate::ruler::{self, RULER};
 use crate::sample::SAMPLE;
 use crate::icons::Icon;
 use crate::theme::{self, ThemeChoice, Tokens};
@@ -21,8 +23,14 @@ use crate::widgets::{field_menu, glyphs, group_begin, group_end, icon_button_mon
 mod backstage;
 
 const TABS: [&str; 6] = ["Página Inicial", "Inserir", "Layout da Página", "Referências", "Matemática", "Exibir"];
+/// Holds "off" when the rulers are hidden.
+const RULER_FILE: &str = "ruler.txt";
 /// Where a saved API key is kept, readable by this user alone.
 const KEY_FILE: &str = "anthropic-key";
+/// Seconds between the versions autosave keeps.
+const AUTO_VERSION_EVERY: f64 = 300.0;
+/// Most changed lines listed under a version.
+const MAX_CHANGES_SHOWN: usize = 200;
 /// Most search matches highlighted at a time.
 const MAX_MATCHES_SHOWN: usize = 2000;
 const LIST_BULLETS: &str = "Lista com marcadores";
@@ -109,7 +117,17 @@ enum Side {
     Files,
     Symbols,
     Problems,
+    Versions,
     Claude,
+}
+
+/// A past version looked at in the Versions pane.
+struct Viewed {
+    version: Version,
+    text: String,
+    /// What differs from the document, and the text it was worked out against.
+    changes: Vec<history::Change>,
+    compared_with: u64,
 }
 
 /// A line of the conversation with Claude.
@@ -229,6 +247,9 @@ pub struct App {
     about: bool,
     side: Option<Side>,
     line_numbers: bool,
+    ruler: bool,
+    /// Where the rulers were last drawn: along the top, then down the side.
+    ruler_strips: Option<(Rect, Rect)>,
     /// The Files pane's listing, read when the pane opens or on Refresh.
     files: Vec<String>,
     /// The File view, when open, on this page.
@@ -241,6 +262,20 @@ pub struct App {
     completion_request: u64,
     /// Scroll the list to the selected suggestion on the next frame.
     completion_scroll: bool,
+    /// The document's versions, newest first, as last listed.
+    versions: Vec<Version>,
+    viewed: Option<Viewed>,
+    /// The pages are showing the viewed version, not the document.
+    previewing: bool,
+    /// Keep a version when this time comes (the last of Claude's edits has to arrive first).
+    version_due: Option<(f64, history::Kind)>,
+    last_auto_version: Option<f64>,
+    autosaving: bool,
+    pending_version_action: Option<bool>,
+    restore_requested: bool,
+    /// This frame's time, for what has no context to ask.
+    time_now: f64,
+    confirm_clear_history: bool,
     /// Claude, once asked for something; it stays in the session until sent away.
     assistant: Option<Assistant>,
     assistant_busy: bool,
@@ -300,11 +335,23 @@ impl App {
             about: false,
             side: None,
             line_numbers: true,
+            ruler: crate::recent::read_setting(RULER_FILE).is_none_or(|v| v.trim() != "off"),
+            ruler_strips: None,
             files: Vec::new(),
             backstage: None,
             theme: ThemeChoice::load(),
             hover: Hover::default(),
             kept_selection: None,
+            versions: Vec::new(),
+            viewed: None,
+            previewing: false,
+            version_due: None,
+            last_auto_version: None,
+            autosaving: false,
+            pending_version_action: None,
+            restore_requested: false,
+            time_now: 0.0,
+            confirm_clear_history: false,
             assistant: None,
             assistant_busy: false,
             transcript: Vec::new(),
@@ -328,6 +375,8 @@ impl App {
         };
         let mut app = app;
         app.remember_path();
+        // What's in the file now, before anything can write over it.
+        app.keep_version(history::Kind::Opened);
         app.compile();
         Ok(app)
     }
@@ -338,7 +387,7 @@ impl App {
 
     /// Opens a side pane by its place on the strip.
     pub fn open_side(&mut self, index: usize) {
-        self.side = [Side::Details, Side::Outline, Side::Files, Side::Symbols, Side::Problems, Side::Claude].get(index).copied();
+        self.side = [Side::Details, Side::Outline, Side::Files, Side::Symbols, Side::Problems, Side::Claude, Side::Versions].get(index).copied();
     }
 
     pub fn text(&self) -> &str {
@@ -430,6 +479,16 @@ impl App {
     }
 
     /// Shows only the pages.
+    pub fn set_ruler(&mut self, on: bool) {
+        self.ruler = on;
+        crate::recent::write_setting(RULER_FILE, if on { "on" } else { "off" });
+    }
+
+    /// Where the rulers were last drawn, if they were: along the top, then down the side.
+    pub fn ruler_strips(&self) -> Option<(Rect, Rect)> {
+        self.ruler_strips
+    }
+
     pub fn show_pages_only(&mut self) {
         self.layout = Layout::Pages;
     }
@@ -450,7 +509,8 @@ impl App {
     fn compile(&self) {
         // A guest's document compiles in the session's folder, where the host's files arrive.
         let path = self.session.as_ref().and_then(Session::guest_path).or_else(|| self.path.clone());
-        self.compiler.send(Job::Compile { text: self.text.clone(), path });
+        let shown = self.viewed.as_ref().filter(|_| self.previewing).map_or(&self.text, |v| &v.text);
+        self.compiler.send(Job::Compile { text: shown.clone(), path });
     }
 
     fn poll(&mut self, ctx: &egui::Context) {
@@ -536,6 +596,7 @@ impl App {
     }
 
     fn edit(&mut self, ctx: &egui::Context, f: impl FnOnce(&mut String, Sel) -> Sel) {
+        self.previewing = false;
         let sel = self.selection(ctx);
         let next = f(&mut self.text, sel);
         self.set_selection(ctx, next);
@@ -658,6 +719,8 @@ impl App {
         self.textures.clear();
         self.backstage = None;
         self.want_focus = true;
+        self.end_viewing();
+        self.versions.clear();
         self.set_selection(ctx, (0, 0));
         self.compile();
     }
@@ -671,6 +734,8 @@ impl App {
                 self.backstage = None;
                 self.want_focus = true;
                 self.remember_path();
+                self.end_viewing();
+                self.keep_version(history::Kind::Opened);
                 self.set_selection(ctx, (0, 0));
                 self.compile();
             }
@@ -700,6 +765,14 @@ impl App {
                 self.path = Some(path);
                 self.dirty = false;
                 self.remember_path();
+                let now = self.time_now;
+                if !self.autosaving {
+                    self.keep_version(history::Kind::Saved);
+                } else if self.last_auto_version.is_none_or(|last| now - last >= AUTO_VERSION_EVERY) {
+                    // Autosave writes every moment: one version in a while is enough.
+                    self.last_auto_version = Some(now);
+                    self.keep_version(history::Kind::Autosaved);
+                }
                 self.compile();
                 true
             }
@@ -711,6 +784,10 @@ impl App {
     }
 
     fn export_pdf(&mut self) {
+        if self.previewing {
+            self.status = "As páginas estão mostrando uma versão antiga: volte ao documento antes de exportar.".into();
+            return;
+        }
         if self.diags.iter().any(|d| d.error) {
             self.status = "Corrija os erros antes de exportar: o PDF sairia desatualizado.".into();
             return;
@@ -808,7 +885,8 @@ impl App {
     fn ask_completions(&mut self, ctx: &egui::Context, explicit: bool) {
         let (a, b) = self.selection(ctx);
         self.completion_request += 1;
-        if a != b {
+        // The compiler holds the past version's text, whose offsets aren't these.
+        if a != b || self.previewing {
             self.completions = None;
             return;
         }
@@ -914,6 +992,9 @@ impl App {
     }
 
     fn locate(&self, ctx: &egui::Context) {
+        if self.previewing {
+            return;
+        }
         let (a, _) = self.selection(ctx);
         self.compiler.send(Job::Locate { byte: edit::byte_of(&self.text, a) });
     }
@@ -926,6 +1007,170 @@ impl App {
         self.assistant_receive(&ctx);
         self.show_window(ui);
         self.session_send(&ctx);
+    }
+
+    fn store(&self) -> Option<Store> {
+        Store::for_document(self.path.as_deref()?)
+    }
+
+    /// Keeps the document as a version, if it has a file and has changed since the last. A failure
+    /// here says so but stops nothing: the document itself is saved apart from this.
+    fn keep_version(&mut self, kind: history::Kind) {
+        let (Some(store), Some(path)) = (self.store(), self.path.clone()) else { return };
+        if let Err(e) = store.keep(&path, &self.text, kind, history::now_ms()) {
+            self.status = format!("Não foi possível guardar esta versão: {e}");
+        }
+        self.versions = store.list();
+    }
+
+    fn end_viewing(&mut self) {
+        let showing = self.previewing;
+        self.viewed = None;
+        self.previewing = false;
+        if showing {
+            self.compile();
+        }
+    }
+
+    /// Looks at the version at this place on the list.
+    pub fn view_version(&mut self, index: usize) {
+        let Some((store, version)) = self.store().zip(self.versions.get(index).cloned()) else { return };
+        match store.read(&version) {
+            Some(text) => {
+                let changes = history::line_changes(&text, &self.text);
+                self.viewed = Some(Viewed { version, text, changes, compared_with: egui::epaint::util::hash(&self.text) });
+                if self.previewing {
+                    self.compile();
+                }
+            }
+            None => self.status = "Não foi possível ler esta versão.".into(),
+        }
+    }
+
+    /// Shows the viewed version in the pages, or goes back to the document.
+    pub fn preview_version(&mut self, on: bool) {
+        self.previewing = on && self.viewed.is_some();
+        self.compile();
+    }
+
+    /// Puts the viewed version in the document. What was there is kept first, and in a session it
+    /// reaches everyone as any edit does, so this too can be undone.
+    pub fn restore_version(&mut self, ctx: &egui::Context) {
+        let Some(viewed) = self.viewed.take() else { return };
+        self.keep_version(history::Kind::BeforeRestore);
+        let when = history::describe(viewed.version.stamp, history::now_ms());
+        self.edit(ctx, |text, _| {
+            *text = viewed.text.clone();
+            (0, 0)
+        });
+        self.status = format!("Restaurada a versão de {when}.");
+    }
+
+    pub fn version_labels(&self) -> Vec<&'static str> {
+        self.versions.iter().map(|v| v.kind.label()).collect()
+    }
+
+    fn pane_versions(&mut self, ui: &mut Ui, t: &Tokens) {
+        let ctx = ui.ctx().clone();
+        if self.path.is_none() {
+            ui.colored_label(t.text_dim, "O histórico começa quando o documento é salvo.");
+            return;
+        }
+        if self.versions.is_empty() {
+            self.versions = self.store().map_or_else(Vec::new, |s| s.list());
+        }
+        // The comparison is with the document as it is now.
+        if self.viewed.as_ref().is_some_and(|v| v.compared_with != egui::epaint::util::hash(&self.text))
+            && let Some(viewed) = &mut self.viewed
+        {
+            viewed.changes = history::line_changes(&viewed.text, &self.text);
+            viewed.compared_with = egui::epaint::util::hash(&self.text);
+        }
+        let now = history::now_ms();
+        let mut chosen = None;
+        for (i, version) in self.versions.iter().enumerate() {
+            let on = self.viewed.as_ref().is_some_and(|v| v.version.stamp == version.stamp);
+            let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 42.0), Sense::click());
+            let when = history::describe(version.stamp, now);
+            resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, on, &when));
+            if on {
+                ui.painter().rect_filled(rect, 0.0, t.accent_soft);
+                ui.painter().rect_filled(Rect::from_min_size(rect.min, vec2(3.0, rect.height())), 0.0, t.accent);
+            } else if resp.hovered() {
+                ui.painter().rect_filled(rect, 0.0, t.hover);
+            }
+            ui.painter().text(pos2(rect.left() + 10.0, rect.center().y - 9.0), egui::Align2::LEFT_CENTER, &when, theme::ui_bold(12.5), t.text);
+            ui.painter().text(pos2(rect.left() + 10.0, rect.center().y + 9.0), egui::Align2::LEFT_CENTER, version.kind.label(), theme::ui_font(11.5), t.text_dim);
+            if resp.clicked() {
+                chosen = Some(i);
+            }
+            // The chosen version's actions and differences, right under it.
+            if on && let Some(viewed) = &self.viewed {
+                let same = viewed.text == self.text;
+                let mut action = 0;
+                ui.horizontal(|ui| {
+                    let label = if self.previewing { "Voltar ao documento" } else { "Ver nas páginas" };
+                    if ui.button(label).clicked() {
+                        action = 1;
+                    }
+                    if ui.add_enabled(!same, egui::Button::new("Restaurar")).clicked() {
+                        action = 2;
+                    }
+                });
+                if same {
+                    ui.colored_label(t.text_dim, "Igual ao documento atual.");
+                } else {
+                    let green = t.error_check_green;
+                    for change in viewed.changes.iter().take(MAX_CHANGES_SHOWN) {
+                        // The document has what's marked +; going back to this version would lose it.
+                        let (mark, color, line) = match change {
+                            history::Change::Added(l) => ("+", green, l),
+                            history::Change::Removed(l) => ("−", t.danger, l),
+                        };
+                        ui.add(egui::Label::new(egui::RichText::new(format!("{mark} {line}")).font(FontId::monospace(11.5)).color(color)).truncate());
+                    }
+                    if viewed.changes.len() > MAX_CHANGES_SHOWN {
+                        ui.colored_label(t.text_dim, format!("… e mais {} linhas", viewed.changes.len() - MAX_CHANGES_SHOWN));
+                    }
+                }
+                ui.add_space(8.0);
+                if action == 1 {
+                    self.pending_version_action = Some(!self.previewing);
+                } else if action == 2 {
+                    self.restore_requested = true;
+                }
+            }
+        }
+        if let Some(i) = chosen {
+            self.view_version(i);
+        }
+        if let Some(on) = self.pending_version_action.take() {
+            self.preview_version(on);
+        }
+        if std::mem::take(&mut self.restore_requested) {
+            self.restore_version(&ctx);
+        }
+        ui.add_space(14.0);
+        ui.colored_label(t.text_dim, "As versões ficam só neste computador, fora da pasta do documento. As mais antigas vão sendo espaçadas; mover ou renomear o arquivo começa um histórico novo.");
+        ui.add_space(6.0);
+        if self.confirm_clear_history {
+            ui.label("Apagar todas as versões deste documento? Isso não pode ser desfeito.");
+            ui.horizontal(|ui| {
+                if ui.button("Apagar").clicked() {
+                    if let Some(Err(e)) = self.store().map(|store| store.clear()) {
+                        self.status = format!("Não foi possível apagar: {e}");
+                    }
+                    self.versions.clear();
+                    self.end_viewing();
+                    self.confirm_clear_history = false;
+                }
+                if ui.button("Cancelar").clicked() {
+                    self.confirm_clear_history = false;
+                }
+            });
+        } else if ui.small_button("Apagar o histórico deste documento").clicked() {
+            self.confirm_clear_history = true;
+        }
     }
 
     /// The way to the API: a saved key, or the environment's. The address can be overridden as in the
@@ -983,6 +1228,7 @@ impl App {
         let selected = (selection.0 != selection.1).then(|| edit::selected(&self.text, selection).to_string());
         self.transcript.push(Said::Person(instruction.to_string()));
         self.assistant_busy = true;
+        self.keep_version(history::Kind::BeforeClaude);
         if let Some(assistant) = &self.assistant {
             assistant.ask(instruction.to_string(), selected);
         }
@@ -1003,7 +1249,11 @@ impl App {
                 },
                 Update::Action(action) => self.transcript.push(Said::Action(action)),
                 Update::Usage(usage) => self.assistant_usage.add(usage),
-                Update::Done => self.assistant_busy = false,
+                Update::Done => {
+                    self.assistant_busy = false;
+                    // In a moment: its last edit is still on its way here.
+                    self.version_due = Some((self.time_now + 1.5, history::Kind::AfterClaude));
+                }
                 Update::Stopped => {
                     self.assistant_busy = false;
                     self.transcript.push(Said::Action("Parado".to_string()));
@@ -2050,6 +2300,10 @@ impl App {
             }
         }
         sep(ui, "Painéis");
+        if toggle(ui, Icon::Ruler, "Régua", "Réguas em centímetros em volta das páginas", self.ruler).clicked() {
+            self.set_ruler(!self.ruler);
+        }
+        sep(ui, "Mostrar");
         if toggle(ui, Icon::Zoom, "Largura", "Ajustar à largura do painel", self.zoom.is_none()).clicked() {
             self.zoom = None;
         }
@@ -2136,6 +2390,7 @@ impl App {
             (Side::Files, Icon::Folder, "Arquivos", 0),
             (Side::Symbols, Icon::Symbol, "Símbolos", 0),
             (Side::Problems, Icon::Validation, "Problemas", errors),
+            (Side::Versions, Icon::Clock, "Versões", 0),
             (Side::Claude, Icon::Pen, "Claude", 0),
         ]
         .into_iter()
@@ -2178,6 +2433,7 @@ impl App {
             Side::Files => (Icon::Folder, "Arquivos"),
             Side::Symbols => (Icon::Symbol, "Símbolos"),
             Side::Problems => (Icon::Validation, "Problemas"),
+            Side::Versions => (Icon::Clock, "Versões"),
             Side::Claude => (Icon::Pen, "Claude"),
         };
         let inner = rect.shrink2(vec2(10.0, 6.0));
@@ -2202,6 +2458,7 @@ impl App {
                 Side::Outline => self.pane_outline(ui, t),
                 Side::Files => self.pane_files(ui, t),
                 Side::Symbols => self.pane_symbols(ui, t),
+                Side::Versions => self.pane_versions(ui, t),
                 Side::Claude => self.pane_claude(ui, t),
                 Side::Problems => {
                     if self.diags.is_empty() {
@@ -2361,14 +2618,28 @@ impl App {
     /// Saves a changed document a moment after the last keystroke. A failure turns autosave off, so
     /// it isn't retried every frame, and says so.
     fn autosave_tick(&mut self, ctx: &egui::Context) {
+        self.time_now = ctx.input(|i| i.time);
+        if let Some((due, kind)) = self.version_due {
+            if self.time_now >= due {
+                self.version_due = None;
+                self.keep_version(kind);
+            } else {
+                ctx.request_repaint_after_secs((due - self.time_now) as f32);
+            }
+        }
         if !(self.autosave && self.dirty && self.path.is_some()) {
             return;
         }
         let wait = AUTOSAVE_DELAY - (ctx.input(|i| i.time) - self.changed_at);
         if wait > 0.0 {
             ctx.request_repaint_after_secs(wait as f32);
-        } else if !self.save(false) {
-            self.autosave = false;
+        } else {
+            self.autosaving = true;
+            let saved = self.save(false);
+            self.autosaving = false;
+            if !saved {
+                self.autosave = false;
+            }
         }
     }
 
@@ -2521,6 +2792,7 @@ impl App {
         }
         if changed {
             self.dirty = true;
+            self.previewing = false;
             self.changed_at = ctx.input(|i| i.time);
             self.compile();
             if self.worth_completing(&ctx) {
@@ -2556,7 +2828,7 @@ impl App {
             self.hover.tip = None;
             self.hover.request += 1;
         }
-        if let Some(at) = self.hover.byte
+        if let Some(at) = self.hover.byte.filter(|_| !self.previewing)
             && !self.hover.asked
         {
             let waited = now - self.hover.since;
@@ -2638,6 +2910,26 @@ impl App {
     }
 
     fn preview(&mut self, ui: &mut Ui, t: &Tokens) {
+        if self.previewing && let Some(viewed) = &self.viewed {
+            let when = history::describe(viewed.version.stamp, history::now_ms());
+            let mut back = false;
+            let mut restore = false;
+            egui::Frame::NONE.fill(t.accent_soft).inner_margin(egui::Margin::symmetric(12, 6)).show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(format!("Versão de {when}: seu documento não mudou")).color(t.text));
+                    back = ui.button("Voltar ao documento").clicked();
+                    restore = ui.button("Restaurar").clicked();
+                });
+            });
+            let ctx = ui.ctx().clone();
+            if back {
+                self.preview_version(false);
+            }
+            if restore {
+                self.restore_version(&ctx);
+            }
+        }
         if self.pages.is_empty() {
             ui.centered_and_justified(|ui| {
                 let message = if !self.compiled_once() {
@@ -2652,8 +2944,12 @@ impl App {
             return;
         }
         const PAD: f32 = 20.0;
+        let area = ui.available_rect_before_wrap();
+        let inset = if self.ruler { RULER } else { 0.0 };
+        let pages_area = Rect::from_min_max(area.min + vec2(inset, inset), area.max);
+        ui.advance_cursor_after_rect(area);
         let widest = self.pages.iter().map(|p| p.width_pt).fold(1.0, f32::max);
-        self.fit_zoom = fit_zoom(ui.available_width() - 2.0 * PAD - 14.0, widest);
+        self.fit_zoom = fit_zoom(pages_area.width() - 2.0 * PAD - 14.0, widest);
         // Ctrl + wheel over the pages.
         if ui.rect_contains_pointer(ui.max_rect()) {
             let delta = ui.input(|i| i.zoom_delta());
@@ -2665,13 +2961,16 @@ impl App {
         let scroll_page = self.scroll_page.take();
         let now = ui.input(|i| i.time);
         let mut click = None;
-        egui::ScrollArea::both().id_salt("pages-scroll").auto_shrink([false, false]).show(ui, |ui| {
+        let mut placed = Vec::with_capacity(self.pages.len());
+        let mut pages_ui = ui.new_child(egui::UiBuilder::new().max_rect(pages_area));
+        let scrolled = egui::ScrollArea::both().id_salt("pages-scroll").auto_shrink([false, false]).show(&mut pages_ui, |ui| {
             ui.add_space(PAD);
             ui.spacing_mut().item_spacing = vec2(0.0, 14.0);
             ui.vertical_centered(|ui| {
                 for (i, page) in self.pages.iter().enumerate() {
                     let size = vec2(page.width_pt, page.height_pt) * zoom;
                     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+                    placed.push(rect);
                     if !ui.is_rect_visible(rect.expand(200.0)) && !scroll_page.is_some_and(|(p, _)| p == i) {
                         continue;
                     }
@@ -2702,9 +3001,37 @@ impl App {
             });
             ui.add_space(PAD);
         });
-        if let Some((page, x, y)) = click {
+        self.ruler_strips = None;
+        if self.ruler {
+            self.paint_rulers(ui, area, scrolled.inner_rect, &placed, zoom, t);
+        }
+        // A past version's pages don't correspond to the source on show.
+        if let Some((page, x, y)) = click.filter(|_| !self.previewing) {
             self.compiler.send(Job::Click { page, x: f64::from(x), y: f64::from(y) });
         }
+    }
+
+    /// The rulers follow the pages: the top one measures the page most in view, and the side one
+    /// every page passing by.
+    fn paint_rulers(&mut self, ui: &Ui, area: Rect, view: Rect, placed: &[Rect], zoom: f32, t: &Tokens) {
+        let top = Rect::from_min_max(pos2(view.left(), area.top()), pos2(view.right(), area.top() + RULER));
+        let side = Rect::from_min_max(pos2(area.left(), view.top()), pos2(area.left() + RULER, view.bottom()));
+        let p = ui.painter();
+        p.rect_filled(Rect::from_min_size(area.min, vec2(RULER, RULER)), 0.0, t.window);
+        let shown = |rect: &&Rect| rect.intersect(view).height() > 0.0;
+        let visible = |rect: &Rect| rect.intersect(view).height();
+        let main = self.pages.iter().zip(placed).max_by(|a, b| visible(a.1).total_cmp(&visible(b.1)));
+        let across: Vec<_> = main.iter().map(|(page, rect)| ruler::Span::new(rect.left(), rect.right(), page.margins.map(|[l, r, ..]| (l, r)), zoom)).collect();
+        let down: Vec<_> = self
+            .pages
+            .iter()
+            .zip(placed)
+            .filter(|(_, rect)| shown(rect))
+            .map(|(page, rect)| ruler::Span::new(rect.top(), rect.bottom(), page.margins.map(|[_, _, a, b]| (a, b)), zoom))
+            .collect();
+        ruler::paint(p, top, true, &across, zoom, t);
+        ruler::paint(p, side, false, &down, zoom, t);
+        self.ruler_strips = Some((top, side));
     }
 
     fn footer_height(&self) -> f32 {
