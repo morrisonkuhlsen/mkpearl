@@ -24,7 +24,9 @@ const NAME: &str = "Pearl";
 /// "What is written remains."
 const MOTTO: &str = "Scripta manent";
 const TAGLINE: &str = "Documentos em Typst, com a faixa de opções que você já conhece.";
-const FOOT: &str = "Feito em Rust · Composição por Typst";
+const POWERED_BY: &str = "Desenvolvido por";
+/// The Morrison Kühlsen wordmark, white on clear: a brand asset under its own terms (`docs/brand/`).
+const WORDMARK: &[u8] = include_bytes!("../docs/brand/morrison-kuhlsen.png");
 /// The program's parts, named in turn as the bar fills.
 const COMPONENTS: [&str; 8] = ["fontes", "motor Typst", "matemática", "tabelas", "referências", "editor", "faixa de opções", "exportação em PDF"];
 
@@ -35,6 +37,7 @@ pub struct SplashScreen {
     closed: bool,
     /// The picture, once decoded; the inner `None` when it couldn't be.
     picture: Option<Option<TextureHandle>>,
+    wordmark: Option<Option<TextureHandle>>,
 }
 
 impl SplashScreen {
@@ -53,7 +56,9 @@ impl SplashScreen {
         let rect = ctx.content_rect();
         let response = ui.allocate_rect(ui.max_rect(), Sense::click());
         let picture = self.picture.get_or_insert_with(|| load_picture(&ctx)).as_ref();
-        paint(&ui.painter().with_clip_rect(rect), rect, progress, picture);
+        let picture = picture.cloned();
+        let wordmark = self.wordmark.get_or_insert_with(|| load_wordmark(&ctx)).as_ref();
+        paint(&ui.painter().with_clip_rect(rect), rect, progress, picture.as_ref(), wordmark);
         let done = progress >= 1.0 || response.clicked() || ctx.input(|i| i.key_pressed(egui::Key::Escape));
         if done && !self.closed {
             self.closed = true;
@@ -75,7 +80,17 @@ fn load_picture(ctx: &egui::Context) -> Option<TextureHandle> {
     Some(ctx.load_texture("splash-picture", image, options))
 }
 
-fn paint(painter: &Painter, rect: Rect, progress: f32, picture: Option<&TextureHandle>) {
+fn decode_wordmark() -> Result<egui::ColorImage, image::ImageError> {
+    let rgba = image::load_from_memory_with_format(WORDMARK, image::ImageFormat::Png)?.to_rgba8();
+    Ok(egui::ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], rgba.as_raw()))
+}
+
+fn load_wordmark(ctx: &egui::Context) -> Option<TextureHandle> {
+    let image = decode_wordmark().ok()?;
+    Some(ctx.load_texture("splash-wordmark", image, TextureOptions::LINEAR))
+}
+
+fn paint(painter: &Painter, rect: Rect, progress: f32, picture: Option<&TextureHandle>, wordmark: Option<&TextureHandle>) {
     let k = rect.height() / LAYOUT_HEIGHT;
     // The square picture at the right, whole; the words take what is left.
     let split = rect.right() - rect.height();
@@ -110,7 +125,17 @@ fn paint(painter: &Painter, rect: Rect, progress: f32, picture: Option<&TextureH
     painter.rect_filled(bar, 0.0, Color32::from_white_alpha(28));
     painter.rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * progress, bar.height())), 0.0, BRAND);
 
-    painter.text(pos2(left, words.bottom() - 32.0 * k), Align2::LEFT_BOTTOM, FOOT, FontId::proportional(11.0 * k), ON_INK_SOFT);
+    // The house at the foot: "powered by" and its wordmark after it.
+    if let Some(texture) = wordmark {
+        let foot = words.bottom() - 28.0 * k;
+        let by = painter.layout_no_wrap(POWERED_BY.to_string(), FontId::proportional(11.0 * k), ON_INK_SOFT);
+        let logo_width = 104.0 * k;
+        let size = vec2(logo_width, logo_width * texture.size_vec2().y / texture.size_vec2().x.max(1.0));
+        let by_width = by.size().x;
+        painter.galley(pos2(left, foot - size.y / 2.0 - by.size().y / 2.0), by, ON_INK_SOFT);
+        let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+        painter.image(texture.id(), Rect::from_min_size(pos2(left + by_width + 8.0 * k, foot - size.y), size), uv, ON_INK);
+    }
 }
 
 /// The colour of a sphere's point (`x`, `y` from -1 to 1 on the disc): nacre with a rose and aqua
@@ -196,6 +221,12 @@ mod tests {
         let image = decode_picture().unwrap();
         assert_eq!(image.size[0], image.size[1]);
         assert!(image.size[0] <= 2048);
+    }
+
+    #[test]
+    fn the_wordmark_decodes_wide() {
+        let image = decode_wordmark().unwrap();
+        assert!(image.size[0] > image.size[1] * 2);
     }
 
     #[test]

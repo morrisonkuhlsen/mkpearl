@@ -6,7 +6,11 @@ Morrison Kühlsen and the MK Matrix contributors, itself a fork of GridCraft, Co
 Team and the GridCraft contributors; all under MIT OR Apache-2.0. See LICENSE-MIT and LICENSE-APACHE.
 Real-time editing uses yrs (MIT) and snow (Apache-2.0 OR MIT).
 
-Pearl carries none of their brand files and is not made or endorsed by them.
+Pearl carries none of ArtCraft's brand files and is not made or endorsed by the ArtCraft Team.
+
+The Morrison Kühlsen name and wordmark in docs/brand/, shown on the splash screen, are Morrison Kühlsen
+brand assets. They are not open source and are not covered by the licenses above; their terms are in
+docs/brand/LICENSE.md.
 
 The structure of src/splash.rs follows MK Perth's splash screen (MIT OR Apache-2.0). The picture in
 assets/splash.png was supplied by the project's owner.
