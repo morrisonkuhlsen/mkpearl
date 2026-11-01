@@ -19,4 +19,4 @@ Pearl's plan and progress log. Each section says what is done and its **Next:** 
 ## Getting it to people
 - *Done:* the licences in the program; the gates and CI; the interface in English and Portuguese.
 - **Next:** try what no person has tried (#7); an installer (#8); document text in English (#14).
-- **Decisions:** crates (#1), which generator made the splash picture and its terms (#3).
+- **Decisions:** crates (#1).
