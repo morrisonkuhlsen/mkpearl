@@ -9,6 +9,7 @@ One crate for now (#1).
 | `collab` | sessions: `doc` (the yrs document), `net` and `wire` (Noise over TCP) |
 | `assistant` | Claude, joining as a peer through the same session link, by the raw Messages API |
 | `images` | pictures brought in by paste, drag or dialog: copied beside the document, never over a file |
+| `bib` | the references in the document's `.bib` files, read by the library Typst uses, on a thread of their own |
 | `history` | versions, whole copies under the user's data folder |
 | `recovery` | copies of unsaved text beside a lock the system releases when a run ends |
 | `spell` | words from Typst's parser, checked by `spellbook` on a thread of its own |

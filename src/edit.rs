@@ -118,6 +118,16 @@ pub fn insert_block(buffer: &mut String, (a, b): Sel, text: &str) -> Sel {
     if at_start { insert_plain(buffer, (a, b), text) } else { insert_plain(buffer, (a, b), &format!("\n{text}")) }
 }
 
+/// Inserts a citation, set apart from a word it would otherwise run into: `@` after a letter isn't a
+/// reference at all, and a letter after the key would become part of it.
+pub fn insert_citation(buffer: &mut String, (a, b): Sel, citation: &str) -> Sel {
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let before = buffer.get(..byte_of(buffer, a)).and_then(|s| s.chars().next_back()).is_some_and(word);
+    let after = buffer.get(byte_of(buffer, b)..).and_then(|s| s.chars().next()).is_some_and(word);
+    let text = format!("{}{citation}{}", if before { " " } else { "" }, if after { " " } else { "" });
+    insert_plain(buffer, (a, b), &text)
+}
+
 /// What the Files pane inserts for a file of the project, by its path from the document's folder.
 pub fn file_snippet(path: &str) -> String {
     let quoted = path.replace('\\', "\\\\").replace('"', "\\\"");
@@ -373,6 +383,20 @@ mod tests {
         let s = set_rule(&mut t, s, "#set page(paper", "#set page(paper: \"a5\")");
         assert_eq!(t, "#set page(paper: \"a5\")\nç\n");
         assert_eq!(s, (24, 24));
+    }
+
+    #[test]
+    fn a_citation_stays_apart_from_the_words_around_it() {
+        let cited = |text: &str, at: usize| {
+            let mut buffer = text.to_string();
+            insert_citation(&mut buffer, (at, at), "@k");
+            buffer
+        };
+        assert_eq!(cited("", 0), "@k");
+        assert_eq!(cited("Como disse", 10), "Como disse @k");
+        assert_eq!(cited("Como disse ", 11), "Como disse @k");
+        assert_eq!(cited("Como.", 4), "Como @k.");
+        assert_eq!(cited("ação", 2), "aç @k ão");
     }
 
     #[test]

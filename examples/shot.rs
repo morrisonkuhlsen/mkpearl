@@ -66,6 +66,9 @@ fn main() {
         if args.iter().any(|a| a == "versions") {
             app.open_side(6);
         }
+        if args.iter().any(|a| a == "references") {
+            app.open_side(7);
+        }
     }
     if args.iter().any(|a| a == "licenses") {
         app.open_licenses();
@@ -83,17 +86,21 @@ fn main() {
     if args.iter().any(|a| a == "error") {
         app.set_text(&format!("{}\n#funcao_inexistente()\n", pearl::sample::SAMPLE));
     }
-    let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(1900.0, 1040.0)).with_pixels_per_point(1.0).wgpu().build_ui_state(
-        move |ui, app: &mut App| {
-            if !READY.load(Ordering::Relaxed) {
-                return;
-            }
-            // Like the app itself; the harness panics on a missing glyph instead.
-            ui.ctx().set_missing_glyph_policy(MissingGlyphPolicy::Tofu);
-            app.show(ui);
-        },
-        app,
-    );
+    let mut harness = egui_kittest::Harness::builder()
+        .with_size(if args.iter().any(|a| a == "small") { egui::vec2(1400.0, 900.0) } else { egui::vec2(1900.0, 1040.0) })
+        .with_pixels_per_point(1.0)
+        .wgpu()
+        .build_ui_state(
+            move |ui, app: &mut App| {
+                if !READY.load(Ordering::Relaxed) {
+                    return;
+                }
+                // Like the app itself; the harness panics on a missing glyph instead.
+                ui.ctx().set_missing_glyph_policy(MissingGlyphPolicy::Tofu);
+                app.show(ui);
+            },
+            app,
+        );
     harness.input_mut().max_texture_side = Some(8192);
     READY.store(true, Ordering::Relaxed);
     let started = Instant::now();
@@ -102,6 +109,13 @@ fn main() {
         std::thread::sleep(Duration::from_millis(20));
     }
     harness.run_steps(90);
+    if args.iter().any(|a| a == "references") {
+        // The list is read on a thread of its own.
+        for _ in 0..40 {
+            harness.step();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
     if args.iter().any(|a| a == "hover") {
         harness.event(egui::Event::PointerMoved(egui::pos2(8.0 + 44.0 + 46.0 + 4.0 + 3.0 * 7.8, 237.0)));
         for _ in 0..80 {

@@ -12,6 +12,7 @@ use egui::{Align, Color32, FontId, Id, Key, KeyboardShortcut, Modifiers, Rect, S
 use self::backstage::Page as FilePage;
 use crate::assistant::api::{self, Connection, Credential, Usage};
 use crate::assistant::{Assistant, Update};
+use crate::bib::{self, Shelf};
 use crate::collab::{Change, Session};
 use crate::compiler::{Compiler, Diag, Event, Job, Page, Suggestion};
 use crate::edit::{self, Sel};
@@ -151,6 +152,7 @@ enum Side {
     Details,
     Outline,
     Files,
+    References,
     Symbols,
     Problems,
     Versions,
@@ -335,6 +337,8 @@ pub struct App {
     spell_menu: Option<SpellMenu>,
     licenses: bool,
     recovery: Option<Recovery>,
+    references: Shelf,
+    reference_search: String,
     /// Whether a picture brought into an unsaved document asks where to save it.
     asks_to_save: bool,
     recovery_written_at: f64,
@@ -437,6 +441,8 @@ impl App {
             spell_menu: None,
             licenses: false,
             recovery: None,
+            references: Shelf::default(),
+            reference_search: String::new(),
             asks_to_save: false,
             recovery_written_at: f64::NEG_INFINITY,
             orphans: Vec::new(),
@@ -496,7 +502,9 @@ impl App {
 
     /// Opens a side pane by its place on the strip.
     pub fn open_side(&mut self, index: usize) {
-        self.side = [Side::Details, Side::Outline, Side::Files, Side::Symbols, Side::Problems, Side::Claude, Side::Versions].get(index).copied();
+        self.side = [Side::Details, Side::Outline, Side::Files, Side::Symbols, Side::Problems, Side::Claude, Side::Versions, Side::References]
+            .get(index)
+            .copied();
     }
 
     pub fn text(&self) -> &str {
@@ -909,6 +917,14 @@ impl App {
     }
 
     /// The folder pictures go in, or says why this document can't take any.
+    /// The document's folder, asking where to save it first if it has none; `refusal` says why not.
+    fn saved_folder(&mut self, refusal: &str) -> Option<PathBuf> {
+        if self.path.is_none() && !(self.asks_to_save && self.save(true)) {
+            self.status = refusal.into();
+        }
+        self.path.as_deref().and_then(Path::parent).map(Path::to_path_buf)
+    }
+
     fn images_folder(&mut self) -> Option<PathBuf> {
         // A guest's folder is its own: the others would be left with a document that can't find the file.
         if self.session.as_ref().is_some_and(|s| !s.is_host()) {
@@ -916,10 +932,7 @@ impl App {
             return None;
         }
         // Pictures need a folder: an unsaved document gets one now, rather than the picture being lost.
-        if self.path.is_none() && !(self.asks_to_save && self.save(true)) {
-            self.status = tx("save-the-document-before-inserting-images-they").into();
-        }
-        self.path.as_deref().and_then(Path::parent).map(Path::to_path_buf)
+        self.saved_folder(tx("save-the-document-before-inserting-images-they"))
     }
 
     fn insert_image(&mut self, ctx: &egui::Context) {
@@ -2449,6 +2462,9 @@ impl App {
                 }
             }
         });
+        if tool(ui, Icon::Find, tx("search-and-cite-references")).clicked() {
+            self.side = Some(Side::References);
+        }
         group_end(ui, tx("citations"));
     }
 
@@ -2608,6 +2624,7 @@ impl App {
             (Side::Details, Icon::Info, tx("details"), 0),
             (Side::Outline, Icon::SheetList, tx("outline"), 0),
             (Side::Files, Icon::Folder, tx("files"), 0),
+            (Side::References, Icon::Book, tx("references"), 0),
             (Side::Symbols, Icon::Symbol, tx("symbols"), 0),
             (Side::Problems, Icon::Validation, tx("problems"), errors),
             (Side::Versions, Icon::Clock, tx("versions"), 0),
@@ -2618,9 +2635,9 @@ impl App {
         {
             let on = self.side == Some(side);
             let galley = ui.painter().layout_no_wrap(name.to_string(), theme::ui_font(13.0), t.text);
-            let height = 28.0 + galley.size().x + if badge > 0 { 18.0 } else { 6.0 };
+            let height = 26.0 + galley.size().x + if badge > 0 { 18.0 } else { 6.0 };
             let slot = Rect::from_min_size(pos2(rect.left() + 1.0, top), vec2(rect.width() - 1.0, height));
-            top += height + 6.0;
+            top += height + 2.0;
             let resp = ui.interact(slot, ui.scope_id().with(("side", k)), Sense::click());
             resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, on, name));
             if on {
@@ -2630,9 +2647,9 @@ impl App {
                 ui.painter().rect_filled(slot, 0.0, t.hover);
             }
             let x = slot.center().x;
-            crate::icons::paint(ui.painter(), Rect::from_center_size(pos2(x, slot.top() + 13.0), vec2(14.0, 14.0)), icon, t.text);
+            crate::icons::paint(ui.painter(), Rect::from_center_size(pos2(x, slot.top() + 12.0), vec2(14.0, 14.0)), icon, t.text);
             // Turned a quarter clockwise, it reads downwards and its height lies to the left of `at`.
-            let at = pos2(x + galley.size().y / 2.0, slot.top() + 26.0);
+            let at = pos2(x + galley.size().y / 2.0, slot.top() + 24.0);
             ui.painter().add(egui::epaint::TextShape::new(at, galley, if on { t.accent } else { t.text }).with_angle(std::f32::consts::FRAC_PI_2));
             if badge > 0 {
                 ui.painter().text(pos2(x, slot.bottom() - 9.0), egui::Align2::CENTER_CENTER, badge.to_string(), theme::ui_font(12.0), t.danger);
@@ -2651,6 +2668,7 @@ impl App {
             Side::Details => (Icon::Info, tx("details")),
             Side::Outline => (Icon::SheetList, tx("outline")),
             Side::Files => (Icon::Folder, tx("files")),
+            Side::References => (Icon::Book, tx("references")),
             Side::Symbols => (Icon::Symbol, tx("symbols")),
             Side::Problems => (Icon::Validation, tx("problems")),
             Side::Versions => (Icon::Clock, tx("versions")),
@@ -2677,6 +2695,7 @@ impl App {
                 Side::Details => self.pane_details(ui, t),
                 Side::Outline => self.pane_outline(ui, t),
                 Side::Files => self.pane_files(ui, t),
+                Side::References => self.pane_references(ui, t),
                 Side::Symbols => self.pane_symbols(ui, t),
                 Side::Versions => self.pane_versions(ui, t),
                 Side::Claude => self.pane_claude(ui, t),
@@ -2785,6 +2804,121 @@ impl App {
         if let Some(snippet) = chosen {
             let ctx = ui.ctx().clone();
             self.edit(&ctx, |text, sel| edit::insert_plain(text, sel, &snippet));
+        }
+    }
+
+    fn pane_references(&mut self, ui: &mut Ui, t: &Tokens) {
+        const MAX_SHOWN: usize = 200;
+        let ctx = ui.ctx().clone();
+        let guest = self.session.as_ref().is_some_and(|s| !s.is_host());
+        let folder = self.session.as_ref().and_then(Session::guest_path).or_else(|| self.path.clone());
+        self.references.tick(&ctx, folder.as_deref().and_then(Path::parent).map(Path::to_path_buf));
+        // A guest has only the files the host's document uses, and can't send any.
+        if !guest && ui.button(tx("import-a-bib-file")).clicked() {
+            self.ask_to_import(&ctx);
+        }
+        ui.add_space(4.0);
+        let search = ui.add(
+            egui::TextEdit::singleline(&mut self.reference_search).hint_text(tx("search-by-title-author-key-or-year")).desired_width(f32::INFINITY),
+        );
+        let enter = search.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+        ui.add_space(4.0);
+
+        let used = bib::used_files(&self.text);
+        let files = bib::citable(&self.references.files, used.as_deref());
+        let mut chosen = None;
+        let matching: Vec<(&str, &bib::Entry)> = files
+            .iter()
+            .flat_map(|file| file.entries.iter().map(|entry| (file.path.as_str(), entry)))
+            .filter(|(_, entry)| entry.matches(&self.reference_search))
+            .collect();
+        if self.references.files.is_empty() {
+            let empty = if folder.is_none() { tx("save-the-document-to-see-its-references") } else { tx("no-bib-files-in-the-folder") };
+            ui.colored_label(t.text_dim, empty);
+        } else if matching.is_empty() {
+            ui.colored_label(t.text_dim, tx("no-reference-matches"));
+        } else {
+            ui.colored_label(t.text_dim, tx("click-a-reference-to-cite-it"));
+            ui.add_space(4.0);
+        }
+        if enter && let Some((file, entry)) = matching.first() {
+            chosen = Some((file.to_string(), entry.key.clone()));
+        }
+        for (file, entry) in matching.iter().take(MAX_SHOWN) {
+            let title = if entry.title.is_empty() { &entry.key } else { &entry.title };
+            let button = egui::Button::new(egui::RichText::new(title).color(t.text)).frame_when_inactive(false).truncate();
+            let detail: Vec<&str> = [entry.authors.as_str(), entry.year.as_str(), entry.key.as_str()].into_iter().filter(|s| !s.is_empty()).collect();
+            let detail = detail.join(" · ");
+            if ui.add(button).on_hover_text(format!("{title}\n{detail}\n{file}")).clicked() {
+                chosen = Some((file.to_string(), entry.key.clone()));
+            }
+            ui.add(egui::Label::new(egui::RichText::new(detail).small().color(t.text_dim)).truncate());
+            ui.add_space(3.0);
+        }
+        if matching.len() > MAX_SHOWN {
+            ui.colored_label(t.text_dim, tr!("n-more-references", count = (matching.len() - MAX_SHOWN).to_string()));
+        }
+        ui.add_space(6.0);
+        let outside: Vec<&str> =
+            self.references.files.iter().filter(|f| !files.iter().any(|shown| shown.path == f.path)).map(|f| f.path.as_str()).collect();
+        if !outside.is_empty() {
+            ui.colored_label(t.text_dim, tr!("bib-files-outside-the-bibliography", files = outside.join(", ")));
+        }
+        for failed in self.references.files.iter().filter(|f| f.failed) {
+            ui.colored_label(t.danger, tr!("bib-file-could-not-be-read", file = failed.path.clone()));
+        }
+        if let Some((file, key)) = chosen {
+            self.cite(&ctx, &file, &key);
+        }
+    }
+
+    fn ask_to_import(&mut self, ctx: &egui::Context) {
+        let Some(dir) = self.saved_folder(tx("save-the-document-before-importing-references")) else { return };
+        if let Some(file) = rfd::FileDialog::new().add_filter("BibTeX", &["bib"]).pick_file() {
+            self.import_references(ctx, &dir, &file);
+        }
+    }
+
+    fn import_references(&mut self, ctx: &egui::Context, dir: &Path, file: &Path) {
+        match bib::import(dir, file) {
+            Ok((path, count)) => {
+                self.status = tr!("references-imported", file = path, count = count.to_string());
+                self.references.refresh();
+                ctx.request_repaint();
+            }
+            Err(id) => self.status = tx(id).into(),
+        }
+    }
+
+    /// Imports a file into the document's folder, as the pane's button does after its dialog.
+    pub fn import_references_from(&mut self, ctx: &egui::Context, file: &Path) {
+        if let Some(dir) = self.path.as_deref().and_then(Path::parent).map(Path::to_path_buf) {
+            self.import_references(ctx, &dir, file);
+        }
+    }
+
+    pub fn search_references(&mut self, query: &str) {
+        query.clone_into(&mut self.reference_search);
+    }
+
+    /// Puts a citation at the caret, as one change with the bibliography it needs: without one in
+    /// the document, a citation is an error.
+    fn cite(&mut self, ctx: &egui::Context, file: &str, key: &str) {
+        let citation = bib::citation(key);
+        let bibliography = bib::used_files(&self.text).is_none().then(|| edit::file_snippet(file));
+        let added = bibliography.is_some();
+        self.edit(ctx, |text, sel| {
+            let next = edit::insert_citation(text, sel, &citation);
+            if let Some(bibliography) = &bibliography {
+                if !text.is_empty() && !text.ends_with('\n') {
+                    text.push('\n');
+                }
+                text.push_str(bibliography);
+            }
+            next
+        });
+        if added {
+            self.status = tx("bibliography-added-at-the-end").into();
         }
     }
 

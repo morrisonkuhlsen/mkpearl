@@ -98,14 +98,17 @@ pub fn adopt_pixels(dir: &Path, image: &egui::ColorImage, stamp: &str) -> Result
     store(dir, &format!("{stamp}.png"), &png)
 }
 
-/// Writes into the pictures' folder under a free name, never over another file. The same picture
-/// brought in again is found under its name instead of copied a second time.
 fn store(dir: &Path, name: &str, bytes: &[u8]) -> Result<String, &'static str> {
-    let folder = dir.join(FOLDER);
-    fs::create_dir_all(&folder).map_err(|_| "the-image-could-not-be-copied")?;
+    keep(&dir.join(FOLDER), name, bytes).map(|kept| format!("{FOLDER}/{kept}")).ok_or("the-image-could-not-be-copied")
+}
+
+/// Writes into a folder under a free name, never over another file, and returns the name. The same
+/// contents brought in again are found under their name instead of copied a second time.
+pub(crate) fn keep(folder: &Path, name: &str, bytes: &[u8]) -> Option<String> {
+    fs::create_dir_all(folder).ok()?;
     let plain = Path::new(name);
-    let stem = plain.file_stem().and_then(|s| s.to_str()).ok_or("the-image-could-not-be-copied")?;
-    let extension = plain.extension().and_then(|e| e.to_str()).ok_or("the-image-could-not-be-copied")?;
+    let stem = plain.file_stem()?.to_str()?;
+    let extension = plain.extension()?.to_str()?;
     for n in 1..MAX_NAMES {
         let candidate = if n == 1 { name.to_string() } else { format!("{stem}-{n}.{extension}") };
         let path = folder.join(&candidate);
@@ -115,23 +118,23 @@ fn store(dir: &Path, name: &str, bytes: &[u8]) -> Result<String, &'static str> {
                     drop(file);
                     // Only what was just created, and half written.
                     let _ = fs::remove_file(&path);
-                    return Err("the-image-could-not-be-copied");
+                    return None;
                 }
-                return Ok(format!("{FOLDER}/{candidate}"));
+                return Some(candidate);
             }
             Err(e) if e.kind() == ErrorKind::AlreadyExists => {
                 if fs::metadata(&path).is_ok_and(|m| m.len() == bytes.len() as u64) && fs::read(&path).is_ok_and(|old| old == bytes) {
-                    return Ok(format!("{FOLDER}/{candidate}"));
+                    return Some(candidate);
                 }
             }
-            Err(_) => return Err("the-image-could-not-be-copied"),
+            Err(_) => return None,
         }
     }
-    Err("the-image-could-not-be-copied")
+    None
 }
 
 /// A path from the document's folder as Typst writes it, whatever the system.
-fn portable(path: &Path) -> String {
+pub(crate) fn portable(path: &Path) -> String {
     let parts: Vec<String> = path
         .components()
         .filter_map(|c| match c {
