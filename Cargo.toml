@@ -32,3 +32,5 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+# Their debug information made every test binary over a gigabyte, and linking them the slowest step.
+debug = false
