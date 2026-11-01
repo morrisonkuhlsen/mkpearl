@@ -6,17 +6,13 @@ use egui_kittest::Harness;
 use pearl::app::App;
 
 fn window<'a>(app: App) -> Harness<'a, App> {
-    Harness::builder()
-        .with_size(egui::vec2(1200.0, 800.0))
-        .with_max_steps(u64::MAX)
-        .with_accessibility_check(false)
-        .build_ui_state(
-            |ui, app: &mut App| {
-                ui.ctx().set_missing_glyph_policy(egui::epaint::text::MissingGlyphPolicy::Tofu);
-                app.show(ui);
-            },
-            app,
-        )
+    Harness::builder().with_size(egui::vec2(1200.0, 800.0)).with_max_steps(u64::MAX).with_accessibility_check(false).build_ui_state(
+        |ui, app: &mut App| {
+            ui.ctx().set_missing_glyph_policy(egui::epaint::text::MissingGlyphPolicy::Tofu);
+            app.show(ui);
+        },
+        app,
+    )
 }
 
 fn until(a: &mut Harness<'_, App>, b: &mut Harness<'_, App>, what: &str, done: impl Fn(&App, &App) -> bool) {

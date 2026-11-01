@@ -68,7 +68,11 @@ fn packages(metadata: &Value) -> Vec<&Value> {
 /// The whole file, given the project's folder.
 pub fn generate(project: &Path) -> String {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
-    let output = Command::new(cargo).args(["metadata", "--format-version", "1", "--offline", "--locked"]).current_dir(project).output().expect("cargo metadata");
+    let output = Command::new(cargo)
+        .args(["metadata", "--format-version", "1", "--offline", "--locked"])
+        .current_dir(project)
+        .output()
+        .expect("cargo metadata");
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let metadata: Value = serde_json::from_slice(&output.stdout).expect("cargo metadata's output");
     let packages = packages(&metadata);
@@ -103,7 +107,10 @@ pub fn generate(project: &Path) -> String {
         files.dedup();
         if files.is_empty() {
             let authors: Vec<&str> = p["authors"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
-            without.push(format!("{name} {version} ({licence}), by {}", if authors.is_empty() { "its contributors".to_string() } else { authors.join(", ") }));
+            without.push(format!(
+                "{name} {version} ({licence}), by {}",
+                if authors.is_empty() { "its contributors".to_string() } else { authors.join(", ") }
+            ));
         }
         for file in files {
             let from = file.strip_prefix(dir).unwrap().display().to_string().replace('\\', "/");
@@ -112,10 +119,13 @@ pub fn generate(project: &Path) -> String {
     }
 
     // Each text once, under everything it came with, in an order that doesn't depend on the text.
-    let mut sections: Vec<(Vec<String>, String)> = texts.into_iter().map(|(text, mut from)| {
-        from.sort();
-        (from, text)
-    }).collect();
+    let mut sections: Vec<(Vec<String>, String)> = texts
+        .into_iter()
+        .map(|(text, mut from)| {
+            from.sort();
+            (from, text)
+        })
+        .collect();
     sections.sort();
     for (from, text) in sections {
         out += &rule(&format!("From:\n{}", from.join("\n")));

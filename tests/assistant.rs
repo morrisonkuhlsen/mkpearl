@@ -58,7 +58,8 @@ fn pretend_api(replies: Vec<Reply>) -> (String, Arc<Mutex<Vec<Seen>>>) {
                 }
             } else {
                 let error = json!({"type": "error", "error": {"type": "x", "message": "recusado"}}).to_string();
-                write!(out, "HTTP/1.1 {} X\r\ncontent-length: {}\r\nretry-after: 0\r\nconnection: close\r\n\r\n{error}", reply.status, error.len()).unwrap();
+                write!(out, "HTTP/1.1 {} X\r\ncontent-length: {}\r\nretry-after: 0\r\nconnection: close\r\n\r\n{error}", reply.status, error.len())
+                    .unwrap();
             }
         }
     });
@@ -106,7 +107,11 @@ fn says(text: &str) -> Reply {
 fn stops_with(reason: &str, details: Value) -> Reply {
     Reply {
         status: 200,
-        events: vec![json!({"type": "message_start", "message": {"usage": {}}}), json!({"type": "message_delta", "delta": {"stop_reason": reason, "stop_details": details}, "usage": {}}), json!({"type": "message_stop"})],
+        events: vec![
+            json!({"type": "message_start", "message": {"usage": {}}}),
+            json!({"type": "message_delta", "delta": {"stop_reason": reason, "stop_details": details}, "usage": {}}),
+            json!({"type": "message_stop"}),
+        ],
     }
 }
 
@@ -237,7 +242,12 @@ fn a_failed_edit_and_a_broken_input_go_back_as_errors_for_claude_to_fix() {
             e
         },
     };
-    let (url, seen) = pretend_api(vec![calls("t1", "replace_text", &json!({"old_text": "não existe", "new_text": "x"})), broken, calls("t3", "nada_disso", &json!({})), says("ok")]);
+    let (url, seen) = pretend_api(vec![
+        calls("t1", "replace_text", &json!({"old_text": "não existe", "new_text": "x"})),
+        broken,
+        calls("t3", "nada_disso", &json!({})),
+        says("ok"),
+    ]);
     let mut host = host_with("texto");
     let c = claude(&host, url);
     until(&mut host, &c, |u| *u == Update::Connected);

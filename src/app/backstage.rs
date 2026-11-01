@@ -242,7 +242,9 @@ impl App {
                             if action_row(ui, Icon::Print, "Exportar como PDF", "As páginas, prontas para imprimir ou enviar").clicked() {
                                 self.export_pdf();
                             }
-                            if action_row(ui, Icon::Save, "Salvar uma cópia", "O código Typst em outro arquivo, sem trocar o documento aberto").clicked() {
+                            if action_row(ui, Icon::Save, "Salvar uma cópia", "O código Typst em outro arquivo, sem trocar o documento aberto")
+                                .clicked()
+                            {
                                 self.save_copy();
                             }
                         }
@@ -298,7 +300,12 @@ impl App {
             if resp.hovered() {
                 ui.painter().rect_filled(rect, 4.0, t.hover);
             }
-            icons::paint_mono(ui.painter(), Rect::from_center_size(pos2(rect.left() + 20.0, rect.center().y), vec2(20.0, 20.0)), Icon::FileName, t.text);
+            icons::paint_mono(
+                ui.painter(),
+                Rect::from_center_size(pos2(rect.left() + 20.0, rect.center().y), vec2(20.0, 20.0)),
+                Icon::FileName,
+                t.text,
+            );
             let text_right = rect.right() - MODIFIED_W - 8.0;
             let clip = ui.painter().with_clip_rect(Rect::from_min_max(rect.min, pos2(text_right, rect.bottom())));
             clip.text(pos2(rect.left() + 44.0, rect.center().y - 9.0), Align2::LEFT_CENTER, &name, theme::ui_bold(13.0), t.text);

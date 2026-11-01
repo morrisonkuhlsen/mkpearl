@@ -210,8 +210,11 @@ impl Session {
 
     /// Everyone else's carets, where they are now in the text.
     pub fn cursors(&self) -> Vec<RemoteCursor> {
-        let mut out: Vec<RemoteCursor> =
-            self.remotes.iter().filter_map(|(id, r)| Some(RemoteCursor { id: *id, name: r.name.clone(), byte: self.shared.locate(&r.head)? })).collect();
+        let mut out: Vec<RemoteCursor> = self
+            .remotes
+            .iter()
+            .filter_map(|(id, r)| Some(RemoteCursor { id: *id, name: r.name.clone(), byte: self.shared.locate(&r.head)? }))
+            .collect();
         out.sort_by_key(|c| c.id);
         out
     }

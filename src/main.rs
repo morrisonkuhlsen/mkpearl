@@ -1,5 +1,7 @@
 //! `pearl [--no-splash] [documento.typ]` opens a document, or the sample without one, after the
 //! splash screen.
+#![forbid(unsafe_code)]
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 use pearl::splash::{self, SplashScreen};
 

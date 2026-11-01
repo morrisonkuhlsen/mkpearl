@@ -184,18 +184,28 @@ pub struct CursorInfo {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Message {
     /// A guest introducing itself.
-    Hello { name: String },
+    Hello {
+        name: String,
+    },
     /// The host's answer: the document's name and its whole state.
-    Welcome { file_name: String, state: Vec<u8> },
+    Welcome {
+        file_name: String,
+        state: Vec<u8>,
+    },
     /// A change to the text.
     Update(Vec<u8>),
     Cursor(CursorInfo),
     /// Everyone should say where their caret is (someone new has come in).
     AskCursors,
     /// Someone left; their caret goes away.
-    Leave { id: u64 },
+    Leave {
+        id: u64,
+    },
     /// A file the document uses, by its path from the document's folder.
-    File { path: String, bytes: Vec<u8> },
+    File {
+        path: String,
+        bytes: Vec<u8>,
+    },
 }
 
 fn put(out: &mut Vec<u8>, field: &[u8]) {

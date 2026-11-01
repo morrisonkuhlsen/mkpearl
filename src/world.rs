@@ -39,7 +39,8 @@ fn main_id(path: Option<&Path>) -> Option<FileId> {
 impl DocWorld {
     /// A world for the document at `path`; an unsaved one resolves files in the current folder.
     pub fn new(fonts: Arc<FontStore>, path: Option<&Path>) -> Option<Self> {
-        let root: PathBuf = path.and_then(Path::parent).map(Path::to_path_buf).filter(|p| !p.as_os_str().is_empty()).or_else(|| std::env::current_dir().ok())?;
+        let root: PathBuf =
+            path.and_then(Path::parent).map(Path::to_path_buf).filter(|p| !p.as_os_str().is_empty()).or_else(|| std::env::current_dir().ok())?;
         let downloader = SystemDownloader::new(concat!("pearl/", env!("CARGO_PKG_VERSION")));
         let files = SystemFiles::new(FsRoot::new(root.clone()), SystemPackages::new(downloader));
         Some(Self {
@@ -133,4 +134,3 @@ impl typst_ide::IdeWorld for DocWorld {
         out
     }
 }
-

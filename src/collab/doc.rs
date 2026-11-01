@@ -6,7 +6,9 @@ use std::sync::{Arc, Mutex};
 use yrs::undo::{Options as UndoOptions, UndoManager};
 use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
-use yrs::{Assoc, Doc, GetString, IndexedSequence, Origin, ReadTxn, StateVector, StickyIndex, Text, TextRef, Transact, TransactionMut, Update, UpdateEvent};
+use yrs::{
+    Assoc, Doc, GetString, IndexedSequence, Origin, ReadTxn, StateVector, StickyIndex, Text, TextRef, Transact, TransactionMut, Update, UpdateEvent,
+};
 
 const LOCAL: &str = "local";
 const REMOTE: &str = "remote";

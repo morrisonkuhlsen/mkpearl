@@ -249,7 +249,8 @@ pub fn line_changes(old: &str, new: &str) -> Vec<Change> {
     let mut table = vec![0_u32; (a.len() + 1) * width];
     for i in (0..a.len()).rev() {
         for j in (0..b.len()).rev() {
-            table[i * width + j] = if a[i] == b[j] { table[(i + 1) * width + j + 1] + 1 } else { table[(i + 1) * width + j].max(table[i * width + j + 1]) };
+            table[i * width + j] =
+                if a[i] == b[j] { table[(i + 1) * width + j + 1] + 1 } else { table[(i + 1) * width + j].max(table[i * width + j + 1]) };
         }
     }
     let mut out = Vec::new();

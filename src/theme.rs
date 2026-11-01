@@ -37,8 +37,14 @@ fn system_font(files: &[&str]) -> Option<Vec<u8>> {
 }
 
 pub fn font_definitions() -> FontDefinitions {
-    const REGULAR: [&str; 6] =
-        ["segoeui.ttf", "HelveticaNeue.ttc", "cantarell/Cantarell-Regular.otf", "noto/NotoSans-Regular.ttf", "dejavu/DejaVuSans.ttf", "liberation/LiberationSans-Regular.ttf"];
+    const REGULAR: [&str; 6] = [
+        "segoeui.ttf",
+        "HelveticaNeue.ttc",
+        "cantarell/Cantarell-Regular.otf",
+        "noto/NotoSans-Regular.ttf",
+        "dejavu/DejaVuSans.ttf",
+        "liberation/LiberationSans-Regular.ttf",
+    ];
     const BOLD: [&str; 4] = ["segoeuib.ttf", "noto/NotoSans-Bold.ttf", "dejavu/DejaVuSans-Bold.ttf", "liberation/LiberationSans-Bold.ttf"];
     let mut fonts = FontDefinitions::default();
     let add = |fonts: &mut FontDefinitions, name: &str, bytes: &'static [u8]| {
@@ -344,7 +350,6 @@ impl Tokens {
     }
 }
 
-
 fn pearl_flag_id() -> egui::Id {
     egui::Id::unique("pearl_theme_on")
 }
@@ -483,7 +488,9 @@ mod tests {
                 failures.push(format!("{name}: {:.2}:1, needs {min}:1", contrast(fg, bg)));
             }
         };
-        for (name, bg) in [("window", t.window), ("ribbon", t.ribbon), ("menu", t.menu_bg), ("input", t.input_bg), ("status", t.status_bar), ("hover", t.hover)] {
+        for (name, bg) in
+            [("window", t.window), ("ribbon", t.ribbon), ("menu", t.menu_bg), ("input", t.input_bg), ("status", t.status_bar), ("hover", t.hover)]
+        {
             check(&format!("text on {name}"), t.text, bg, 4.5);
             check(&format!("dim text on {name}"), t.text_dim, bg, 4.5);
             check(&format!("accent on {name}"), t.accent, bg, 3.0);

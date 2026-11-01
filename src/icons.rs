@@ -362,6 +362,8 @@ impl G<'_> {
         let by = y - dy * len;
         self.poly(&[(x, y), (bx - dy * half, by + dx * half), (bx + dy * half, by - dx * half)], c);
     }
+    // The drawing helpers take plain coordinates and styles; a struct for this one would stand alone.
+    #[allow(clippy::too_many_arguments)]
     fn text(&self, x: f32, y: f32, t: &str, size: f32, c: Color32, bold: bool, italic: bool) {
         let fam = if bold {
             crate::theme::CELL_BOLD
@@ -1098,4 +1100,3 @@ pub const LIBRARY: &[(&str, Icon)] = &[
 pub fn from_name(name: &str) -> Option<Icon> {
     LIBRARY.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, i)| *i)
 }
-

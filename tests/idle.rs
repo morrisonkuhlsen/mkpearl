@@ -50,12 +50,17 @@ fn compile_errors_are_shown_to_the_user() {
         std::thread::sleep(Duration::from_millis(10));
     }
     harness.run_steps(3);
-    let message = harness.query_all_by(|n| n.value().or(n.label()).is_some_and(|v| v.contains("unknown variable"))).next().expect("the message is on screen");
-    let status = harness.query_all_by(|n| n.value().or(n.label()).is_some_and(|v| v.contains("Compilado em"))).next().expect("the status is on screen");
+    let message =
+        harness.query_all_by(|n| n.value().or(n.label()).is_some_and(|v| v.contains("unknown variable"))).next().expect("the message is on screen");
+    let status =
+        harness.query_all_by(|n| n.value().or(n.label()).is_some_and(|v| v.contains("Compilado em"))).next().expect("the status is on screen");
     let (message, status) = (message.rect(), status.rect());
     assert!(message.max.y <= status.min.y + 1.0, "the error sits above the status bar: {message:?} {status:?}");
     // Nothing above covers it: the pages' message ends clear of the foot.
-    let pages = harness.query_all_by(|n| n.label().or(n.value()).is_some_and(|v| v.contains("Corrija o erro"))).next().expect("the pages explain why they are empty");
+    let pages = harness
+        .query_all_by(|n| n.label().or(n.value()).is_some_and(|v| v.contains("Corrija o erro")))
+        .next()
+        .expect("the pages explain why they are empty");
     assert!(pages.rect().max.y <= message.min.y, "{:?} {message:?}", pages.rect());
 }
 

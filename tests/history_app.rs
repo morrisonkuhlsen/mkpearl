@@ -83,7 +83,7 @@ fn what_autosave_writes_over_can_be_seen_and_restored() {
         }
     }
     assert!(kept.iter().any(|t| t == "original\n"), "{kept:?}");
-    assert!(kept.iter().any(|t| *t == current), "{kept:?}");
+    assert!(kept.contains(&current), "{kept:?}");
     // And the document's folder holds only what it held: `data` and `config` are this test's own.
     let mut beside: Vec<String> = std::fs::read_dir(&root).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
     beside.sort();

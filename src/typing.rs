@@ -179,7 +179,15 @@ mod tests {
 
     #[test]
     fn backspace_takes_an_empty_pair_only() {
-        for (text, caret, left) in [("()", 1, Some("")), ("é[]x", 2, Some("éx")), ("\"\"", 1, Some("")), ("(a)", 1, None), ("(a)", 2, None), ("()", 0, None), ("()", 2, None)] {
+        for (text, caret, left) in [
+            ("()", 1, Some("")),
+            ("é[]x", 2, Some("éx")),
+            ("\"\"", 1, Some("")),
+            ("(a)", 1, None),
+            ("(a)", 2, None),
+            ("()", 0, None),
+            ("()", 2, None),
+        ] {
             let mut t = text.to_string();
             let done = backspace_pair(&mut t, (caret, caret));
             match left {

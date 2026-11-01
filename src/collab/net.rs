@@ -25,9 +25,15 @@ pub enum Incoming {
     /// Guest: the connection is up.
     Connected,
     /// Host: someone came in, by their connection number.
-    Joined { peer: u64, name: String },
+    Joined {
+        peer: u64,
+        name: String,
+    },
     /// Host: someone left.
-    Left { name: String, cursor: Option<u64> },
+    Left {
+        name: String,
+        cursor: Option<u64>,
+    },
     Message(Message),
     /// Guest: a file the document uses arrived.
     FileArrived,

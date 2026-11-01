@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
-use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
@@ -32,16 +32,32 @@ const MAX_SUGGESTIONS: usize = 200;
 const CACHE_SLACK: usize = 32;
 
 pub enum Job {
-    Compile { text: String, path: Option<PathBuf> },
+    Compile {
+        text: String,
+        path: Option<PathBuf>,
+    },
     /// A click on a page, in points from its top left.
-    Click { page: usize, x: f64, y: f64 },
+    Click {
+        page: usize,
+        x: f64,
+        y: f64,
+    },
     /// Shows the place in the pages for a byte offset of the source.
-    Locate { byte: usize },
+    Locate {
+        byte: usize,
+    },
     ExportPdf(PathBuf),
     /// What the thing at a byte offset is, for the pointer resting on it.
-    Hover { request: u64, byte: usize },
+    Hover {
+        request: u64,
+        byte: usize,
+    },
     /// What could be typed at a byte offset. `explicit`: asked for with Ctrl+Space.
-    Complete { request: u64, byte: usize, explicit: bool },
+    Complete {
+        request: u64,
+        byte: usize,
+        explicit: bool,
+    },
 }
 
 /// One suggestion of the autocompletion.
@@ -82,13 +98,30 @@ pub struct Diag {
 
 pub enum Event {
     /// A compile finished. `pages` is `None` when it failed and the last good pages stay.
-    Compiled { pages: Option<Vec<Page>>, diags: Vec<Diag>, millis: u128 },
-    JumpToSource { byte: usize },
-    JumpToPage { page: usize, y_pt: f32, x_pt: f32 },
+    Compiled {
+        pages: Option<Vec<Page>>,
+        diags: Vec<Diag>,
+        millis: u128,
+    },
+    JumpToSource {
+        byte: usize,
+    },
+    JumpToPage {
+        page: usize,
+        y_pt: f32,
+        x_pt: f32,
+    },
     /// The answer to [`Job::Hover`]: the words to show, and whether they're code.
-    Hovered { request: u64, tip: Option<(String, bool)> },
+    Hovered {
+        request: u64,
+        tip: Option<(String, bool)>,
+    },
     /// The answer to [`Job::Complete`]: suggestions replacing the text from `from` to the caret.
-    Completions { request: u64, from: usize, suggestions: Vec<Suggestion> },
+    Completions {
+        request: u64,
+        from: usize,
+        suggestions: Vec<Suggestion>,
+    },
     /// The files of the project the document read (path from its folder, path on disk).
     Dependencies(Vec<(String, PathBuf)>),
     Exported(Result<PathBuf, String>),
@@ -142,7 +175,18 @@ struct Worker {
 
 impl Worker {
     fn new(events: Sender<Event>, wake: Arc<OnceLock<egui::Context>>, max_side: Arc<AtomicUsize>) -> Self {
-        Self { events, wake, max_side, fonts: load_fonts(), world: None, path: None, probe_world: None, probe_path: None, doc: None, rendered: HashMap::new() }
+        Self {
+            events,
+            wake,
+            max_side,
+            fonts: load_fonts(),
+            world: None,
+            path: None,
+            probe_world: None,
+            probe_path: None,
+            doc: None,
+            rendered: HashMap::new(),
+        }
     }
 
     fn emit(&self, event: Event) {
@@ -231,7 +275,11 @@ impl Worker {
         let path_for_probe = self.path.clone();
         let to_diag = |d: &typst::diag::SourceDiagnostic| {
             let in_main = d.span.id() == Some(typst::World::main(world));
-            Diag { error: d.severity == Severity::Error, message: d.message.to_string(), byte: if in_main { world.range(d.span).map(|r| r.start) } else { None } }
+            Diag {
+                error: d.severity == Severity::Error,
+                message: d.message.to_string(),
+                byte: if in_main { world.range(d.span).map(|r| r.start) } else { None },
+            }
         };
         let mut diags: Vec<Diag> = warned.warnings.iter().map(to_diag).collect();
         let pages = match warned.output {
@@ -368,7 +416,9 @@ impl Worker {
         let position = PagedPosition { page, point: Point::new(Abs::pt(x), Abs::pt(y)) };
         match typst_ide::jump_from_click(world, doc, &position) {
             Some(Jump::File(id, byte)) if id == typst::World::main(world) => self.emit(Event::JumpToSource { byte }),
-            Some(Jump::Position(p)) => self.emit(Event::JumpToPage { page: p.page.get() - 1, y_pt: p.point.y.to_pt() as f32, x_pt: p.point.x.to_pt() as f32 }),
+            Some(Jump::Position(p)) => {
+                self.emit(Event::JumpToPage { page: p.page.get() - 1, y_pt: p.point.y.to_pt() as f32, x_pt: p.point.x.to_pt() as f32 })
+            }
             _ => {}
         }
     }
@@ -384,7 +434,8 @@ impl Worker {
 
     fn export(&self, path: &std::path::Path) -> Result<(), String> {
         let doc = self.doc.as_ref().ok_or("O documento ainda não compilou.")?;
-        let bytes = typst_pdf::pdf(doc, &PdfOptions::default()).map_err(|errors| errors.iter().map(|e| e.message.to_string()).collect::<Vec<_>>().join("; "))?;
+        let bytes = typst_pdf::pdf(doc, &PdfOptions::default())
+            .map_err(|errors| errors.iter().map(|e| e.message.to_string()).collect::<Vec<_>>().join("; "))?;
         std::fs::write(path, bytes).map_err(|e| e.to_string())
     }
 }

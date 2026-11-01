@@ -298,7 +298,8 @@ pub fn find(text: &str, query: &str, from: usize, backwards: bool) -> Option<Sel
     if needle.is_empty() || hay.len() < needle.len() {
         return None;
     }
-    let same = |at: usize| hay.get(at..at + needle.len()).is_some_and(|w| w.iter().zip(&needle).all(|(h, n)| h.to_lowercase().eq(std::iter::once(*n))));
+    let same =
+        |at: usize| hay.get(at..at + needle.len()).is_some_and(|w| w.iter().zip(&needle).all(|(h, n)| h.to_lowercase().eq(std::iter::once(*n))));
     let last = hay.len() - needle.len();
     let from = from.min(last + 1);
     let found = if backwards {
@@ -439,7 +440,7 @@ mod tests {
         assert_eq!(plain_doc("Aligns [content]($align) `here` **now**."), "Aligns content here now.");
         assert_eq!(plain_doc("a [b] c"), "a [b] c");
         assert_eq!(plain_doc("[x](y"), "x");
-        assert_eq!(plain_doc("[" ), "[");
+        assert_eq!(plain_doc("["), "[");
         assert_eq!(plain_doc("ação [é](ü) ç"), "ação é ç");
     }
 

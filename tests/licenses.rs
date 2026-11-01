@@ -29,7 +29,7 @@ fn it_carries_what_the_licences_ask_for() {
         "Libertinus Serif fonts in files/fonts/LibertinusSerif-*.otf",
         "Foxit fonts in files/fonts/Foxit*.pfb",
         "hayagriva",
-        "CC", 
+        "CC",
         "option-ext 0.2.0: MPL-2.0",
         "epaint_default_fonts 0.37.0 (fonts/UFL.txt)",
         "Fonts in Pearl's interface: Inter",

@@ -250,14 +250,17 @@ mod tests {
     #[test]
     fn it_closes_on_esc_and_after_its_time() {
         let size = egui::vec2(SIZE[0], SIZE[1]);
-        let mut harness = egui_kittest::Harness::builder().with_size(size).build_ui_state(|ui, s: &mut SplashScreen| s.ui(ui), SplashScreen::default());
+        let mut harness =
+            egui_kittest::Harness::builder().with_size(size).build_ui_state(|ui, s: &mut SplashScreen| s.ui(ui), SplashScreen::default());
         harness.run_steps(2);
         assert!(!harness.state().closed());
         harness.key_press(egui::Key::Escape);
         harness.run_steps(1);
         assert!(harness.state().closed());
-        let mut waiting =
-            egui_kittest::Harness::builder().with_size(size).with_step_dt(1.0).build_ui_state(|ui, s: &mut SplashScreen| s.ui(ui), SplashScreen::default());
+        let mut waiting = egui_kittest::Harness::builder()
+            .with_size(size)
+            .with_step_dt(1.0)
+            .build_ui_state(|ui, s: &mut SplashScreen| s.ui(ui), SplashScreen::default());
         waiting.run_steps(7);
         assert!(waiting.state().closed(), "gone after {HOLD} s");
     }

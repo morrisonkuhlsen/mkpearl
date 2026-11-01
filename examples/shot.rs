@@ -158,15 +158,20 @@ fn session_shot(out: &str) {
         },
         host,
     );
-    let mut g = egui_kittest::Harness::builder().with_size(egui::vec2(1500.0, 800.0)).with_pixels_per_point(1.25).wgpu().with_accessibility_check(false).build_ui_state(
-        move |ui, a: &mut App| {
-            policy(ui);
-            if READY.load(Ordering::Relaxed) {
-                a.show(ui);
-            }
-        },
-        guest,
-    );
+    let mut g = egui_kittest::Harness::builder()
+        .with_size(egui::vec2(1500.0, 800.0))
+        .with_pixels_per_point(1.25)
+        .wgpu()
+        .with_accessibility_check(false)
+        .build_ui_state(
+            move |ui, a: &mut App| {
+                policy(ui);
+                if READY.load(Ordering::Relaxed) {
+                    a.show(ui);
+                }
+            },
+            guest,
+        );
     READY.store(true, Ordering::Relaxed);
     h.step();
     let ctx = g.ctx.clone();

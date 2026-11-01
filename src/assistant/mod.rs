@@ -37,7 +37,10 @@ can't do what was asked with these tools, say so.";
 
 pub enum Command {
     /// Do what the person asked. `selection` is the text selected in the editor, if any.
-    Ask { instruction: String, selection: Option<String> },
+    Ask {
+        instruction: String,
+        selection: Option<String>,
+    },
     /// Take back everything Claude has done in the document.
     UndoAll,
     Quit,
@@ -76,7 +79,8 @@ impl Assistant {
         let (update_tx, updates) = channel();
         let stop = Arc::new(AtomicBool::new(false));
         let waker: Arc<OnceLock<egui::Context>> = Arc::new(OnceLock::new());
-        let worker = Worker { updates: update_tx, stop: Arc::clone(&stop), waker: Arc::clone(&waker), connection, messages: Vec::new(), compiler: None };
+        let worker =
+            Worker { updates: update_tx, stop: Arc::clone(&stop), waker: Arc::clone(&waker), connection, messages: Vec::new(), compiler: None };
         std::thread::Builder::new().name("pearl-claude".into()).spawn(move || worker.run(&link, &command_rx)).map_err(|e| e.to_string())?;
         Ok(Assistant { commands, updates, stop, waker })
     }
@@ -201,7 +205,9 @@ impl Worker {
                     return self.say(Update::Problem(format!("O Claude recusou este pedido (categoria: {category}).")));
                 }
                 // A tool call cut off here may parse yet be incomplete: it mustn't run.
-                Some("max_tokens") => return self.say(Update::Problem("A resposta ficou longa demais e foi cortada. Tente pedir em partes menores.".to_string())),
+                Some("max_tokens") => {
+                    return self.say(Update::Problem("A resposta ficou longa demais e foi cortada. Tente pedir em partes menores.".to_string()));
+                }
                 _ => {
                     self.messages.push(json!({"role": "assistant", "content": turn.echo_blocks()}));
                     return self.say(Update::Done);
@@ -331,7 +337,11 @@ impl Worker {
 /// Where `old` is in `text`, if it's there exactly once. Empty fits only an empty document.
 fn find_unique(text: &str, old: &str) -> Result<usize, String> {
     if old.is_empty() {
-        return if text.is_empty() { Ok(0) } else { Err("old_text is empty but the document isn't. Use append_text, or give the text to replace.".to_string()) };
+        return if text.is_empty() {
+            Ok(0)
+        } else {
+            Err("old_text is empty but the document isn't. Use append_text, or give the text to replace.".to_string())
+        };
     }
     let mut found = text.match_indices(old);
     match (found.next(), found.next()) {

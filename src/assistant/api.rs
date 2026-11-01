@@ -140,7 +140,12 @@ impl Turn {
     /// The tool calls to run: only those after the last fallback, the rest having been abandoned.
     pub fn tool_uses(&self) -> Vec<Value> {
         let boundary = self.blocks.iter().rposition(|b| b["type"] == "fallback");
-        self.blocks.iter().enumerate().filter(|(i, b)| b["type"] == "tool_use" && boundary.is_none_or(|last| *i > last)).map(|(_, b)| b.clone()).collect()
+        self.blocks
+            .iter()
+            .enumerate()
+            .filter(|(i, b)| b["type"] == "tool_use" && boundary.is_none_or(|last| *i > last))
+            .map(|(_, b)| b.clone())
+            .collect()
     }
 }
 
@@ -156,7 +161,12 @@ pub struct Assembler {
 
 fn usage_of(value: &Value) -> Usage {
     let n = |key: &str| value[key].as_u64().unwrap_or(0);
-    Usage { input: n("input_tokens"), output: n("output_tokens"), cache_read: n("cache_read_input_tokens"), cache_write: n("cache_creation_input_tokens") }
+    Usage {
+        input: n("input_tokens"),
+        output: n("output_tokens"),
+        cache_read: n("cache_read_input_tokens"),
+        cache_write: n("cache_creation_input_tokens"),
+    }
 }
 
 impl Assembler {
@@ -284,14 +294,17 @@ pub fn stream(connection: &Connection, body: &Value, stopped: &dyn Fn() -> bool,
         let request = agent.post(&url).set("content-type", "application/json").set("anthropic-version", API_VERSION);
         let request = match &connection.credential {
             Credential::ApiKey(key) => request.set("x-api-key", key).set("anthropic-beta", FALLBACK_BETA),
-            Credential::Token(token) => request.set("authorization", &format!("Bearer {token}")).set("anthropic-beta", &format!("{FALLBACK_BETA},{OAUTH_BETA}")),
+            Credential::Token(token) => {
+                request.set("authorization", &format!("Bearer {token}")).set("anthropic-beta", &format!("{FALLBACK_BETA},{OAUTH_BETA}"))
+            }
         };
         let wait = match request.send_string(&payload) {
             Ok(response) => break response,
             Err(ureq::Error::Status(status, response)) => {
                 let after = response.header("retry-after").and_then(|h| h.parse::<u64>().ok());
                 let text = response.into_string().unwrap_or_default();
-                let detail = serde_json::from_str::<Value>(&text).ok().and_then(|v| v["error"]["message"].as_str().map(str::to_string)).unwrap_or(text);
+                let detail =
+                    serde_json::from_str::<Value>(&text).ok().and_then(|v| v["error"]["message"].as_str().map(str::to_string)).unwrap_or(text);
                 if !matches!(status, 408 | 409 | 429 | 500..=599) || attempt >= MAX_ATTEMPTS {
                     return Err(Failure::Failed(friendly(status, &detail)));
                 }
@@ -428,7 +441,12 @@ mod tests {
 
     #[test]
     fn hostile_events_do_nothing() {
-        for e in [json!({}), json!({"type": "content_block_delta", "index": 9, "delta": {"type": "text_delta", "text": "x"}}), json!({"type": "content_block_stop"}), json!(5)] {
+        for e in [
+            json!({}),
+            json!({"type": "content_block_delta", "index": 9, "delta": {"type": "text_delta", "text": "x"}}),
+            json!({"type": "content_block_stop"}),
+            json!(5),
+        ] {
             let mut a = Assembler::default();
             assert_eq!(a.event(&e), Ok(None));
         }
