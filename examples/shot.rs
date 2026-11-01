@@ -40,6 +40,9 @@ fn main() {
         session_shot(&out);
         return;
     }
+    if args.iter().any(|a| a == "en") {
+        pearl::i18n::set(pearl::i18n::Lang::En);
+    }
     let mut app = App::new(None).expect("start");
     if let Some(tab) = args.get(1) {
         app.set_tab(tab);

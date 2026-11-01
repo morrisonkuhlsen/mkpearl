@@ -4,6 +4,8 @@
 //! is a timed presentation, not a measure of loading. It closes by itself after a moment; a click
 //! or Esc closes it sooner.
 
+use crate::i18n::tx;
+use crate::tr;
 use egui::epaint::{Mesh, Vertex};
 use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Sense, TextureHandle, TextureOptions, pos2, vec2};
 
@@ -23,12 +25,12 @@ pub const BRAND: Color32 = Color32::from_rgb(0xE9, 0xE1, 0xD3);
 const NAME: &str = "Pearl";
 /// "What is written remains."
 const MOTTO: &str = "Scripta manent";
-const TAGLINE: &str = "Documentos em Typst, com a faixa de opções que você já conhece.";
-const POWERED_BY: &str = "Desenvolvido por";
+const TAGLINE: &str = "documents-in-typst-with-the-ribbon-you";
+const POWERED_BY: &str = "developed-by";
 /// The Morrison Kühlsen wordmark, white on clear: a brand asset under its own terms (`docs/brand/`).
 const WORDMARK: &[u8] = include_bytes!("../docs/brand/morrison-kuhlsen.png");
 /// The program's parts, named in turn as the bar fills.
-const COMPONENTS: [&str; 8] = ["fontes", "motor Typst", "matemática", "tabelas", "referências", "editor", "faixa de opções", "exportação em PDF"];
+const COMPONENTS: [&str; 8] = ["fonts", "typst-engine", "math-2", "tables-2", "references-2", "editor-2", "ribbon", "pdf-export"];
 
 #[derive(Default)]
 pub struct SplashScreen {
@@ -106,13 +108,13 @@ fn paint(painter: &Painter, rect: Rect, progress: f32, picture: Option<&TextureH
     pearl(painter, pos2(left + 23.0 * k, words.top() + 75.0 * k), 21.0 * k);
     painter.text(pos2(left + 58.0 * k, words.top() + 75.0 * k), Align2::LEFT_CENTER, NAME, FontId::proportional(34.0 * k), ON_INK);
     painter.text(pos2(left, words.top() + 128.0 * k), Align2::LEFT_CENTER, MOTTO, FontId::proportional(15.0 * k), ON_INK_SOFT);
-    let tagline = painter.layout(TAGLINE.to_string(), FontId::proportional(12.5 * k), ON_INK_SOFT, width);
+    let tagline = painter.layout(tx(TAGLINE).to_string(), FontId::proportional(12.5 * k), ON_INK_SOFT, width);
     let below = words.top() + 152.0 * k + tagline.size().y;
     painter.galley(pos2(left, words.top() + 152.0 * k), tagline, ON_INK_SOFT);
     painter.text(
         pos2(left, below + 10.0 * k),
         Align2::LEFT_TOP,
-        format!("Versão {}", env!("CARGO_PKG_VERSION")),
+        tr!("splash-version", version = env!("CARGO_PKG_VERSION")),
         FontId::proportional(12.5 * k),
         ON_INK_SOFT,
     );
@@ -120,7 +122,7 @@ fn paint(painter: &Painter, rect: Rect, progress: f32, picture: Option<&TextureH
     // The parts loading, over the progress bar.
     let bar = Rect::from_min_size(pos2(left, words.bottom() - 96.0 * k), vec2(width, 3.0 * k));
     let shown = ((progress * COMPONENTS.len() as f32) as usize).min(COMPONENTS.len() - 1);
-    let status = COMPONENTS.get(shown).map_or_else(String::new, |c| format!("Carregando {c}…"));
+    let status = COMPONENTS.get(shown).map_or_else(String::new, |c| tr!("splash-loading", what = tx(c)));
     painter.text(bar.left_top() - vec2(0.0, 10.0 * k), Align2::LEFT_BOTTOM, status, FontId::proportional(12.0 * k), ON_INK_SOFT);
     painter.rect_filled(bar, 0.0, Color32::from_white_alpha(28));
     painter.rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * progress, bar.height())), 0.0, BRAND);
@@ -128,7 +130,7 @@ fn paint(painter: &Painter, rect: Rect, progress: f32, picture: Option<&TextureH
     // The house at the foot: "powered by" and its wordmark after it.
     if let Some(texture) = wordmark {
         let foot = words.bottom() - 28.0 * k;
-        let by = painter.layout_no_wrap(POWERED_BY.to_string(), FontId::proportional(11.0 * k), ON_INK_SOFT);
+        let by = painter.layout_no_wrap(tx(POWERED_BY).to_string(), FontId::proportional(11.0 * k), ON_INK_SOFT);
         let logo_width = 104.0 * k;
         let size = vec2(logo_width, logo_width * texture.size_vec2().y / texture.size_vec2().x.max(1.0));
         let by_width = by.size().x;

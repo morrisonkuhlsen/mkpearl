@@ -1,6 +1,7 @@
 //! The File view: a full-window page in place of everything else until Esc or the back arrow,
 //! in the layout of MK Matrix's Backstage (MIT OR Apache-2.0; see NOTICE).
 
+use crate::i18n::tx;
 use egui::{Align2, Color32, Key, Rect, RichText, Sense, Ui, pos2, vec2};
 
 use super::{App, Pending};
@@ -28,13 +29,13 @@ pub(super) enum Page {
 impl Page {
     fn label(self) -> &'static str {
         match self {
-            Page::Home => "Início",
-            Page::New => "Novo",
-            Page::Open => "Abrir",
-            Page::Info => "Informações",
-            Page::SaveAs => "Salvar como",
-            Page::Export => "Exportar",
-            Page::Options => "Opções",
+            Page::Home => tx("home"),
+            Page::New => tx("new"),
+            Page::Open => tx("open-2"),
+            Page::Info => tx("info"),
+            Page::SaveAs => tx("save-as-2"),
+            Page::Export => tx("export"),
+            Page::Options => tx("options"),
         }
     }
 
@@ -169,7 +170,7 @@ impl App {
             .frame(egui::Frame::NONE.fill(splash::INK).inner_margin(egui::Margin { left: 0, right: 0, top: 10, bottom: 10 }))
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
-                close |= nav_item(ui, Icon::Back, "Voltar", false).clicked();
+                close |= nav_item(ui, Icon::Back, tx("back"), false).clicked();
                 let (rect, _) = ui.allocate_exact_size(vec2(NAV_W, 58.0), Sense::hover());
                 splash::pearl(ui.painter(), pos2(rect.left() + 32.0, rect.center().y), 13.0);
                 ui.painter().text(pos2(rect.left() + 54.0, rect.center().y), Align2::LEFT_CENTER, "Pearl", theme::ui_font(18.0), Color32::WHITE);
@@ -182,11 +183,11 @@ impl App {
                 if nav_item(ui, Page::Info.icon(), Page::Info.label(), page == Page::Info).clicked() {
                     page = Page::Info;
                 }
-                if nav_item(ui, Icon::Clock, "Histórico de versões", false).clicked() {
+                if nav_item(ui, Icon::Clock, tx("version-history"), false).clicked() {
                     self.side = Some(super::Side::Versions);
                     close = true;
                 }
-                if nav_item(ui, Icon::Save, "Salvar", false).clicked() {
+                if nav_item(ui, Icon::Save, tx("save"), false).clicked() {
                     if self.path.is_some() {
                         close |= self.save(false);
                     } else {
@@ -198,7 +199,7 @@ impl App {
                         page = item;
                     }
                 }
-                if nav_item(ui, Icon::Close, "Fechar", false).on_hover_text("Fecha o documento e começa um em branco").clicked() {
+                if nav_item(ui, Icon::Close, tx("close"), false).on_hover_text(tx("closes-the-document-and-starts-a-blank")).clicked() {
                     self.request(&ctx, Pending::New);
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
@@ -215,36 +216,34 @@ impl App {
                     ui.add_space(18.0);
                     match page {
                         Page::Home => {
-                            section(ui, "Novo");
+                            section(ui, tx("new"));
                             self.new_tiles(ui, &ctx);
                             ui.add_space(18.0);
-                            section(ui, "Recentes");
+                            section(ui, tx("recent"));
                             self.recent_list(ui, &ctx, 8);
                         }
                         Page::New => self.new_tiles(ui, &ctx),
                         Page::Open => {
-                            if square_button(ui, Icon::OpenFolder, "Procurar…").clicked() {
+                            if square_button(ui, Icon::OpenFolder, tx("browse")).clicked() {
                                 self.request(&ctx, Pending::Open);
                             }
                             ui.add_space(18.0);
-                            section(ui, "Recentes");
+                            section(ui, tx("recent"));
                             self.recent_list(ui, &ctx, usize::MAX);
                         }
                         Page::Info => self.pane_details(ui, &t),
                         Page::SaveAs => {
-                            dim(ui, "Imagens e bibliografias são lidas da pasta onde o documento está salvo.");
+                            dim(ui, tx("images-and-bibliographies-are-read-from-the"));
                             ui.add_space(12.0);
-                            if square_button(ui, Icon::Folder, "Procurar…").clicked() && self.save(true) {
+                            if square_button(ui, Icon::Folder, tx("browse")).clicked() && self.save(true) {
                                 close = true;
                             }
                         }
                         Page::Export => {
-                            if action_row(ui, Icon::Print, "Exportar como PDF", "As páginas, prontas para imprimir ou enviar").clicked() {
+                            if action_row(ui, Icon::Print, tx("export-as-pdf-2"), tx("the-pages-ready-to-print-or-send")).clicked() {
                                 self.export_pdf();
                             }
-                            if action_row(ui, Icon::Save, "Salvar uma cópia", "O código Typst em outro arquivo, sem trocar o documento aberto")
-                                .clicked()
-                            {
+                            if action_row(ui, Icon::Save, tx("save-a-copy"), tx("the-typst-source-in-another-file-without")).clicked() {
                                 self.save_copy();
                             }
                         }
@@ -270,11 +269,11 @@ impl App {
     fn new_tiles(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(18.0, 14.0);
-            if tile(ui, "Documento em branco", None).clicked() {
+            if tile(ui, tx("blank-document"), None).clicked() {
                 self.request(ctx, Pending::New);
             }
             for (i, template) in TEMPLATES.iter().enumerate() {
-                if tile(ui, template.name, Some(i)).clicked() {
+                if tile(ui, tx(template.name), Some(i)).clicked() {
                     self.request(ctx, Pending::Template(i));
                 }
             }
@@ -284,12 +283,12 @@ impl App {
     fn recent_list(&mut self, ui: &mut Ui, ctx: &egui::Context, limit: usize) {
         let t = Tokens::get(ctx);
         if self.recent.is_empty() {
-            dim(ui, "Nenhum documento recente ainda.");
+            dim(ui, tx("no-recent-documents-yet"));
             return;
         }
         let width = ui.available_width().min(CONTENT_W);
         let (head, _) = ui.allocate_exact_size(vec2(width, 20.0), Sense::hover());
-        ui.painter().text(pos2(head.right() - MODIFIED_W, head.center().y), Align2::LEFT_CENTER, "Modificado", theme::ui_font(11.5), t.text_dim);
+        ui.painter().text(pos2(head.right() - MODIFIED_W, head.center().y), Align2::LEFT_CENTER, tx("modified"), theme::ui_font(11.5), t.text_dim);
         let ages = self.recent_ages.lock().map(|a| a.clone()).unwrap_or_default();
         let mut chosen = None;
         for (i, path) in self.recent.iter().take(limit).enumerate() {
@@ -312,7 +311,7 @@ impl App {
             clip.text(pos2(rect.left() + 44.0, rect.center().y + 9.0), Align2::LEFT_CENTER, &folder, theme::ui_font(11.5), t.text_dim);
             let when = match ages.get(path) {
                 Some(Some(seconds)) => recent::age(*seconds),
-                Some(None) => "Não encontrado".to_string(),
+                Some(None) => tx("not-found").to_string(),
                 None => String::new(),
             };
             ui.painter().text(pos2(rect.right() - MODIFIED_W, rect.center().y), Align2::LEFT_CENTER, when, theme::ui_font(12.0), t.text_dim);
@@ -326,18 +325,24 @@ impl App {
     }
 
     fn options(&mut self, ui: &mut Ui, ctx: &egui::Context) {
-        section(ui, "Salvamento");
-        ui.checkbox(&mut self.autosave, "Salvamento automático");
-        dim(ui, "Grava no arquivo cerca de um segundo depois de cada alteração, em documentos que já têm um arquivo.");
+        section(ui, tx("saving"));
+        ui.checkbox(&mut self.autosave, tx("autosave-2"));
+        dim(ui, tx("writes-to-the-file-about-a-second"));
         ui.add_space(14.0);
-        section(ui, "Aparência");
+        section(ui, tx("appearance"));
         for choice in theme::ThemeChoice::ALL {
             if ui.radio(self.theme == choice, choice.label()).clicked() {
                 self.choose_theme(ctx, choice);
             }
         }
         ui.add_space(14.0);
-        section(ui, "Editor");
-        ui.checkbox(&mut self.line_numbers, "Mostrar os números de linha");
+        section(ui, tx("language"));
+        for lang in crate::i18n::Lang::ALL {
+            if ui.radio(crate::i18n::current() == lang, lang.name()).clicked() {
+                crate::i18n::choose(lang);
+            }
+        }
+        section(ui, tx("editor"));
+        ui.checkbox(&mut self.line_numbers, tx("show-line-numbers"));
     }
 }

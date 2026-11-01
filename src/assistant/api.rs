@@ -1,6 +1,8 @@
 //! The Messages API over plain HTTP, as there is no official Rust SDK: the request, and reading its
 //! Server-Sent Events into the turn's content blocks.
 
+use crate::i18n::tx;
+use crate::tr;
 use std::io::BufRead;
 use std::time::Duration;
 
@@ -273,12 +275,12 @@ pub enum Failure {
 
 fn friendly(status: u16, detail: &str) -> String {
     match status {
-        401 => "A chave da API foi recusada. Confira-a no painel do Claude.".to_string(),
-        402 => "A conta da API está sem créditos ou com problema de cobrança.".to_string(),
-        403 => "Esta chave não tem permissão para usar este modelo.".to_string(),
-        404 => "O modelo não está disponível para esta conta.".to_string(),
-        413 => "O documento é grande demais para esta requisição.".to_string(),
-        _ => format!("A API respondeu {status}: {detail}"),
+        401 => tx("the-api-key-was-refused-check-it").to_string(),
+        402 => tx("the-api-account-is-out-of-credits").to_string(),
+        403 => tx("this-key-isnt-allowed-to-use-this").to_string(),
+        404 => tx("the-model-isnt-available-to-this-account").to_string(),
+        413 => tx("the-document-is-too-large-for-this").to_string(),
+        _ => tr!("api-status", status = status.to_string(), detail = detail),
     }
 }
 
@@ -312,7 +314,7 @@ pub fn stream(connection: &Connection, body: &Value, stopped: &dyn Fn() -> bool,
             }
             Err(ureq::Error::Transport(error)) => {
                 if attempt >= MAX_ATTEMPTS {
-                    return Err(Failure::Failed(format!("Sem conexão com a API: {error}")));
+                    return Err(Failure::Failed(tr!("api-no-connection", error = error.to_string())));
                 }
                 1 << attempt
             }
@@ -330,7 +332,7 @@ pub fn stream(connection: &Connection, body: &Value, stopped: &dyn Fn() -> bool,
         if stopped() {
             return Err(Failure::Stopped);
         }
-        let line = line.map_err(|e| Failure::Failed(format!("A conexão com a API caiu: {e}")))?;
+        let line = line.map_err(|e| Failure::Failed(tr!("api-connection-lost", error = e.to_string())))?;
         let Some(data) = line.strip_prefix("data:") else { continue };
         let Ok(value) = serde_json::from_str::<Value>(data.trim_start()) else { continue };
         finished |= value["type"] == "message_stop";
@@ -341,7 +343,7 @@ pub fn stream(connection: &Connection, body: &Value, stopped: &dyn Fn() -> bool,
     let turn = assembler.finish();
     // A stream that ends with no stop reason was cut off: its content can't be trusted as a turn.
     if !finished && turn.stop_reason.is_none() {
-        return Err(Failure::Failed("A resposta da API foi interrompida.".to_string()));
+        return Err(Failure::Failed(tx("the-apis-answer-was-cut-off").to_string()));
     }
     Ok(turn)
 }

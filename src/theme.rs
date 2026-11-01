@@ -1,6 +1,7 @@
 //! Design tokens and fonts: the palette, metrics and style of MK Matrix's interface.
 //! Adapted from MK Matrix (MIT OR Apache-2.0); see NOTICE.
 
+use crate::i18n::tx;
 use std::sync::Arc;
 
 use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, Visuals};
@@ -368,9 +369,9 @@ impl ThemeChoice {
 
     pub fn label(self) -> &'static str {
         match self {
-            ThemeChoice::System => "Sistema",
-            ThemeChoice::Light => "Claro",
-            ThemeChoice::Dark => "Escuro",
+            ThemeChoice::System => tx("system"),
+            ThemeChoice::Light => tx("light"),
+            ThemeChoice::Dark => tx("dark"),
             ThemeChoice::Pearl => "Pearl",
         }
     }

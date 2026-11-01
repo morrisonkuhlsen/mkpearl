@@ -1,6 +1,7 @@
 //! The background compiler: one thread owns the Typst world, so incremental compilation carries
 //! over between edits and typing never waits for layout.
 
+use crate::i18n::tx;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -260,7 +261,7 @@ impl Worker {
             self.path = path;
         }
         let Some(world) = self.world.as_mut() else {
-            self.emit(Event::Failed("Não foi possível abrir a pasta do documento.".into()));
+            self.emit(Event::Failed(tx("couldnt-open-the-documents-folder").into()));
             return;
         };
         world.update(text);
@@ -268,7 +269,7 @@ impl Worker {
         // A panic in the compiler must not take the unsaved text down with it.
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| typst::compile::<PagedDocument>(world)));
         let Ok(warned) = result else {
-            self.emit(Event::Failed("O compilador falhou neste documento.".into()));
+            self.emit(Event::Failed(tx("the-compiler-failed-on-this-document").into()));
             self.world = None;
             return;
         };
@@ -433,7 +434,7 @@ impl Worker {
     }
 
     fn export(&self, path: &std::path::Path) -> Result<(), String> {
-        let doc = self.doc.as_ref().ok_or("O documento ainda não compilou.")?;
+        let doc = self.doc.as_ref().ok_or(tx("the-document-hasnt-compiled-yet"))?;
         let bytes = typst_pdf::pdf(doc, &PdfOptions::default())
             .map_err(|errors| errors.iter().map(|e| e.message.to_string()).collect::<Vec<_>>().join("; "))?;
         std::fs::write(path, bytes).map_err(|e| e.to_string())
@@ -444,15 +445,15 @@ fn kind_name(kind: &typst_ide::CompletionKind) -> &'static str {
     use typst_ide::CompletionKind as K;
     match kind {
         K::Syntax => "sintaxe",
-        K::Func => "função",
+        K::Func => tx("function"),
         K::Type => "tipo",
-        K::Param => "parâmetro",
+        K::Param => tx("parameter"),
         K::Constant => "valor",
         K::Path => "arquivo",
         K::Package => "pacote",
-        K::Label => "rótulo",
+        K::Label => tx("label"),
         K::Font => "fonte",
-        K::Symbol(_) => "símbolo",
+        K::Symbol(_) => tx("symbol"),
     }
 }
 

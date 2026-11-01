@@ -9,6 +9,7 @@ pub mod compiler;
 pub mod edit;
 pub mod highlight;
 pub mod history;
+pub mod i18n;
 pub mod icons;
 pub mod licenses;
 pub mod recent;

@@ -36,6 +36,7 @@ fn show_splash() -> eframe::Result {
 fn main() -> eframe::Result {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     let path = args.iter().find(|a| !a.to_string_lossy().starts_with("--")).map(std::path::PathBuf::from);
+    pearl::i18n::set(pearl::i18n::load());
     // Before the splash, so the fonts and the first compile are ready when the window opens.
     let mut app = pearl::app::App::new(path).map_err(|e| eframe::Error::AppCreation(e.into()))?;
     app.enable_recovery();

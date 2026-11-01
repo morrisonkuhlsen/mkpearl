@@ -291,7 +291,7 @@ impl Message {
 pub fn clean_name(name: &str) -> String {
     let clean: String = name.chars().filter(|c| !c.is_control()).take(MAX_NAME).collect();
     let clean = clean.trim();
-    if clean.is_empty() { "Convidado".to_string() } else { clean.to_string() }
+    if clean.is_empty() { crate::i18n::tx("guest").to_string() } else { clean.to_string() }
 }
 
 /// Where a received file goes inside `root`, or `None` for a path that would leave it.

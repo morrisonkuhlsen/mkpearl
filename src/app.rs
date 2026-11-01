@@ -1,5 +1,7 @@
 //! The window: tab strip, ribbon, source editor, live pages and status bar.
 
+use crate::i18n::tx;
+use crate::tr;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -23,7 +25,8 @@ use crate::widgets::{field_menu, glyphs, group_begin, group_end, icon_button_mon
 
 mod backstage;
 
-const TABS: [&str; 6] = ["Página Inicial", "Inserir", "Layout da Página", "Referências", "Matemática", "Exibir"];
+/// The tabs, by the ids of their names.
+const TABS: [&str; 6] = ["home-2", "insert", "page-layout", "references", "math", "view"];
 /// Seconds between copies of unsaved text while it keeps changing.
 const RECOVERY_EVERY: f64 = 3.0;
 /// Holds "off" when the rulers are hidden.
@@ -36,9 +39,9 @@ const AUTO_VERSION_EVERY: f64 = 300.0;
 const MAX_CHANGES_SHOWN: usize = 200;
 /// Most search matches highlighted at a time.
 const MAX_MATCHES_SHOWN: usize = 2000;
-const LIST_BULLETS: &str = "Lista com marcadores";
-const LIST_NUMBERED: &str = "Lista numerada";
-const LIST_TERMS: &str = "Lista de termos";
+const LIST_BULLETS: &str = "bulleted-list";
+const LIST_NUMBERED: &str = "numbered-list";
+const LIST_TERMS: &str = "term-list";
 const RAIL_WIDTH: f32 = 44.0;
 const SIDE_WIDTH: f32 = 320.0;
 const SIDE_STRIP: f32 = 30.0;
@@ -165,7 +168,7 @@ enum Said {
 /// The Symbols pane: groups of the glyph shown and the Typst math code it inserts.
 pub const SYMBOL_GROUPS: &[(&str, &[(&str, &str)])] = &[
     (
-        "Letras gregas",
+        "greek-letters",
         &[
             ("α", "alpha"),
             ("β", "beta"),
@@ -197,7 +200,7 @@ pub const SYMBOL_GROUPS: &[(&str, &[(&str, &str)])] = &[
         ],
     ),
     (
-        "Operadores",
+        "operators",
         &[
             ("±", "plus.minus"),
             ("×", "times"),
@@ -212,10 +215,10 @@ pub const SYMBOL_GROUPS: &[(&str, &[(&str, &str)])] = &[
             ("√", "sqrt(x)"),
         ],
     ),
-    ("Relações", &[("≤", "<="), ("≥", ">="), ("≠", "!="), ("≈", "approx"), ("≡", "equiv"), ("∝", "prop")]),
-    ("Setas", &[("→", "->"), ("←", "<-"), ("↔", "<->"), ("⇒", "=>"), ("⇔", "<=>"), ("↦", "|->")]),
+    ("relations", &[("≤", "<="), ("≥", ">="), ("≠", "!="), ("≈", "approx"), ("≡", "equiv"), ("∝", "prop")]),
+    ("arrows", &[("→", "->"), ("←", "<-"), ("↔", "<->"), ("⇒", "=>"), ("⇔", "<=>"), ("↦", "|->")]),
     (
-        "Conjuntos e lógica",
+        "sets-and-logic",
         &[
             ("∈", "in"),
             ("∉", "in.not"),
@@ -378,7 +381,7 @@ impl App {
             text,
             path,
             dirty: false,
-            tab: "Página Inicial".into(),
+            tab: "home-2".into(),
             layout: Layout::Both,
             zoom: None,
             fit_zoom: 1.0,
@@ -386,7 +389,7 @@ impl App {
             textures: HashMap::new(),
             diags: Vec::new(),
             millis: None,
-            status: "Carregando fontes…".into(),
+            status: tx("loading-fonts").into(),
             setup: false,
             want_focus: true,
             pending_caret: None,
@@ -458,7 +461,8 @@ impl App {
     }
 
     pub fn set_tab(&mut self, tab: &str) {
-        self.tab = tab.to_string();
+        // By id, or by its name in the language on show.
+        self.tab = TABS.iter().find(|id| **id == tab || tx(id) == tab).map_or_else(|| tab.to_string(), |id| (*id).to_string());
     }
 
     /// Opens a side pane by its place on the strip.
@@ -605,7 +609,7 @@ impl App {
                         self.pages = pages;
                     }
                     self.millis = Some(millis);
-                    self.status = format!("Compilado em {millis} ms");
+                    self.status = tr!("compiled-in", ms = millis.to_string());
                     self.diags = diags;
                 }
                 Event::JumpToSource { byte } => {
@@ -638,8 +642,8 @@ impl App {
                         session.share_files(files);
                     }
                 }
-                Event::Exported(Ok(path)) => self.status = format!("PDF salvo em {}", path.display()),
-                Event::Exported(Err(e)) => self.status = format!("Falha ao exportar: {e}"),
+                Event::Exported(Ok(path)) => self.status = tr!("pdf-saved", path = path.display().to_string()),
+                Event::Exported(Err(e)) => self.status = tr!("export-failed", error = e.to_string()),
                 Event::Failed(e) => self.status = e,
             }
         }
@@ -816,7 +820,7 @@ impl App {
                 self.set_selection(ctx, (0, 0));
                 self.compile();
             }
-            Err(e) => self.status = format!("Não foi possível abrir {}: {e}", path.display()),
+            Err(e) => self.status = tr!("cant-open", path = path.display().to_string(), error = e.to_string()),
         }
     }
 
@@ -838,7 +842,7 @@ impl App {
         let Some(path) = target else { return false };
         match std::fs::write(&path, &self.text) {
             Ok(()) => {
-                self.status = format!("Salvo em {}", path.display());
+                self.status = tr!("saved-to", path = path.display().to_string());
                 self.path = Some(path);
                 self.dirty = false;
                 self.remember_path();
@@ -854,7 +858,7 @@ impl App {
                 true
             }
             Err(e) => {
-                self.status = format!("Não foi possível salvar: {e}");
+                self.status = tr!("cant-save", error = e.to_string());
                 false
             }
         }
@@ -862,11 +866,11 @@ impl App {
 
     fn export_pdf(&mut self) {
         if self.previewing {
-            self.status = "As páginas estão mostrando uma versão antiga: volte ao documento antes de exportar.".into();
+            self.status = tx("the-pages-are-showing-an-old-version").into();
             return;
         }
         if self.diags.iter().any(|d| d.error) {
-            self.status = "Corrija os erros antes de exportar: o PDF sairia desatualizado.".into();
+            self.status = tx("fix-the-errors-before-exporting-the-pdf").into();
             return;
         }
         let name = self.path.as_deref().and_then(Path::file_stem).map_or_else(|| "documento".to_string(), |s| s.to_string_lossy().into_owned());
@@ -878,10 +882,11 @@ impl App {
     /// Inserts a picture from the document's folder, the only place Typst may read it from.
     fn insert_image(&mut self, ctx: &egui::Context) {
         let Some(dir) = self.path.as_deref().and_then(Path::parent).map(Path::to_path_buf) else {
-            self.status = "Salve o documento antes de inserir imagens: elas são lidas da pasta dele.".into();
+            self.status = tx("save-the-document-before-inserting-images-they").into();
             return;
         };
-        let Some(file) = rfd::FileDialog::new().set_directory(&dir).add_filter("Imagens", &["png", "jpg", "jpeg", "gif", "svg", "webp"]).pick_file()
+        let Some(file) =
+            rfd::FileDialog::new().set_directory(&dir).add_filter(tx("images"), &["png", "jpg", "jpeg", "gif", "svg", "webp"]).pick_file()
         else {
             return;
         };
@@ -892,7 +897,7 @@ impl App {
                 let snippet = format!("#figure(\n  image(\"{escaped}\"),\n  caption: [Legenda],\n)\n");
                 self.edit(ctx, |t, s| edit::insert_plain(t, s, &snippet));
             }
-            Err(_) => self.status = "A imagem precisa estar na pasta do documento.".into(),
+            Err(_) => self.status = tx("the-image-has-to-be-in-the").into(),
         }
     }
 
@@ -1096,7 +1101,7 @@ impl App {
     fn keep_version(&mut self, kind: history::Kind) {
         let (Some(store), Some(path)) = (self.store(), self.path.clone()) else { return };
         if let Err(e) = store.keep(&path, &self.text, kind, history::now_ms()) {
-            self.status = format!("Não foi possível guardar esta versão: {e}");
+            self.status = tr!("cant-keep-version", error = e.to_string());
         }
         self.versions = store.list();
     }
@@ -1121,7 +1126,7 @@ impl App {
                     self.compile();
                 }
             }
-            None => self.status = "Não foi possível ler esta versão.".into(),
+            None => self.status = tx("couldnt-read-this-version").into(),
         }
     }
 
@@ -1141,7 +1146,7 @@ impl App {
             *text = viewed.text.clone();
             (0, 0)
         });
-        self.status = format!("Restaurada a versão de {when}.");
+        self.status = tr!("version-restored", when = when);
     }
 
     pub fn version_labels(&self) -> Vec<&'static str> {
@@ -1151,7 +1156,7 @@ impl App {
     fn pane_versions(&mut self, ui: &mut Ui, t: &Tokens) {
         let ctx = ui.ctx().clone();
         if self.path.is_none() {
-            ui.colored_label(t.text_dim, "O histórico começa quando o documento é salvo.");
+            ui.colored_label(t.text_dim, tx("the-history-starts-when-the-document-is"));
             return;
         }
         if self.versions.is_empty() {
@@ -1193,16 +1198,16 @@ impl App {
                 let same = viewed.text == self.text;
                 let mut action = 0;
                 ui.horizontal(|ui| {
-                    let label = if self.previewing { "Voltar ao documento" } else { "Ver nas páginas" };
+                    let label = if self.previewing { tx("back-to-the-document") } else { tx("see-on-the-pages") };
                     if ui.button(label).clicked() {
                         action = 1;
                     }
-                    if ui.add_enabled(!same, egui::Button::new("Restaurar")).clicked() {
+                    if ui.add_enabled(!same, egui::Button::new(tx("restore"))).clicked() {
                         action = 2;
                     }
                 });
                 if same {
-                    ui.colored_label(t.text_dim, "Igual ao documento atual.");
+                    ui.colored_label(t.text_dim, tx("same-as-the-current-document"));
                 } else {
                     let green = t.error_check_green;
                     for change in viewed.changes.iter().take(MAX_CHANGES_SHOWN) {
@@ -1214,7 +1219,7 @@ impl App {
                         ui.add(egui::Label::new(egui::RichText::new(format!("{mark} {line}")).font(FontId::monospace(11.5)).color(color)).truncate());
                     }
                     if viewed.changes.len() > MAX_CHANGES_SHOWN {
-                        ui.colored_label(t.text_dim, format!("… e mais {} linhas", viewed.changes.len() - MAX_CHANGES_SHOWN));
+                        ui.colored_label(t.text_dim, tr!("more-lines", n = viewed.changes.len() - MAX_CHANGES_SHOWN));
                     }
                 }
                 ui.add_space(8.0);
@@ -1235,24 +1240,24 @@ impl App {
             self.restore_version(&ctx);
         }
         ui.add_space(14.0);
-        ui.colored_label(t.text_dim, "As versões ficam só neste computador, fora da pasta do documento. As mais antigas vão sendo espaçadas; mover ou renomear o arquivo começa um histórico novo.");
+        ui.colored_label(t.text_dim, tx("versions-stay-on-this-computer-only-outside"));
         ui.add_space(6.0);
         if self.confirm_clear_history {
-            ui.label("Apagar todas as versões deste documento? Isso não pode ser desfeito.");
+            ui.label(tx("delete-all-versions-of-this-document-this"));
             ui.horizontal(|ui| {
-                if ui.button("Apagar").clicked() {
+                if ui.button(tx("delete")).clicked() {
                     if let Some(Err(e)) = self.store().map(|store| store.clear()) {
-                        self.status = format!("Não foi possível apagar: {e}");
+                        self.status = tr!("cant-delete", error = e.to_string());
                     }
                     self.versions.clear();
                     self.end_viewing();
                     self.confirm_clear_history = false;
                 }
-                if ui.button("Cancelar").clicked() {
+                if ui.button(tx("cancel")).clicked() {
                     self.confirm_clear_history = false;
                 }
             });
-        } else if ui.small_button("Apagar o histórico deste documento").clicked() {
+        } else if ui.small_button(tx("delete-this-documents-history")).clicked() {
             self.confirm_clear_history = true;
         }
     }
@@ -1274,7 +1279,7 @@ impl App {
     /// under way, or into a private one on this machine.
     pub fn ask_claude(&mut self, ctx: &egui::Context, instruction: &str) {
         let Some(connection) = Self::api_connection() else {
-            self.transcript.push(Said::Problem("Falta a chave da API.".to_string()));
+            self.transcript.push(Said::Problem(tx("the-api-key-is-missing").to_string()));
             return;
         };
         if self.session.is_none() {
@@ -1293,7 +1298,7 @@ impl App {
         }
         let Some(session) = &self.session else { return };
         if session.is_waiting() {
-            self.transcript.push(Said::Problem("Espere a sessão terminar de conectar.".to_string()));
+            self.transcript.push(Said::Problem(tx("wait-for-the-session-to-finish-connecting").to_string()));
             return;
         }
         if self.assistant.is_none() {
@@ -1340,9 +1345,9 @@ impl App {
                 }
                 Update::Stopped => {
                     self.assistant_busy = false;
-                    self.transcript.push(Said::Action("Parado".to_string()));
+                    self.transcript.push(Said::Action(tx("stopped").to_string()));
                 }
-                Update::Undone => self.transcript.push(Said::Action("O que o Claude fez foi desfeito".to_string())),
+                Update::Undone => self.transcript.push(Said::Action(tx("what-claude-did-was-undone").to_string())),
                 Update::Problem(message) => {
                     self.assistant_busy = false;
                     self.transcript.push(Said::Problem(message));
@@ -1384,23 +1389,20 @@ impl App {
     fn pane_claude(&mut self, ui: &mut Ui, t: &Tokens) {
         let ctx = ui.ctx().clone();
         let Some(_) = Self::api_connection() else {
-            ui.label("O Claude entra no documento como mais uma pessoa: com cursor e nome próprios, e você pode desfazer só o que ele fez.");
+            ui.label(tx("claude-joins-the-document-as-one-more"));
             ui.add_space(8.0);
-            ui.label("Cole uma chave da API da Anthropic (console.anthropic.com):");
+            ui.label(tx("paste-an-anthropic-api-key-consoleanthropiccom"));
             ui.add(egui::TextEdit::singleline(&mut self.key_input).password(true).desired_width(f32::INFINITY).hint_text("sk-ant-…"));
             ui.add_space(4.0);
-            if ui.add_enabled(!self.key_input.trim().is_empty(), egui::Button::new("Salvar a chave")).clicked() {
+            if ui.add_enabled(!self.key_input.trim().is_empty(), egui::Button::new(tx("save-the-key"))).clicked() {
                 if crate::recent::write_secret(KEY_FILE, self.key_input.trim()) {
                     self.key_input.clear();
                 } else {
-                    self.status = "Não foi possível guardar a chave.".into();
+                    self.status = tx("couldnt-store-the-key").into();
                 }
             }
             ui.add_space(8.0);
-            ui.colored_label(
-                t.text_dim,
-                "A chave fica só neste computador, nunca vai para os outros da sessão. Cada pedido consome créditos da sua conta.",
-            );
+            ui.colored_label(t.text_dim, tx("the-key-stays-on-this-computer-and"));
             return;
         };
         for said in &self.transcript {
@@ -1421,10 +1423,7 @@ impl App {
             }
         }
         if self.transcript.is_empty() {
-            ui.colored_label(
-                t.text_dim,
-                "Peça o que quiser no documento: você vê o Claude escrevendo e pode continuar digitando. Se houver texto selecionado, ele vai junto.",
-            );
+            ui.colored_label(t.text_dim, tx("ask-for-anything-in-the-document-you"));
         }
         ui.add_space(10.0);
         let input_id = Id::unique("claude-input");
@@ -1435,45 +1434,42 @@ impl App {
                 .id(input_id)
                 .desired_rows(3)
                 .desired_width(f32::INFINITY)
-                .hint_text("Peça algo ao Claude…"),
+                .hint_text(tx("ask-claude-for-something")),
         );
         ui.horizontal(|ui| {
             if self.assistant_busy {
-                if ui.button("Parar").clicked()
+                if ui.button(tx("stop")).clicked()
                     && let Some(assistant) = &self.assistant
                 {
                     assistant.stop();
                 }
             } else {
                 let ready = !self.assistant_input.trim().is_empty();
-                if (ui.add_enabled(ready, egui::Button::new("Enviar")).clicked() || enter) && ready {
+                if (ui.add_enabled(ready, egui::Button::new(tx("send"))).clicked() || enter) && ready {
                     let instruction = std::mem::take(&mut self.assistant_input);
                     self.ask_claude(&ctx, instruction.trim());
                 }
             }
             if self.assistant.is_some()
-                && ui.add_enabled(!self.assistant_busy, egui::Button::new("Desfazer o que ele fez")).clicked()
+                && ui.add_enabled(!self.assistant_busy, egui::Button::new(tx("undo-what-it-did"))).clicked()
                 && let Some(assistant) = &self.assistant
             {
                 assistant.undo_all();
             }
         });
-        if self.assistant.is_some() && ui.add_enabled(!self.assistant_busy, egui::Button::new("Tirar o Claude do documento")).clicked() {
+        if self.assistant.is_some() && ui.add_enabled(!self.assistant_busy, egui::Button::new(tx("take-claude-out-of-the-document"))).clicked() {
             self.dismiss_claude();
         }
         ui.add_space(10.0);
         let u = self.assistant_usage;
         if u.input + u.output + u.cache_read > 0 {
-            ui.colored_label(t.text_dim, format!("Tokens: {} de entrada, {} em cache, {} de saída", u.input + u.cache_write, u.cache_read, u.output));
+            ui.colored_label(
+                t.text_dim,
+                tr!("tokens", input = (u.input + u.cache_write).to_string(), cached = u.cache_read.to_string(), output = u.output.to_string()),
+            );
         }
-        ui.colored_label(
-            t.text_dim,
-            format!(
-                "O documento é enviado à Anthropic para o Claude trabalhar, e cada pedido consome créditos da sua conta. Modelo: {}.",
-                api::MODEL
-            ),
-        );
-        if crate::recent::read_setting(KEY_FILE).is_some() && ui.small_button("Remover a chave salva").clicked() {
+        ui.colored_label(t.text_dim, tr!("claude-costs", model = api::MODEL));
+        if crate::recent::read_setting(KEY_FILE).is_some() && ui.small_button(tx("remove-the-saved-key")).clicked() {
             crate::recent::remove_setting(KEY_FILE);
             self.dismiss_claude();
         }
@@ -1498,8 +1494,8 @@ impl App {
             match change {
                 Change::Text => text_changed = true,
                 Change::File => recompile = true,
-                Change::Joined(name) => self.status = format!("{name} entrou na sessão."),
-                Change::Left(name) => self.status = format!("{name} saiu da sessão."),
+                Change::Joined(name) => self.status = tr!("joined", name = name),
+                Change::Left(name) => self.status = tr!("left", name = name),
                 Change::Ended(reason) => ended = Some(reason),
             }
         }
@@ -1546,7 +1542,7 @@ impl App {
 
     fn start_session(&mut self, ctx: &egui::Context) {
         let Some(path) = self.path.clone() else {
-            self.status = "Salve o documento antes de compartilhar: a sessão usa o arquivo e a pasta dele.".into();
+            self.status = tx("save-the-document-before-sharing-the-session").into();
             return;
         };
         let file_name = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
@@ -1575,7 +1571,7 @@ impl App {
                 self.backstage = None;
                 self.set_selection(ctx, (0, 0));
                 self.share_dialog = Some(ShareDialog::Running { copied: false });
-                self.status = "Conectando à sessão…".into();
+                self.status = tx("connecting-to-the-session").into();
             }
             Err(e) => self.status = e,
         }
@@ -1586,100 +1582,103 @@ impl App {
         let mut keep = true;
         let mut action: Option<fn(&mut App, &egui::Context)> = None;
         let title = match dialog {
-            ShareDialog::Start => "Iniciar sessão compartilhada",
-            ShareDialog::Join { .. } => "Entrar em uma sessão",
-            ShareDialog::Running { .. } => "Sessão compartilhada",
+            ShareDialog::Start => tx("start-a-shared-session"),
+            ShareDialog::Join { .. } => tx("join-a-session"),
+            ShareDialog::Running { .. } => tx("shared-session"),
         };
-        egui::Window::new(title).collapsible(false).resizable(false).default_width(460.0).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-            ui.set_width(460.0);
-            match &mut dialog {
-                ShareDialog::Start => {
-                    ui.label("Quem receber o link poderá editar este documento e verá os arquivos que ele usa.");
-                    ui.label("Um documento pode ler outros arquivos da pasta dele. Compartilhe só com quem você confia.");
-                    ui.add_space(8.0);
-                    name_field(ui, &mut self.user_name);
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("Iniciar").clicked() {
-                            action = Some(|app, ctx| {
-                                crate::recent::write_setting("name.txt", &app.user_name);
-                                app.start_session(ctx);
-                            });
-                            keep = false;
-                        }
-                        if ui.button("Cancelar").clicked() {
-                            keep = false;
-                        }
-                    });
-                }
-                ShareDialog::Join { link } => {
-                    ui.label("Cole o link que a pessoa que abriu a sessão enviou:");
-                    ui.add(egui::TextEdit::singleline(link).desired_width(f32::INFINITY).hint_text("pearl://…"));
-                    ui.add_space(8.0);
-                    name_field(ui, &mut self.user_name);
-                    ui.add_space(4.0);
-                    ui.label("O documento aberto aqui será substituído pelo da sessão.");
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("Entrar").clicked() {
-                            action = Some(|app, ctx| {
-                                crate::recent::write_setting("name.txt", &app.user_name);
-                                app.request(ctx, Pending::Join);
-                            });
-                        }
-                        if ui.button("Cancelar").clicked() {
-                            keep = false;
-                        }
-                    });
-                }
-                ShareDialog::Running { copied } => {
-                    let Some(session) = &self.session else {
-                        keep = false;
-                        return;
-                    };
-                    if self.session_private {
-                        ui.label("Esta sessão é só entre você e o Claude, neste computador.");
-                        ui.label("Para editar com outras pessoas, tire o Claude do documento e inicie uma sessão compartilhada; depois é só chamá-lo de novo.");
+        egui::Window::new(title).collapsible(false).resizable(false).default_width(460.0).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(
+            ctx,
+            |ui| {
+                ui.set_width(460.0);
+                match &mut dialog {
+                    ShareDialog::Start => {
+                        ui.label(tx("whoever-gets-the-link-can-edit-this"));
+                        ui.label(tx("a-document-can-read-other-files-in"));
                         ui.add_space(8.0);
-                    } else if let Some(link) = session.share_link() {
-                        ui.label("Envie este link a quem vai editar com você:");
-                        let mut shown = link.to_string();
-                        ui.add(egui::TextEdit::singleline(&mut shown).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace));
-                        if ui.button(if *copied { "Copiado" } else { "Copiar link" }).clicked() {
-                            ctx.copy_text(link.to_string());
-                            *copied = true;
-                        }
+                        name_field(ui, &mut self.user_name);
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            if ui.button(tx("start")).clicked() {
+                                action = Some(|app, ctx| {
+                                    crate::recent::write_setting("name.txt", &app.user_name);
+                                    app.start_session(ctx);
+                                });
+                                keep = false;
+                            }
+                            if ui.button(tx("cancel")).clicked() {
+                                keep = false;
+                            }
+                        });
+                    }
+                    ShareDialog::Join { link } => {
+                        ui.label(tx("paste-the-link-sent-by-the-person"));
+                        ui.add(egui::TextEdit::singleline(link).desired_width(f32::INFINITY).hint_text("pearl://…"));
+                        ui.add_space(8.0);
+                        name_field(ui, &mut self.user_name);
                         ui.add_space(4.0);
-                        ui.label("Funciona na mesma rede. Pela internet, use uma VPN como o Tailscale e troque o endereço pelo dela.");
+                        ui.label(tx("the-document-open-here-will-be-replaced"));
                         ui.add_space(8.0);
-                    } else if session.is_waiting() {
-                        ui.label("Conectando…");
+                        ui.horizontal(|ui| {
+                            if ui.button(tx("join")).clicked() {
+                                action = Some(|app, ctx| {
+                                    crate::recent::write_setting("name.txt", &app.user_name);
+                                    app.request(ctx, Pending::Join);
+                                });
+                            }
+                            if ui.button(tx("cancel")).clicked() {
+                                keep = false;
+                            }
+                        });
                     }
-                    ui.label(egui::RichText::new("Pessoas na sessão").font(theme::ui_bold(13.0)));
-                    ui.label(format!("{} (você)", session.name()));
-                    for name in session.others() {
-                        ui.label(name);
+                    ShareDialog::Running { copied } => {
+                        let Some(session) = &self.session else {
+                            keep = false;
+                            return;
+                        };
+                        if self.session_private {
+                            ui.label(tx("this-session-is-only-between-you-and"));
+                            ui.label(tx("to-edit-with-other-people-take-claude"));
+                            ui.add_space(8.0);
+                        } else if let Some(link) = session.share_link() {
+                            ui.label(tx("send-this-link-to-whoever-will-edit"));
+                            let mut shown = link.to_string();
+                            ui.add(egui::TextEdit::singleline(&mut shown).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace));
+                            if ui.button(if *copied { tx("copied") } else { tx("copy-link") }).clicked() {
+                                ctx.copy_text(link.to_string());
+                                *copied = true;
+                            }
+                            ui.add_space(4.0);
+                            ui.label(tx("works-on-the-same-network-over-the"));
+                            ui.add_space(8.0);
+                        } else if session.is_waiting() {
+                            ui.label(tx("connecting"));
+                        }
+                        ui.label(egui::RichText::new(tx("people-in-the-session")).font(theme::ui_bold(13.0)));
+                        ui.label(tr!("you", name = session.name()));
+                        for name in session.others() {
+                            ui.label(name);
+                        }
+                        ui.add_space(8.0);
+                        let leave = if session.is_host() { tx("end-the-session") } else { tx("leave-the-session") };
+                        ui.horizontal(|ui| {
+                            if ui.button(tx("close")).clicked() {
+                                keep = false;
+                            }
+                            if ui.button(leave).clicked() {
+                                action = Some(|app, _| {
+                                    let guest = app.session.as_ref().is_some_and(|s| !s.is_host());
+                                    app.session = None;
+                                    app.dirty |= guest;
+                                    app.status = tx("you-left-the-session").into();
+                                    app.compile();
+                                });
+                                keep = false;
+                            }
+                        });
                     }
-                    ui.add_space(8.0);
-                    let leave = if session.is_host() { "Encerrar a sessão" } else { "Sair da sessão" };
-                    ui.horizontal(|ui| {
-                        if ui.button("Fechar").clicked() {
-                            keep = false;
-                        }
-                        if ui.button(leave).clicked() {
-                            action = Some(|app, _| {
-                                let guest = app.session.as_ref().is_some_and(|s| !s.is_host());
-                                app.session = None;
-                                app.dirty |= guest;
-                                app.status = "Você saiu da sessão.".into();
-                                app.compile();
-                            });
-                            keep = false;
-                        }
-                    });
                 }
-            }
-        });
+            },
+        );
         if keep {
             self.share_dialog = Some(dialog);
         }
@@ -1702,7 +1701,7 @@ impl App {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.confirm = Some(Pending::Quit);
         }
-        let name = self.path.as_deref().and_then(Path::file_name).map_or_else(|| "Sem título".to_string(), |n| n.to_string_lossy().into_owned());
+        let name = self.path.as_deref().and_then(Path::file_name).map_or_else(|| tx("untitled").to_string(), |n| n.to_string_lossy().into_owned());
         // Only when it changes: a viewport command wakes the window again, so sending it every frame
         // would keep an idle window redrawing.
         let title = format!("{}{name} — Pearl", if self.dirty { "• " } else { "" });
@@ -1789,28 +1788,28 @@ impl App {
                 }
                 ui.horizontal_centered(|ui| {
                     ui.add_space(8.0);
-                    ui.label(egui::RichText::new("Salvamento Automático").font(theme::ui_font(12.5)).color(t.text_dim));
+                    ui.label(egui::RichText::new(tx("autosave")).font(theme::ui_font(12.5)).color(t.text_dim));
                     let on = self.autosave;
                     let (r, resp) = ui.allocate_exact_size(vec2(30.0, 16.0), Sense::click());
                     ui.painter().rect_filled(r, 8.0, if on { t.accent } else { Color32::TRANSPARENT });
                     ui.painter().rect_stroke(r, 8.0, Stroke::new(1.0, if on { t.accent } else { t.text_dim }), egui::StrokeKind::Inside);
                     let knob = if on { pos2(r.right() - 8.0, r.center().y) } else { pos2(r.left() + 8.0, r.center().y) };
                     ui.painter().circle_filled(knob, 5.0, if on { t.on_accent } else { t.text_dim });
-                    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, on, "Salvamento Automático"));
-                    if resp.on_hover_text("Salva depois de cada alteração, em documentos que já têm um arquivo").clicked() {
+                    resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, on, tx("autosave")));
+                    if resp.on_hover_text(tx("saves-after-each-change-in-documents-that")).clicked() {
                         self.autosave = !on;
                     }
                     ui.add_space(6.0);
-                    if icon_button_mono(ui, Icon::Save, t.text_dim, "Salvar (Ctrl+S)", vec2(26.0, ch)).clicked() {
+                    if icon_button_mono(ui, Icon::Save, t.text_dim, tx("save-s"), vec2(26.0, ch)).clicked() {
                         self.save(false);
                     }
-                    if icon_button_mono(ui, Icon::Undo, t.text_dim, "Desfazer (Ctrl+Z)", vec2(26.0, ch)).clicked() {
+                    if icon_button_mono(ui, Icon::Undo, t.text_dim, tx("undo-z"), vec2(26.0, ch)).clicked() {
                         self.undo(&ctx, false);
                     }
-                    let undo_list = icon_button_mono(ui, Icon::Chevron, t.text_dim, "Desfazer vários passos", vec2(14.0, ch));
+                    let undo_list = icon_button_mono(ui, Icon::Chevron, t.text_dim, tx("undo-several-steps"), vec2(14.0, ch));
                     egui::Popup::menu(&undo_list).show(|ui| {
                         for steps in [2, 5, 10, 20] {
-                            if ui.button(format!("Desfazer {steps} passos")).clicked() {
+                            if ui.button(tr!("undo-steps", n = steps)).clicked() {
                                 for _ in 0..steps {
                                     self.undo(&ctx, false);
                                 }
@@ -1818,10 +1817,10 @@ impl App {
                             }
                         }
                     });
-                    if icon_button_mono(ui, Icon::Redo, t.text_dim, "Refazer (Ctrl+Shift+Z)", vec2(26.0, ch)).clicked() {
+                    if icon_button_mono(ui, Icon::Redo, t.text_dim, tx("redo-shiftz"), vec2(26.0, ch)).clicked() {
                         self.undo(&ctx, true);
                     }
-                    let more = icon_button_mono(ui, Icon::More, t.text_dim, "Mais comandos", vec2(26.0, ch));
+                    let more = icon_button_mono(ui, Icon::More, t.text_dim, tx("more-commands"), vec2(26.0, ch));
                     egui::Popup::menu(&more).show(|ui| {
                         ui.set_min_width(180.0);
                         self.file_menu(ui, &ctx);
@@ -1834,19 +1833,19 @@ impl App {
                         } else {
                             ui.add_space(8.0);
                         }
-                        if icon_button_mono(ui, Icon::Search, t.text_dim, "Localizar no documento (Ctrl+F)", vec2(28.0, ch)).clicked() {
+                        if icon_button_mono(ui, Icon::Search, t.text_dim, tx("find-in-the-document-f"), vec2(28.0, ch)).clicked() {
                             self.open_find();
                         }
-                        let share = icon_button_mono(ui, Icon::Share, t.text_dim, "Compartilhar: exportar ou salvar uma cópia", vec2(28.0, ch));
+                        let share = icon_button_mono(ui, Icon::Share, t.text_dim, tx("share-export-or-save-a-copy"), vec2(28.0, ch));
                         egui::Popup::menu(&share).show(|ui| {
                             ui.set_min_width(190.0);
                             if self.session.is_some() {
-                                if ui.button("Ver a sessão…").clicked() {
+                                if ui.button(tx("see-the-session")).clicked() {
                                     self.share_dialog = Some(ShareDialog::Running { copied: false });
                                     ui.close();
                                 }
                             } else {
-                                if ui.button("Iniciar sessão compartilhada…").clicked() {
+                                if ui.button(tx("start-a-shared-session-2")).clicked() {
                                     if self.path.is_none() {
                                         self.save(true);
                                     }
@@ -1855,25 +1854,25 @@ impl App {
                                     }
                                     ui.close();
                                 }
-                                if ui.button("Entrar em uma sessão…").clicked() {
+                                if ui.button(tx("join-a-session-2")).clicked() {
                                     self.share_dialog = Some(ShareDialog::Join { link: String::new() });
                                     ui.close();
                                 }
                             }
                             ui.separator();
-                            if ui.button("Exportar como PDF…").clicked() {
+                            if ui.button(tx("export-as-pdf")).clicked() {
                                 self.export_pdf();
                                 ui.close();
                             }
-                            if ui.button("Salvar uma cópia (.typ)…").clicked() {
+                            if ui.button(tx("save-a-copy-typ")).clicked() {
                                 self.save_copy();
                                 ui.close();
                             }
                         });
-                        if icon_button_mono(ui, Icon::Comment, t.text_dim, "Comentar as linhas selecionadas", vec2(28.0, ch)).clicked() {
+                        if icon_button_mono(ui, Icon::Comment, t.text_dim, tx("comment-the-selected-lines"), vec2(28.0, ch)).clicked() {
                             self.edit(&ctx, edit::toggle_comment);
                         }
-                        let theme_button = icon_button_mono(ui, Icon::Appearance, t.text_dim, "Tema", vec2(28.0, ch));
+                        let theme_button = icon_button_mono(ui, Icon::Appearance, t.text_dim, tx("theme"), vec2(28.0, ch));
                         egui::Popup::menu(&theme_button).show(|ui| {
                             ui.set_min_width(120.0);
                             for choice in ThemeChoice::ALL {
@@ -1913,15 +1912,16 @@ impl App {
                 ui.scope_builder(egui::UiBuilder::new().max_rect(bar), |ui| {
                     ui.horizontal_centered(|ui| {
                         ui.spacing_mut().item_spacing.x = 0.0;
-                        let file = top_label(ui, "Arquivo", theme::ui_font(13.0), t.accent, MENU_H, t);
+                        let file = top_label(ui, tx("file"), theme::ui_font(13.0), t.accent, MENU_H, t);
                         if file.clicked() {
                             self.open_backstage(FilePage::Home);
                         }
                         for tab in TABS {
                             let active = self.tab == tab;
                             let (font, color) = if active { (theme::ui_bold(13.0), t.text) } else { (theme::ui_font(13.0), t.text_dim) };
-                            let resp = top_label(ui, tab, font, color, MENU_H, t);
-                            resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Tab, true, active, tab));
+                            let name = crate::i18n::tx(tab);
+                            let resp = top_label(ui, name, font, color, MENU_H, t);
+                            resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Tab, true, active, name));
                             // A click on the active tab, or a double click, folds the row away.
                             if resp.double_clicked() {
                                 self.ribbon_collapsed = !self.ribbon_collapsed;
@@ -1929,18 +1929,20 @@ impl App {
                                 if active && !self.ribbon_collapsed {
                                     self.ribbon_collapsed = true;
                                 } else {
-                                    self.tab = tab.to_string();
+                                    // By id, or by its name in the language on show.
+                                    self.tab =
+                                        TABS.iter().find(|id| **id == tab || tx(id) == tab).map_or_else(|| tab.to_string(), |id| (*id).to_string());
                                     self.ribbon_collapsed = false;
                                 }
                             }
                         }
-                        let help = top_label(ui, "Ajuda", theme::ui_font(13.0), t.text, MENU_H, t);
+                        let help = top_label(ui, tx("help"), theme::ui_font(13.0), t.text, MENU_H, t);
                         egui::Popup::menu(&help).show(|ui| {
                             ui.set_min_width(230.0);
                             for (label, url) in [
-                                ("Documentação do Typst", "https://typst.app/docs/"),
-                                ("Referência de matemática", "https://typst.app/docs/reference/math/"),
-                                ("Pacotes (Typst Universe)", "https://typst.app/universe/"),
+                                (tx("typst-documentation"), "https://typst.app/docs/"),
+                                (tx("math-reference"), "https://typst.app/docs/reference/math/"),
+                                (tx("packages-typst-universe"), "https://typst.app/universe/"),
                             ] {
                                 if ui.button(label).clicked() {
                                     ctx.open_url(egui::OpenUrl::new_tab(url));
@@ -1948,7 +1950,7 @@ impl App {
                                 }
                             }
                             ui.separator();
-                            if ui.button("Sobre o Pearl").clicked() {
+                            if ui.button(tx("about-pearl")).clicked() {
                                 self.about = true;
                                 ui.close();
                             }
@@ -1982,24 +1984,24 @@ impl App {
         let item = |ui: &mut Ui, label: &str, key: &str| {
             ui.add(egui::Button::new(label).shortcut_text(key).frame_when_inactive(false).min_size(vec2(180.0, 24.0))).clicked()
         };
-        if item(ui, "Novo", "Ctrl+N") {
+        if item(ui, tx("new"), "Ctrl+N") {
             self.request(ctx, Pending::New);
             ui.close();
         }
-        if item(ui, "Abrir…", "Ctrl+O") {
+        if item(ui, tx("open"), "Ctrl+O") {
             self.request(ctx, Pending::Open);
             ui.close();
         }
         ui.separator();
-        if item(ui, "Salvar", "Ctrl+S") {
+        if item(ui, tx("save"), "Ctrl+S") {
             self.save(false);
             ui.close();
         }
-        if item(ui, "Salvar como…", "Ctrl+Shift+S") {
+        if item(ui, tx("save-as"), "Ctrl+Shift+S") {
             self.save(true);
             ui.close();
         }
-        if item(ui, "Exportar PDF…", "Ctrl+E") {
+        if item(ui, tx("export-pdf"), "Ctrl+E") {
             self.export_pdf();
             ui.close();
         }
@@ -2007,11 +2009,11 @@ impl App {
 
     fn ribbon(&mut self, ui: &mut Ui) {
         match self.tab.as_str() {
-            "Inserir" => self.tab_insert(ui),
-            "Layout da Página" => self.tab_layout(ui),
-            "Referências" => self.tab_references(ui),
-            "Matemática" => self.tab_math(ui),
-            "Exibir" => self.tab_view(ui),
+            "insert" => self.tab_insert(ui),
+            "page-layout" => self.tab_layout(ui),
+            "references" => self.tab_references(ui),
+            "math" => self.tab_math(ui),
+            "view" => self.tab_view(ui),
             _ => self.tab_home(ui),
         }
     }
@@ -2032,37 +2034,37 @@ impl App {
         let line = self.text.get(start..).unwrap_or_default();
         let level = line.chars().take_while(|c| *c == '=').count();
         match level {
-            1..=6 if line.get(level..).is_some_and(|r| r.starts_with(' ')) => format!("Título {level}"),
-            _ if line.starts_with("- ") => LIST_BULLETS.to_string(),
-            _ if line.starts_with("+ ") => LIST_NUMBERED.to_string(),
-            _ if line.starts_with("/ ") => LIST_TERMS.to_string(),
-            _ => "Normal".to_string(),
+            1..=6 if line.get(level..).is_some_and(|r| r.starts_with(' ')) => tr!("heading-level", level = level),
+            _ if line.starts_with("- ") => tx(LIST_BULLETS).to_string(),
+            _ if line.starts_with("+ ") => tx(LIST_NUMBERED).to_string(),
+            _ if line.starts_with("/ ") => tx(LIST_TERMS).to_string(),
+            _ => tx("normal").to_string(),
         }
     }
 
     fn tab_home(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
-        if tool(ui, Icon::Paste, "Colar (Ctrl+V)").clicked() {
+        if tool(ui, Icon::Paste, tx("paste-v")).clicked() {
             self.want_focus = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
         }
-        if tool(ui, Icon::Cut, "Recortar (Ctrl+X)").clicked() {
+        if tool(ui, Icon::Cut, tx("cut-x")).clicked() {
             let sel = self.selection(&ctx);
             if sel.0 != sel.1 {
                 ctx.copy_text(edit::selected(&self.text, sel).to_string());
                 self.edit(&ctx, edit::delete);
             }
         }
-        if tool(ui, Icon::Copy, "Copiar (Ctrl+C)").clicked() {
+        if tool(ui, Icon::Copy, tx("copy-c")).clicked() {
             let sel = self.selection(&ctx);
             if sel.0 != sel.1 {
                 ctx.copy_text(edit::selected(&self.text, sel).to_string());
             }
             self.want_focus = true;
         }
-        sep(ui, "Área de Transferência");
+        sep(ui, tx("clipboard"));
         let current = self.current_font();
-        field_menu(ui, &current, 135.0, "Fonte do documento", |ui| {
+        field_menu(ui, &current, 135.0, tx("document-font"), |ui| {
             for font in ["Libertinus Serif", "New Computer Modern", "DejaVu Sans Mono"] {
                 if ui.selectable_label(current == font, font).clicked() {
                     self.rule(&ctx, "#set text(font", &format!("#set text(font: \"{font}\")"));
@@ -2070,7 +2072,7 @@ impl App {
                 }
             }
         });
-        field_menu(ui, "Tam.", 54.0, "Tamanho do texto selecionado", |ui| {
+        field_menu(ui, tx("size"), 54.0, tx("size-of-the-selected-text"), |ui| {
             for size in [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 32] {
                 if ui.button(format!("{size} pt")).clicked() {
                     self.wrap(&ctx, &format!("#text(size: {size}pt)["), "]");
@@ -2078,82 +2080,86 @@ impl App {
                 }
             }
         });
-        if tool(ui, Icon::Plus, "Aumentar a fonte").clicked() {
+        if tool(ui, Icon::Plus, tx("grow-font")).clicked() {
             self.wrap(&ctx, "#text(size: 1.2em)[", "]");
         }
-        if tool(ui, Icon::Minus, "Diminuir a fonte").clicked() {
+        if tool(ui, Icon::Minus, tx("shrink-font")).clicked() {
             self.wrap(&ctx, "#text(size: 0.85em)[", "]");
         }
         ui.add_space(6.0);
-        const WRAPS: [(Icon, &str, &str, &str); 4] = [
-            (Icon::Bold, "Negrito (Ctrl+B)", "*", "*"),
-            (Icon::Italic, "Itálico (Ctrl+I)", "_", "_"),
-            (Icon::Underline, "Sublinhado (Ctrl+U)", "#underline[", "]"),
-            (Icon::Strike, "Tachado", "#strike[", "]"),
+        let wraps: [(Icon, &str, &str, &str); 4] = [
+            (Icon::Bold, tx("bold-b"), "*", "*"),
+            (Icon::Italic, tx("italic-i"), "_", "_"),
+            (Icon::Underline, tx("underline-u"), "#underline[", "]"),
+            (Icon::Strike, tx("strikethrough"), "#strike[", "]"),
         ];
-        for (icon, tip, pre, post) in WRAPS {
+        for (icon, tip, pre, post) in wraps {
             if tool(ui, icon, tip).clicked() {
                 self.wrap(&ctx, pre, post);
             }
         }
-        if glyphs(ui, "x₂", "Subscrito").clicked() {
+        if glyphs(ui, "x₂", tx("subscript")).clicked() {
             self.wrap(&ctx, "#sub[", "]");
         }
-        if glyphs(ui, "x²", "Sobrescrito").clicked() {
+        if glyphs(ui, "x²", tx("superscript")).clicked() {
             self.wrap(&ctx, "#super[", "]");
         }
-        if glyphs(ui, "Aa", "Versalete").clicked() {
+        if glyphs(ui, "Aa", tx("small-caps")).clicked() {
             self.wrap(&ctx, "#smallcaps[", "]");
         }
-        if tool(ui, Icon::Script, "Código na linha").clicked() {
+        if tool(ui, Icon::Script, tx("inline-code")).clicked() {
             self.wrap(&ctx, "`", "`");
         }
-        tool_menu(ui, Icon::Fill, "Realce", |ui| {
-            for (name, color) in [("Amarelo", "yellow"), ("Verde", "lime"), ("Azul", "aqua"), ("Rosa", "fuchsia")] {
+        tool_menu(ui, Icon::Fill, tx("highlight"), |ui| {
+            for (name, color) in [(tx("yellow"), "yellow"), (tx("green"), "lime"), (tx("blue"), "aqua"), (tx("pink"), "fuchsia")] {
                 if ui.button(name).clicked() {
                     self.wrap(&ctx, &format!("#highlight(fill: {color})["), "]");
                     ui.close();
                 }
             }
         });
-        tool_menu(ui, Icon::FontColor, "Cor do texto", |ui| {
-            for (name, color) in
-                [("Vermelho", "red"), ("Azul", "blue"), ("Verde", "green"), ("Laranja", "orange"), ("Roxo", "purple"), ("Cinza", "gray")]
-            {
+        tool_menu(ui, Icon::FontColor, tx("text-colour"), |ui| {
+            for (name, color) in [
+                (tx("red"), "red"),
+                (tx("blue"), "blue"),
+                (tx("green"), "green"),
+                (tx("orange"), "orange"),
+                (tx("purple"), "purple"),
+                (tx("grey"), "gray"),
+            ] {
                 if ui.button(name).clicked() {
                     self.wrap(&ctx, &format!("#text(fill: {color})["), "]");
                     ui.close();
                 }
             }
         });
-        sep(ui, "Fonte");
-        for (icon, tip, align) in [
-            (Icon::AlignLeft, "Alinhar à esquerda", "left"),
-            (Icon::AlignCenter, "Centralizar", "center"),
-            (Icon::AlignRight, "Alinhar à direita", "right"),
-        ] {
+        sep(ui, tx("font"));
+        for (icon, tip, align) in
+            [(Icon::AlignLeft, tx("align-left"), "left"), (Icon::AlignCenter, tx("centre"), "center"), (Icon::AlignRight, tx("align-right"), "right")]
+        {
             if tool(ui, icon, tip).clicked() {
                 self.wrap(&ctx, &format!("#align({align})["), "]\n");
             }
         }
-        if tool(ui, Icon::Wrap, "Justificar o documento").clicked() {
+        if tool(ui, Icon::Wrap, tx("justify-the-document")).clicked() {
             self.rule(&ctx, "#set par(justify", "#set par(justify: true)");
         }
         ui.add_space(6.0);
-        if tool(ui, Icon::SheetList, "Lista com marcadores").clicked() {
+        if tool(ui, Icon::SheetList, tx("bulleted-list")).clicked() {
             self.marker_line(&ctx, "- ");
         }
-        if glyphs(ui, "1.", "Lista numerada").clicked() {
+        if glyphs(ui, "1.", tx("numbered-list")).clicked() {
             self.marker_line(&ctx, "+ ");
         }
-        sep(ui, "Parágrafo");
+        sep(ui, tx("paragraph"));
         let style = self.current_style(&ctx);
-        field_menu(ui, &style, 156.0, "Estilo da linha do cursor", |ui| {
-            if ui.selectable_label(style == "Normal", "Normal").clicked() {
+        field_menu(ui, &style, 156.0, tx("style-of-the-carets-line"), |ui| {
+            if ui.selectable_label(style == tx("normal"), tx("normal")).clicked() {
                 self.clear_marker(&ctx);
                 ui.close();
             }
-            for (label, marker) in [("Título 1", "= "), ("Título 2", "== "), ("Título 3", "=== "), ("Título 4", "==== ")] {
+            for (level, marker) in [(1, "= "), (2, "== "), (3, "=== "), (4, "==== ")] {
+                let label = tr!("heading-level", level = level);
                 if ui.selectable_label(style == label, label).clicked() {
                     self.marker_line(&ctx, marker);
                     ui.close();
@@ -2161,20 +2167,21 @@ impl App {
             }
             ui.separator();
             for (label, marker) in [(LIST_BULLETS, "- "), (LIST_NUMBERED, "+ "), (LIST_TERMS, "/ ")] {
+                let label = tx(label);
                 if ui.selectable_label(style == label, label).clicked() {
                     self.marker_line(&ctx, marker);
                     ui.close();
                 }
             }
         });
-        sep(ui, "Estilos");
-        if tool(ui, Icon::Find, "Localizar (Ctrl+F)").clicked() {
+        sep(ui, tx("styles"));
+        if tool(ui, Icon::Find, tx("find-f")).clicked() {
             self.open_find();
         }
-        if tool(ui, Icon::Print, "Exportar PDF (Ctrl+E)").clicked() {
+        if tool(ui, Icon::Print, tx("export-pdf-e")).clicked() {
             self.export_pdf();
         }
-        group_end(ui, "Edição");
+        group_end(ui, tx("editing"));
     }
 
     /// Removes the caret line's heading or list marker, whichever it has.
@@ -2202,45 +2209,45 @@ impl App {
 
     fn tab_insert(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
-        if tool(ui, Icon::PageBreak, "Quebra de página").clicked() {
+        if tool(ui, Icon::PageBreak, tx("page-break")).clicked() {
             self.insert(&ctx, PAGEBREAK);
         }
-        sep(ui, "Páginas");
-        if tool(ui, Icon::Table, "Inserir tabela").clicked() {
+        sep(ui, tx("pages"));
+        if tool(ui, Icon::Table, tx("insert-table")).clicked() {
             self.table_dialog = Some(TableDialog { rows: 3, cols: 3, header: true, figure: false });
         }
-        sep(ui, "Tabelas");
-        if tool(ui, Icon::Picture, "Imagem da pasta do documento").clicked() {
+        sep(ui, tx("tables"));
+        if tool(ui, Icon::Picture, tx("image-from-the-documents-folder")).clicked() {
             self.insert_image(&ctx);
         }
-        if tool(ui, Icon::Shapes, "Figura com legenda").clicked() {
+        if tool(ui, Icon::Shapes, tx("figure-with-caption")).clicked() {
             self.insert(&ctx, IMAGE_FIG);
         }
-        sep(ui, "Ilustrações");
-        if tool(ui, Icon::Link, "Inserir link").clicked() {
+        sep(ui, tx("illustrations"));
+        if tool(ui, Icon::Link, tx("insert-link")).clicked() {
             self.insert(&ctx, LINK);
         }
-        sep(ui, "Links");
-        if tool(ui, Icon::TextBox, "Bloco de citação").clicked() {
+        sep(ui, tx("links"));
+        if tool(ui, Icon::TextBox, tx("block-quote")).clicked() {
             self.insert(&ctx, QUOTE);
         }
-        if tool(ui, Icon::Script, "Bloco de código").clicked() {
+        if tool(ui, Icon::Script, tx("code-block")).clicked() {
             self.insert(&ctx, CODE);
         }
-        if tool(ui, Icon::Minus, "Linha horizontal").clicked() {
+        if tool(ui, Icon::Minus, tx("horizontal-line")).clicked() {
             self.insert(&ctx, LINE);
         }
-        sep(ui, "Texto");
-        if tool(ui, Icon::Fx, "Equação em bloco").clicked() {
+        sep(ui, tx("text"));
+        if tool(ui, Icon::Fx, tx("block-equation")).clicked() {
             self.insert(&ctx, EQ_BLOCK);
         }
-        group_end(ui, "Símbolos");
+        group_end(ui, tx("symbols"));
     }
 
     fn tab_layout(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
-        tool_menu(ui, Icon::Margins, "Margens da página", |ui| {
-            for (name, m) in [("Normal", "2.5cm"), ("Estreita", "1.27cm"), ("Moderada", "2cm"), ("Larga", "3.5cm")] {
+        tool_menu(ui, Icon::Margins, tx("page-margins"), |ui| {
+            for (name, m) in [(tx("normal"), "2.5cm"), (tx("narrow"), "1.27cm"), (tx("moderate"), "2cm"), (tx("wide"), "3.5cm")] {
                 if ui.button(format!("{name} ({m})")).clicked() {
                     self.rule(&ctx, "#set page(margin", &format!("#set page(margin: {m})"));
                     ui.close();
@@ -2251,25 +2258,25 @@ impl App {
                 ui.close();
             }
         });
-        tool_menu(ui, Icon::Orient, "Orientação da página", |ui| {
-            if ui.button("Retrato").clicked() {
+        tool_menu(ui, Icon::Orient, tx("page-orientation"), |ui| {
+            if ui.button(tx("portrait")).clicked() {
                 self.rule(&ctx, "#set page(flipped", "#set page(flipped: false)");
                 ui.close();
             }
-            if ui.button("Paisagem").clicked() {
+            if ui.button(tx("landscape")).clicked() {
                 self.rule(&ctx, "#set page(flipped", "#set page(flipped: true)");
                 ui.close();
             }
         });
-        tool_menu(ui, Icon::Paper, "Tamanho do papel", |ui| {
-            for (name, paper) in [("A4", "a4"), ("A5", "a5"), ("Carta", "us-letter"), ("Ofício", "us-legal")] {
+        tool_menu(ui, Icon::Paper, tx("paper-size"), |ui| {
+            for (name, paper) in [("A4", "a4"), ("A5", "a5"), (tx("letter"), "us-letter"), (tx("legal"), "us-legal")] {
                 if ui.button(name).clicked() {
                     self.rule(&ctx, "#set page(paper", &format!("#set page(paper: \"{paper}\")"));
                     ui.close();
                 }
             }
         });
-        tool_menu(ui, Icon::TextColumns, "Colunas do documento", |ui| {
+        tool_menu(ui, Icon::TextColumns, tx("document-columns"), |ui| {
             for n in 1..=3 {
                 if ui.button(format!("{n}")).clicked() {
                     self.rule(&ctx, "#set page(columns", &format!("#set page(columns: {n})"));
@@ -2277,8 +2284,8 @@ impl App {
                 }
             }
         });
-        sep(ui, "Configurar Página");
-        tool_menu(ui, Icon::PageNumber, "Numerar as páginas", |ui| {
+        sep(ui, tx("page-setup"));
+        tool_menu(ui, Icon::PageNumber, tx("number-the-pages"), |ui| {
             for (name, format) in [("1", "1"), ("1 / N", "1 / 1"), ("i", "i")] {
                 if ui.button(name).clicked() {
                     self.rule(&ctx, "#set page(numbering", &format!("#set page(numbering: \"{format}\")"));
@@ -2286,7 +2293,7 @@ impl App {
                 }
             }
         });
-        tool_menu(ui, Icon::Name, "Numerar títulos", |ui| {
+        tool_menu(ui, Icon::Name, tx("number-the-headings"), |ui| {
             for format in ["1.", "1.1", "I.", "A."] {
                 if ui.button(format).clicked() {
                     self.rule(&ctx, "#set heading(numbering", &format!("#set heading(numbering: \"{format}\")"));
@@ -2294,52 +2301,52 @@ impl App {
                 }
             }
         });
-        sep(ui, "Numeração");
-        tool_menu(ui, Icon::AlignMiddle, "Espaço entre linhas", |ui| {
-            for (name, leading) in [("Simples", "0.65em"), ("1,15", "0.8em"), ("1,5", "1.05em"), ("Duplo", "1.4em")] {
+        sep(ui, tx("numbering"));
+        tool_menu(ui, Icon::AlignMiddle, tx("line-spacing"), |ui| {
+            for (name, leading) in [(tx("single"), "0.65em"), ("1,15", "0.8em"), ("1,5", "1.05em"), (tx("double"), "1.4em")] {
                 if ui.button(name).clicked() {
                     self.rule(&ctx, "#set par(leading", &format!("#set par(leading: {leading})"));
                     ui.close();
                 }
             }
         });
-        if glyphs(ui, "a-b", "Hifenizar o documento").clicked() {
+        if glyphs(ui, "a-b", tx("hyphenate-the-document")).clicked() {
             self.rule(&ctx, "#set text(hyphenate", "#set text(hyphenate: true)");
         }
-        sep(ui, "Parágrafo");
-        if glyphs(ui, "2 col.", "Trecho em duas colunas").clicked() {
+        sep(ui, tx("paragraph"));
+        if glyphs(ui, tx("two-col"), tx("passage-in-two-columns")).clicked() {
             self.insert(&ctx, COLUMNS);
         }
-        group_end(ui, "Trechos");
+        group_end(ui, tx("passages"));
     }
 
     fn tab_references(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
-        if tool(ui, Icon::SheetList, "Inserir sumário").clicked() {
+        if tool(ui, Icon::SheetList, tx("insert-table-of-contents")).clicked() {
             self.insert(&ctx, OUTLINE);
         }
-        if tool(ui, Icon::Picture, "Inserir lista de figuras").clicked() {
+        if tool(ui, Icon::Picture, tx("insert-list-of-figures")).clicked() {
             self.insert(&ctx, LIST_OF_FIGURES);
         }
-        if tool(ui, Icon::Table, "Inserir lista de tabelas").clicked() {
+        if tool(ui, Icon::Table, tx("insert-list-of-tables")).clicked() {
             self.insert(&ctx, LIST_OF_TABLES);
         }
-        sep(ui, "Sumário");
-        if tool(ui, Icon::Note, "Inserir nota de rodapé").clicked() {
+        sep(ui, tx("contents"));
+        if tool(ui, Icon::Note, tx("insert-footnote")).clicked() {
             self.insert(&ctx, FOOTNOTE);
         }
-        sep(ui, "Notas");
-        if tool(ui, Icon::Name, "Figura com legenda e rótulo").clicked() {
+        sep(ui, tx("notes"));
+        if tool(ui, Icon::Name, tx("figure-with-caption-and-label")).clicked() {
             self.insert(&ctx, LABEL);
         }
-        if tool(ui, Icon::Link, "Referência a um rótulo: @rotulo").clicked() {
+        if tool(ui, Icon::Link, tx("reference-to-a-label-rotulo")).clicked() {
             self.insert(&ctx, "@|rotulo");
         }
-        sep(ui, "Legendas");
-        if glyphs(ui, "@", "Citar uma chave da bibliografia: @chave").clicked() {
+        sep(ui, tx("captions"));
+        if glyphs(ui, "@", tx("cite-a-bibliography-key-chave")).clicked() {
             self.insert(&ctx, "@|chave");
         }
-        tool_menu(ui, Icon::Book, "Bibliografia de refs.bib (na pasta do documento)", |ui| {
+        tool_menu(ui, Icon::Book, tx("bibliography-from-refsbib-in-the-documents-folder"), |ui| {
             for (name, style) in
                 [("ABNT", "associacao-brasileira-de-normas-tecnicas"), ("APA", "apa"), ("IEEE", "ieee"), ("Chicago", "chicago-author-date")]
             {
@@ -2349,34 +2356,34 @@ impl App {
                 }
             }
         });
-        group_end(ui, "Citações");
+        group_end(ui, tx("citations"));
     }
 
     fn tab_math(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
-        if tool(ui, Icon::Fx, "Equação em bloco").clicked() {
+        if tool(ui, Icon::Fx, tx("block-equation")).clicked() {
             self.insert(&ctx, EQ_BLOCK);
         }
-        if glyphs(ui, "$x$", "Equação no meio do texto").clicked() {
+        if glyphs(ui, "$x$", tx("equation-within-the-text")).clicked() {
             self.insert(&ctx, EQ_INLINE);
         }
-        sep(ui, "Equação");
+        sep(ui, tx("equation"));
         for (mark, tip, snippet) in [
-            ("a/b", "Fração", FRACTION),
-            ("√x", "Raiz quadrada", ROOT),
-            ("Σ", "Somatório", SUM),
-            ("∫", "Integral definida", INTEGRAL),
-            ("lim", "Limite", LIMIT),
-            ("[ ]", "Matriz", MATRIX),
-            ("{", "Função por casos", CASES),
-            ("v", "Vetor coluna", VECTOR),
-            ("C", "Coeficiente binomial", BINOM),
+            ("a/b", tx("fraction"), FRACTION),
+            ("√x", tx("square-root"), ROOT),
+            ("Σ", tx("sum"), SUM),
+            ("∫", tx("definite-integral"), INTEGRAL),
+            ("lim", tx("limit"), LIMIT),
+            ("[ ]", tx("matrix"), MATRIX),
+            ("{", tx("piecewise-function"), CASES),
+            ("v", tx("column-vector"), VECTOR),
+            ("C", tx("binomial-coefficient"), BINOM),
         ] {
             if glyphs(ui, mark, tip).clicked() {
                 self.insert(&ctx, snippet);
             }
         }
-        sep(ui, "Estruturas");
+        sep(ui, tx("structures"));
         const SYMBOLS: [(&str, &str); 18] = [
             ("α", "alpha"),
             ("β", "beta"),
@@ -2402,48 +2409,48 @@ impl App {
                 self.insert(&ctx, &format!("{code} |"));
             }
         }
-        group_end(ui, "Símbolos");
+        group_end(ui, tx("symbols"));
     }
 
     fn tab_view(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         for (icon, label, tip, layout) in [
-            (Icon::TextColumns, "Lado a lado", "Código e páginas", Layout::Both),
-            (Icon::Script, "Código", "Só o código", Layout::Source),
-            (Icon::Paper, "Páginas", "Só as páginas", Layout::Pages),
+            (Icon::TextColumns, tx("side-by-side"), tx("source-and-pages"), Layout::Both),
+            (Icon::Script, tx("source"), tx("source-only"), Layout::Source),
+            (Icon::Paper, tx("pages"), tx("pages-only"), Layout::Pages),
         ] {
             if toggle(ui, icon, label, tip, self.layout == layout).clicked() {
                 self.layout = layout;
             }
         }
-        sep(ui, "Painéis");
-        if toggle(ui, Icon::Ruler, "Régua", "Réguas em centímetros em volta das páginas", self.ruler).clicked() {
+        sep(ui, tx("panes"));
+        if toggle(ui, Icon::Ruler, tx("ruler"), tx("rulers-in-centimetres-around-the-pages"), self.ruler).clicked() {
             self.set_ruler(!self.ruler);
         }
-        sep(ui, "Mostrar");
-        if toggle(ui, Icon::Zoom, "Largura", "Ajustar à largura do painel", self.zoom.is_none()).clicked() {
+        sep(ui, tx("show"));
+        if toggle(ui, Icon::Zoom, tx("width"), tx("fit-to-the-panes-width"), self.zoom.is_none()).clicked() {
             self.zoom = None;
         }
-        if glyphs(ui, "100%", "Tamanho real").clicked() {
+        if glyphs(ui, "100%", tx("actual-size")).clicked() {
             self.zoom = Some(1.0);
         }
-        if tool(ui, Icon::Plus, "Ampliar").clicked() {
+        if tool(ui, Icon::Plus, tx("zoom-in")).clicked() {
             self.step_zoom(1);
         }
-        if tool(ui, Icon::Minus, "Reduzir").clicked() {
+        if tool(ui, Icon::Minus, tx("zoom-out")).clicked() {
             self.step_zoom(-1);
         }
-        sep(ui, "Zoom");
-        if labelled(ui, Icon::Right, "Ir para a página", "Mostra o trecho do cursor na página (Ctrl+J)").clicked() {
+        sep(ui, tx("zoom"));
+        if labelled(ui, Icon::Right, tx("go-to-the-page"), tx("shows-the-carets-passage-on-the-page")).clicked() {
             self.locate(&ctx);
         }
-        sep(ui, "Navegar");
+        sep(ui, tx("navigate"));
         for choice in [ThemeChoice::Light, ThemeChoice::Dark, ThemeChoice::Pearl] {
-            if toggle(ui, Icon::Appearance, choice.label(), "Tema da interface", self.theme == choice).clicked() {
+            if toggle(ui, Icon::Appearance, choice.label(), tx("interface-theme"), self.theme == choice).clicked() {
                 self.choose_theme(&ctx, choice);
             }
         }
-        group_end(ui, "Tema");
+        group_end(ui, tx("theme"));
     }
 
     fn jump_to(&mut self, byte: usize) {
@@ -2457,9 +2464,9 @@ impl App {
         ui.painter().rect_filled(rect, 0.0, t.ribbon);
         ui.painter().vline(rect.right() - 1.0, rect.y_range(), Stroke::new(1.0, t.separator));
         let views = [
-            (Icon::TextColumns, "Lado a lado", "Código e páginas lado a lado", Layout::Both),
-            (Icon::Script, "Código", "Só o código", Layout::Source),
-            (Icon::Paper, "Páginas", "Só as páginas", Layout::Pages),
+            (Icon::TextColumns, tx("side-by-side"), tx("source-and-pages-side-by-side"), Layout::Both),
+            (Icon::Script, tx("source"), tx("source-only"), Layout::Source),
+            (Icon::Paper, tx("pages"), tx("pages-only"), Layout::Pages),
         ];
         for (k, (icon, name, tip, layout)) in views.into_iter().enumerate() {
             let on = self.layout == layout;
@@ -2483,14 +2490,14 @@ impl App {
         let slot = Rect::from_min_size(pos2(rect.left(), top + 6.0), vec2(RAIL_WIDTH - 1.0, 40.0));
         let shown = self.line_numbers;
         let resp = ui.interact(slot, ui.scope_id().with("rail-numbers"), Sense::click());
-        resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, shown, "Números de linha"));
+        resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, shown, tx("line-numbers")));
         if shown {
             ui.painter().rect_filled(slot.shrink(4.0), 0.0, t.accent_soft);
         } else if resp.hovered() {
             ui.painter().rect_filled(slot.shrink(4.0), 0.0, t.hover);
         }
         ui.painter().text(slot.center(), egui::Align2::CENTER_CENTER, "12", theme::ui_font(13.0), t.text);
-        if resp.on_hover_text(if shown { "Ocultar os números de linha" } else { "Mostrar os números de linha" }).clicked() {
+        if resp.on_hover_text(if shown { tx("hide-line-numbers") } else { tx("show-line-numbers") }).clicked() {
             self.line_numbers = !shown;
         }
     }
@@ -2502,12 +2509,12 @@ impl App {
         let errors = self.diags.iter().filter(|d| d.error).count();
         let mut top = rect.top() + 4.0;
         for (k, (side, icon, name, badge)) in [
-            (Side::Details, Icon::Info, "Detalhes", 0),
-            (Side::Outline, Icon::SheetList, "Estrutura", 0),
-            (Side::Files, Icon::Folder, "Arquivos", 0),
-            (Side::Symbols, Icon::Symbol, "Símbolos", 0),
-            (Side::Problems, Icon::Validation, "Problemas", errors),
-            (Side::Versions, Icon::Clock, "Versões", 0),
+            (Side::Details, Icon::Info, tx("details"), 0),
+            (Side::Outline, Icon::SheetList, tx("outline"), 0),
+            (Side::Files, Icon::Folder, tx("files"), 0),
+            (Side::Symbols, Icon::Symbol, tx("symbols"), 0),
+            (Side::Problems, Icon::Validation, tx("problems"), errors),
+            (Side::Versions, Icon::Clock, tx("versions"), 0),
             (Side::Claude, Icon::Pen, "Claude", 0),
         ]
         .into_iter()
@@ -2545,12 +2552,12 @@ impl App {
 
     fn side_pane(&mut self, ui: &mut Ui, side: Side, rect: Rect, t: &Tokens) {
         let (icon, title) = match side {
-            Side::Details => (Icon::Info, "Detalhes"),
-            Side::Outline => (Icon::SheetList, "Estrutura"),
-            Side::Files => (Icon::Folder, "Arquivos"),
-            Side::Symbols => (Icon::Symbol, "Símbolos"),
-            Side::Problems => (Icon::Validation, "Problemas"),
-            Side::Versions => (Icon::Clock, "Versões"),
+            Side::Details => (Icon::Info, tx("details")),
+            Side::Outline => (Icon::SheetList, tx("outline")),
+            Side::Files => (Icon::Folder, tx("files")),
+            Side::Symbols => (Icon::Symbol, tx("symbols")),
+            Side::Problems => (Icon::Validation, tx("problems")),
+            Side::Versions => (Icon::Clock, tx("versions")),
             Side::Claude => (Icon::Pen, "Claude"),
         };
         let inner = rect.shrink2(vec2(10.0, 6.0));
@@ -2561,10 +2568,10 @@ impl App {
                 crate::icons::paint(ui.painter(), r, icon, t.text);
                 ui.label(egui::RichText::new(title).font(theme::ui_bold(13.0)).color(t.text));
                 ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
-                    if icon_button_mono(ui, Icon::Right, t.text_dim, "Fechar o painel", vec2(24.0, 22.0)).clicked() {
+                    if icon_button_mono(ui, Icon::Right, t.text_dim, tx("close-the-pane"), vec2(24.0, 22.0)).clicked() {
                         self.side = None;
                     }
-                    if side == Side::Files && icon_button_mono(ui, Icon::Calc, t.text_dim, "Atualizar a lista", vec2(24.0, 22.0)).clicked() {
+                    if side == Side::Files && icon_button_mono(ui, Icon::Calc, t.text_dim, tx("refresh-the-list"), vec2(24.0, 22.0)).clicked() {
                         self.read_files();
                     }
                 });
@@ -2579,7 +2586,7 @@ impl App {
                 Side::Claude => self.pane_claude(ui, t),
                 Side::Problems => {
                     if self.diags.is_empty() {
-                        ui.colored_label(t.text_dim, "Nenhum problema neste documento.");
+                        ui.colored_label(t.text_dim, tx("no-problems-in-this-document"));
                     } else if let Some(byte) = self.problems_list(ui) {
                         self.jump_to(byte);
                     }
@@ -2592,18 +2599,18 @@ impl App {
         let chars = self.text.chars().count();
         let words = self.text.split_whitespace().count();
         let rows = [
-            ("Arquivo", self.path.as_deref().map_or_else(|| "Ainda não salvo".to_string(), |p| p.display().to_string())),
-            ("Páginas", self.pages.len().to_string()),
-            ("Palavras no código", words.to_string()),
-            ("Caracteres", chars.to_string()),
-            ("Linhas", self.text.lines().count().to_string()),
+            (tx("file"), self.path.as_deref().map_or_else(|| tx("not-saved-yet").to_string(), |p| p.display().to_string())),
+            (tx("pages"), self.pages.len().to_string()),
+            (tx("words-in-the-source"), words.to_string()),
+            (tx("characters"), chars.to_string()),
+            (tx("lines"), self.text.lines().count().to_string()),
             (
-                "Tamanho da página",
+                tx("page-size"),
                 self.pages
                     .first()
                     .map_or_else(|| "—".to_string(), |p| format!("{:.0} × {:.0} mm", p.width_pt * 25.4 / 72.0, p.height_pt * 25.4 / 72.0)),
             ),
-            ("Última compilação", self.millis.map_or_else(|| "—".to_string(), |m| format!("{m} ms"))),
+            (tx("last-compile"), self.millis.map_or_else(|| "—".to_string(), |m| format!("{m} ms"))),
         ];
         for (name, value) in rows {
             ui.colored_label(t.text_dim, name);
@@ -2615,7 +2622,7 @@ impl App {
     fn pane_outline(&mut self, ui: &mut Ui, t: &Tokens) {
         let headings = highlight::outline(&self.text);
         if headings.is_empty() {
-            ui.colored_label(t.text_dim, "Os títulos do documento (= Título) aparecem aqui.");
+            ui.colored_label(t.text_dim, tx("the-documents-headings-heading-appear-here"));
         }
         let mut jump = None;
         for h in &headings {
@@ -2623,7 +2630,7 @@ impl App {
                 ui.add_space(12.0 * h.level.saturating_sub(1) as f32);
                 let font = if h.level == 1 { theme::ui_bold(13.0) } else { theme::ui_font(13.0) };
                 let button = egui::Button::new(egui::RichText::new(&h.title).font(font).color(t.text)).frame_when_inactive(false).truncate();
-                if ui.add(button).on_hover_text("Ir para este título").clicked() {
+                if ui.add(button).on_hover_text(tx("go-to-this-heading")).clicked() {
                     jump = Some(h.byte);
                 }
             });
@@ -2663,14 +2670,14 @@ impl App {
 
     fn pane_files(&mut self, ui: &mut Ui, t: &Tokens) {
         if self.path.is_none() {
-            ui.colored_label(t.text_dim, "Salve o documento para ver os arquivos da pasta dele.");
+            ui.colored_label(t.text_dim, tx("save-the-document-to-see-the-files"));
             return;
         }
         if self.files.is_empty() {
-            ui.colored_label(t.text_dim, "Não há outros arquivos na pasta do documento.");
+            ui.colored_label(t.text_dim, tx("there-are-no-other-files-in-the"));
             return;
         }
-        ui.colored_label(t.text_dim, "Clique para inserir no cursor.");
+        ui.colored_label(t.text_dim, tx("click-to-insert-at-the-caret"));
         ui.add_space(4.0);
         let mut chosen = None;
         for file in &self.files {
@@ -2732,8 +2739,8 @@ impl App {
     fn save_copy(&mut self) {
         let Some(path) = self.dialog().add_filter("Typst", &["typ"]).set_file_name("copia.typ").save_file() else { return };
         self.status = match std::fs::write(&path, &self.text) {
-            Ok(()) => format!("Cópia salva em {}", path.display()),
-            Err(e) => format!("Não foi possível salvar: {e}"),
+            Ok(()) => tr!("copy-saved", path = path.display().to_string()),
+            Err(e) => tr!("cant-save", error = e.to_string()),
         };
     }
 
@@ -2772,7 +2779,7 @@ impl App {
         self.orphans = recovery::orphans(&dir);
         match Recovery::start(&dir) {
             Ok(run) => self.recovery = Some(run),
-            Err(e) => self.status = format!("Sem cópia de segurança nesta sessão: {e}"),
+            Err(e) => self.status = tr!("no-recovery", error = e.to_string()),
         }
     }
 
@@ -2805,7 +2812,7 @@ impl App {
             }
             Err(e) => {
                 // Said once, not every few seconds.
-                self.status = format!("A cópia de segurança parou: {e}");
+                self.status = tr!("recovery-stopped", error = e.to_string());
                 self.recovery = None;
                 false
             }
@@ -2851,11 +2858,7 @@ impl App {
         if self.write_recovery() {
             orphan.discard();
         }
-        self.status = if moved {
-            format!("{name} recuperado. O arquivo original não existe mais: salve em outro lugar.")
-        } else {
-            format!("{name} recuperado.")
-        };
+        self.status = if moved { tr!("recovered-moved", name = name) } else { tr!("recovered", name = name) };
     }
 
     fn recovery_dialog(&mut self, ctx: &egui::Context) {
@@ -2863,41 +2866,41 @@ impl App {
             return;
         }
         let blocked = if self.session.is_some() {
-            Some("Saia da sessão antes de recuperar.")
+            Some(tx("leave-the-session-before-recovering"))
         } else if self.dirty {
-            Some("Salve o documento aberto antes de recuperar.")
+            Some(tx("save-the-open-document-before-recovering"))
         } else {
             None
         };
         let now = history::now_ms();
         let (mut recover, mut discard, mut later) = (None, None, false);
-        egui::Window::new("Recuperar documentos").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(
+        egui::Window::new(tx("recover-documents")).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(
             ctx,
             |ui| {
-                ui.label("O Pearl foi encerrado sem salvar estes documentos:");
+                ui.label(tx("pearl-ended-without-saving-these-documents"));
                 ui.add_space(6.0);
                 for (i, orphan) in self.orphans.iter().enumerate() {
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {
                             ui.label(egui::RichText::new(document_name(orphan.document.as_deref())).strong());
                             let lines = orphan.text.lines().count();
-                            ui.small(format!("{}, {lines} {}", history::describe(orphan.stamp, now), if lines == 1 { "linha" } else { "linhas" }));
+                            ui.small(tr!("recovery-entry", when = history::describe(orphan.stamp, now), n = lines));
                         });
                         ui.add_space(16.0);
-                        let button = ui.add_enabled(blocked.is_none(), egui::Button::new("Recuperar"));
+                        let button = ui.add_enabled(blocked.is_none(), egui::Button::new(tx("recover")));
                         if button.clicked() {
                             recover = Some(i);
                         }
                         if let Some(why) = blocked {
                             button.on_disabled_hover_text(why);
                         }
-                        if ui.button("Descartar").clicked() {
+                        if ui.button(tx("discard")).clicked() {
                             discard = Some(i);
                         }
                     });
                 }
                 ui.add_space(6.0);
-                later = ui.button("Depois").on_hover_text("Pergunta de novo na próxima vez que o Pearl abrir").clicked();
+                later = ui.button(tx("later")).on_hover_text(tx("asks-again-the-next-time-pearl-opens")).clicked();
             },
         );
         if let Some(i) = recover {
@@ -2982,7 +2985,7 @@ impl App {
                     .layouter(&mut layouter)
                     .interactive(!waiting)
                     .show(ui);
-                output.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::MultilineTextInput, true, "Código-fonte"));
+                output.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::MultilineTextInput, true, tx("source-2")));
                 changed = output.response.changed();
                 if want_focus {
                     output.response.request_focus();
@@ -3199,9 +3202,9 @@ impl App {
             egui::Frame::NONE.fill(t.accent_soft).inner_margin(egui::Margin::symmetric(12, 6)).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(format!("Versão de {when}: seu documento não mudou")).color(t.text));
-                    back = ui.button("Voltar ao documento").clicked();
-                    restore = ui.button("Restaurar").clicked();
+                    ui.label(egui::RichText::new(tr!("version-banner", when = when)).color(t.text));
+                    back = ui.button(tx("back-to-the-document")).clicked();
+                    restore = ui.button(tx("restore")).clicked();
                 });
             });
             let ctx = ui.ctx().clone();
@@ -3215,11 +3218,11 @@ impl App {
         if self.pages.is_empty() {
             ui.centered_and_justified(|ui| {
                 let message = if !self.compiled_once() {
-                    "Compilando…"
+                    tx("compiling")
                 } else if self.diags.iter().any(|d| d.error) {
-                    "Corrija o erro indicado abaixo para ver as páginas."
+                    tx("fix-the-error-shown-below-to-see")
                 } else {
-                    "Nada para mostrar ainda."
+                    tx("nothing-to-show-yet")
                 };
                 ui.colored_label(t.text_dim, message);
             });
@@ -3359,11 +3362,11 @@ impl App {
         {
             for d in &self.diags {
                 let tokens = Tokens::get(ui.ctx());
-                let (kind, color) = if d.error { ("Erro", tokens.danger) } else { ("Aviso", tokens.warning) };
-                let place = d.byte.map_or_else(String::new, |b| format!(" na linha {}", edit::line_of(&self.text, b)));
+                let (kind, color) = if d.error { (tx("error"), tokens.danger) } else { (tx("warning"), tokens.warning) };
+                let place = d.byte.map_or_else(String::new, |b| tr!("on-line", line = edit::line_of(&self.text, b)));
                 ui.horizontal(|ui| {
                     ui.colored_label(color, egui::RichText::new(format!("{kind}{place}:")).font(theme::ui_bold(12.5)));
-                    if ui.add(egui::Label::new(&d.message).sense(Sense::click())).on_hover_text("Ir para o trecho").clicked() {
+                    if ui.add(egui::Label::new(&d.message).sense(Sense::click())).on_hover_text(tx("go-to-the-passage")).clicked() {
                         jump = d.byte;
                     }
                 });
@@ -3381,19 +3384,12 @@ impl App {
             };
             small(ui, &format!("{}{name}", if self.dirty { "• " } else { "" }));
             let n = self.pages.len();
-            small(ui, &format!("{n} {}", if n == 1 { "página" } else { "páginas" }));
+            small(ui, &tr!("pages-count", n = n));
             let words = self.text.split_whitespace().count();
-            small(ui, &format!("{words} {}", if words == 1 { "palavra" } else { "palavras" }));
+            small(ui, &tr!("words-count", n = words));
             if let Some(session) = &self.session {
                 let others = session.others().len();
-                small(
-                    ui,
-                    &if session.is_waiting() {
-                        "Conectando…".to_string()
-                    } else {
-                        format!("Sessão: {} {}", others + 1, if others == 0 { "pessoa" } else { "pessoas" })
-                    },
-                );
+                small(ui, &if session.is_waiting() { tx("connecting").to_string() } else { tr!("session-people", n = others + 1) });
             }
             small(ui, &self.status);
             ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
@@ -3402,21 +3398,20 @@ impl App {
                 let percent = ui.add(
                     egui::Label::new(egui::RichText::new(format!("{:.0}%", z * 100.0)).font(theme::ui_font(12.0)).color(color)).sense(Sense::click()),
                 );
-                if percent.on_hover_text("Voltar a 100% (Ctrl+0)").clicked() {
+                if percent.on_hover_text(tx("back-to-100-0")).clicked() {
                     self.zoom = Some(1.0);
                 }
-                if icon_button_mono(ui, Icon::Plus, t.text_dim, "Ampliar (Ctrl++)", vec2(18.0, 18.0)).clicked() {
+                if icon_button_mono(ui, Icon::Plus, t.text_dim, tx("zoom-in-2"), vec2(18.0, 18.0)).clicked() {
                     self.step_zoom(1);
                 }
                 ui.spacing_mut().slider_width = 110.0;
                 let mut slider = (z * 100.0).round().clamp(MIN_ZOOM * 100.0, MAX_ZOOM * 100.0);
-                let moved = ui
-                    .add(egui::Slider::new(&mut slider, (MIN_ZOOM * 100.0)..=(MAX_ZOOM * 100.0)).show_value(false))
-                    .on_hover_text("Zoom das páginas");
+                let moved =
+                    ui.add(egui::Slider::new(&mut slider, (MIN_ZOOM * 100.0)..=(MAX_ZOOM * 100.0)).show_value(false)).on_hover_text(tx("page-zoom"));
                 if moved.changed() {
                     self.zoom = Some(slider / 100.0);
                 }
-                if icon_button_mono(ui, Icon::Minus, t.text_dim, "Reduzir (Ctrl+-)", vec2(18.0, 18.0)).clicked() {
+                if icon_button_mono(ui, Icon::Minus, t.text_dim, tx("zoom-out-2"), vec2(18.0, 18.0)).clicked() {
                     self.step_zoom(-1);
                 }
                 ui.add_space(14.0);
@@ -3429,17 +3424,17 @@ impl App {
         self.session_dialog(ctx);
         if self.about {
             let mut open = true;
-            egui::Window::new("Sobre o Pearl")
+            egui::Window::new(tx("about-pearl"))
                 .open(&mut open)
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
                     ui.label(format!("Pearl {}", env!("CARGO_PKG_VERSION")));
-                    ui.label("Editor de documentos em Rust, com composição por Typst.");
+                    ui.label(tx("a-document-editor-in-rust-with-typesetting"));
                     ui.label("Scripta manent.");
                     ui.add_space(6.0);
-                    if ui.link("Licenças de terceiros").clicked() {
+                    if ui.link(tx("thirdparty-licences")).clicked() {
                         self.licenses = true;
                     }
                 });
@@ -3447,7 +3442,7 @@ impl App {
         }
         if self.licenses {
             let mut open = true;
-            egui::Window::new("Licenças de terceiros")
+            egui::Window::new(tx("thirdparty-licences"))
                 .open(&mut open)
                 .collapsible(false)
                 .default_size([720.0, 520.0])
@@ -3471,11 +3466,11 @@ impl App {
             let matches = edit::find_all(&self.text, &query, MAX_MATCHES_SHOWN);
             let selection = self.selection(ctx);
             let place = matches.iter().position(|m| *m == selection);
-            egui::Window::new("Localizar").collapsible(false).resizable(false).title_bar(false).anchor(egui::Align2::RIGHT_TOP, [-44.0, 134.0]).show(
+            egui::Window::new(tx("find")).collapsible(false).resizable(false).title_bar(false).anchor(egui::Align2::RIGHT_TOP, [-44.0, 134.0]).show(
                 ctx,
                 |ui| {
                     ui.horizontal(|ui| {
-                        let field = ui.add(egui::TextEdit::singleline(&mut query).desired_width(200.0).hint_text("Localizar no documento"));
+                        let field = ui.add(egui::TextEdit::singleline(&mut query).desired_width(200.0).hint_text(tx("find-in-the-document")));
                         if std::mem::take(&mut self.find_focus) {
                             field.request_focus();
                         }
@@ -3491,8 +3486,8 @@ impl App {
                         let t = Tokens::get(ui.ctx());
                         let count = match (query.is_empty(), matches.len(), place) {
                             (true, ..) => String::new(),
-                            (false, 0, _) => "Nenhum".to_string(),
-                            (false, n, Some(i)) => format!("{} de {n}", i + 1),
+                            (false, 0, _) => tx("none").to_string(),
+                            (false, n, Some(i)) => tr!("match-of", at = i + 1, n = n),
                             (false, n, None) => format!("{n}"),
                         };
                         ui.add_sized(
@@ -3505,9 +3500,9 @@ impl App {
                                 }),
                             ),
                         );
-                        previous |= icon_button_mono(ui, Icon::ChevronUp, t.text_dim, "Anterior (Shift+Enter)", vec2(24.0, 22.0)).clicked();
-                        next |= icon_button_mono(ui, Icon::Chevron, t.text_dim, "Próximo (Enter)", vec2(24.0, 22.0)).clicked();
-                        if icon_button_mono(ui, Icon::Close, t.text_dim, "Fechar (Esc)", vec2(24.0, 22.0)).clicked() {
+                        previous |= icon_button_mono(ui, Icon::ChevronUp, t.text_dim, tx("previous-shiftenter"), vec2(24.0, 22.0)).clicked();
+                        next |= icon_button_mono(ui, Icon::Chevron, t.text_dim, tx("next-enter"), vec2(24.0, 22.0)).clicked();
+                        if icon_button_mono(ui, Icon::Close, t.text_dim, tx("close-esc"), vec2(24.0, 22.0)).clicked() {
                             keep = false;
                         }
                     });
@@ -3527,28 +3522,31 @@ impl App {
         if let Some(mut dialog) = self.table_dialog.take() {
             let mut keep = true;
             let mut insert = false;
-            egui::Window::new("Inserir tabela").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-                egui::Grid::new("table-size").spacing(vec2(10.0, 6.0)).show(ui, |ui| {
-                    ui.label("Colunas");
-                    ui.add(egui::DragValue::new(&mut dialog.cols).range(1..=26));
-                    ui.end_row();
-                    ui.label("Linhas");
-                    ui.add(egui::DragValue::new(&mut dialog.rows).range(1..=100));
-                    ui.end_row();
-                });
-                ui.checkbox(&mut dialog.header, "Linha de cabeçalho");
-                ui.checkbox(&mut dialog.figure, "Com legenda");
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    if ui.button("Inserir").clicked() {
-                        insert = true;
-                        keep = false;
-                    }
-                    if ui.button("Cancelar").clicked() {
-                        keep = false;
-                    }
-                });
-            });
+            egui::Window::new(tx("insert-table")).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(
+                ctx,
+                |ui| {
+                    egui::Grid::new("table-size").spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+                        ui.label(tx("columns"));
+                        ui.add(egui::DragValue::new(&mut dialog.cols).range(1..=26));
+                        ui.end_row();
+                        ui.label(tx("lines"));
+                        ui.add(egui::DragValue::new(&mut dialog.rows).range(1..=100));
+                        ui.end_row();
+                    });
+                    ui.checkbox(&mut dialog.header, tx("header-row"));
+                    ui.checkbox(&mut dialog.figure, tx("with-caption"));
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(tx("insert")).clicked() {
+                            insert = true;
+                            keep = false;
+                        }
+                        if ui.button(tx("cancel")).clicked() {
+                            keep = false;
+                        }
+                    });
+                },
+            );
             if insert {
                 let table = edit::table_snippet(dialog.rows, dialog.cols, dialog.header);
                 let snippet = if dialog.figure {
@@ -3567,17 +3565,17 @@ impl App {
             let mut answer = None;
             egui::Modal::new(Id::unique("save-changes")).show(ctx, |ui| {
                 ui.set_width(340.0);
-                ui.heading("Salvar as alterações?");
-                ui.label("O documento tem alterações que ainda não foram salvas.");
+                ui.heading(tx("save-the-changes"));
+                ui.label(tx("the-document-has-changes-that-havent-been"));
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if ui.button("Salvar").clicked() {
+                    if ui.button(tx("save")).clicked() {
                         answer = Some(0);
                     }
-                    if ui.button("Descartar").clicked() {
+                    if ui.button(tx("discard")).clicked() {
                         answer = Some(1);
                     }
-                    if ui.button("Cancelar").clicked() {
+                    if ui.button(tx("cancel")).clicked() {
                         answer = Some(2);
                     }
                 });
@@ -3604,8 +3602,8 @@ impl App {
 /// The field for the name others see over this person's caret.
 fn name_field(ui: &mut Ui, name: &mut String) {
     ui.horizontal(|ui| {
-        ui.label("Seu nome:");
-        ui.add(egui::TextEdit::singleline(name).desired_width(220.0).hint_text("Como os outros verão você"));
+        ui.label(tx("your-name"));
+        ui.add(egui::TextEdit::singleline(name).desired_width(220.0).hint_text(tx("how-others-will-see-you")));
     });
 }
 
@@ -3625,7 +3623,7 @@ fn top_label(ui: &mut Ui, label: &str, font: FontId, color: Color32, menu_h: f32
 /// drawn without the system's frame. `ui` lays them out right to left.
 fn window_controls(ui: &mut Ui, h: f32, t: &Tokens) {
     let maximized = ui.ctx().input(|i| i.viewport().maximized).unwrap_or(false);
-    for (button, tip) in [("close", "Fechar"), ("max", if maximized { "Restaurar" } else { "Maximizar" }), ("min", "Minimizar")] {
+    for (button, tip) in [("close", tx("close")), ("max", if maximized { tx("restore") } else { tx("maximize") }), ("min", tx("minimize"))] {
         let (r, resp) = ui.allocate_exact_size(vec2(46.0, h), Sense::click());
         let close = button == "close";
         if resp.hovered() {
@@ -3698,7 +3696,7 @@ impl eframe::App for App {
 }
 
 fn document_name(path: Option<&Path>) -> String {
-    path.and_then(Path::file_name).map_or_else(|| "Sem título".to_string(), |n| n.to_string_lossy().into_owned())
+    path.and_then(Path::file_name).map_or_else(|| tx("untitled").to_string(), |n| n.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]

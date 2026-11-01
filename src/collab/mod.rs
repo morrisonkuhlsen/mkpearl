@@ -7,6 +7,8 @@ mod doc;
 mod net;
 pub mod wire;
 
+use crate::i18n::tx;
+use crate::tr;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
@@ -77,7 +79,7 @@ impl Session {
     pub fn host_on(bind: &str, text: &str, name: &str, file_name: &str) -> Result<Session, String> {
         let key = wire::new_key().map_err(|e| e.to_string())?;
         let waker: net::Waker = Arc::new(OnceLock::new());
-        let (link, address) = net::host(bind, key, Arc::clone(&waker)).map_err(|e| format!("Não foi possível abrir a sessão: {e}"))?;
+        let (link, address) = net::host(bind, key, Arc::clone(&waker)).map_err(|e| tr!("cant-open-session", error = e.to_string()))?;
         Ok(Session {
             link,
             shared: SharedText::new(text)?,
@@ -100,7 +102,7 @@ impl Session {
     /// Joins the session behind `link`. The document arrives later, as [`Change::Text`].
     pub fn join(link: &str, name: &str) -> Result<Session, String> {
         let link_text = link.trim().to_string();
-        let (address, key) = wire::parse_link(link).ok_or_else(|| "Esse não é um link de sessão do Pearl.".to_string())?;
+        let (address, key) = wire::parse_link(link).ok_or_else(|| tx("that-isnt-a-pearl-session-link").to_string())?;
         let id = random_id()?;
         let folder = std::env::temp_dir().join(format!("pearl-session-{id:016x}"));
         std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
@@ -273,14 +275,14 @@ impl Session {
                                 self.resend_cursor = true;
                                 changes.push(Change::Text);
                             }
-                            Err(_) => changes.push(Change::Ended("A sessão enviou um documento inválido.".to_string())),
+                            Err(_) => changes.push(Change::Ended(tx("the-session-sent-an-invalid-document").to_string())),
                         }
                     }
                 }
                 Incoming::Message(Message::Update(update)) => match self.shared.apply_remote(&update) {
                     Ok(true) => changes.push(Change::Text),
                     Ok(false) => {}
-                    Err(_) if !self.is_host => changes.push(Change::Ended("A sessão enviou dados inválidos.".to_string())),
+                    Err(_) if !self.is_host => changes.push(Change::Ended(tx("the-session-sent-invalid-data").to_string())),
                     // At the host a guest's bad update is that guest's problem, not the session's.
                     Err(_) => {}
                 },

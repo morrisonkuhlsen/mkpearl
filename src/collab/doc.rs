@@ -1,6 +1,7 @@
 //! The shared text: a CRDT, so simultaneous edits merge the same way on every machine. Offsets are
 //! bytes of UTF-8, as the document's `String` has them.
 
+use crate::i18n::tx;
 use std::sync::{Arc, Mutex};
 
 use yrs::undo::{Options as UndoOptions, UndoManager};
@@ -97,7 +98,7 @@ impl SharedText {
         // The library's checks are for well-meant peers: a corrupt update must not bring down an
         // editor holding unsaved text.
         let applied = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.doc.transact_mut_with(REMOTE).apply_update(decoded)));
-        applied.map_err(|_| "atualização inválida".to_string())?.map_err(|e| e.to_string())?;
+        applied.map_err(|_| tx("invalid-update").to_string())?.map_err(|e| e.to_string())?;
         let before = std::mem::take(&mut self.known);
         self.refresh();
         Ok(before != self.known)

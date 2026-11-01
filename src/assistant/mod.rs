@@ -4,6 +4,8 @@
 
 pub mod api;
 
+use crate::i18n::tx;
+use crate::tr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
@@ -145,7 +147,7 @@ impl Worker {
                 return self.say(Update::Gone(reason));
             }
             if started.elapsed() > Duration::from_secs(20) {
-                return self.say(Update::Gone("Não foi possível entrar na sessão.".to_string()));
+                return self.say(Update::Gone(tx("couldnt-join-the-session").to_string()));
             }
             std::thread::sleep(Duration::from_millis(20));
         }
@@ -201,12 +203,12 @@ impl Worker {
             match turn.stop_reason.as_deref() {
                 Some("tool_use") => {}
                 Some("refusal") => {
-                    let category = turn.refusal_category.as_deref().unwrap_or("não informada");
-                    return self.say(Update::Problem(format!("O Claude recusou este pedido (categoria: {category}).")));
+                    let category = turn.refusal_category.as_deref().unwrap_or(tx("not-given"));
+                    return self.say(Update::Problem(tr!("claude-refused", category = category)));
                 }
                 // A tool call cut off here may parse yet be incomplete: it mustn't run.
                 Some("max_tokens") => {
-                    return self.say(Update::Problem("A resposta ficou longa demais e foi cortada. Tente pedir em partes menores.".to_string()));
+                    return self.say(Update::Problem(tx("the-answer-got-too-long-and-was").to_string()));
                 }
                 _ => {
                     self.messages.push(json!({"role": "assistant", "content": turn.echo_blocks()}));
@@ -220,7 +222,7 @@ impl Worker {
                 return self.say(Update::Stopped);
             }
         }
-        self.say(Update::Problem("O Claude deu passos demais neste pedido e parou. Peça algo menor ou tente de novo.".to_string()));
+        self.say(Update::Problem(tx("claude-took-too-many-steps-on-this").to_string()));
     }
 
     /// Every call gets its result, in one message, even those a stop leaves unrun.
@@ -248,12 +250,12 @@ impl Worker {
         let string = |key: &str| input[key].as_str().ok_or_else(|| format!("Missing the string parameter {key}."));
         match name {
             "read_document" => {
-                self.say(Update::Action("Lendo o documento".to_string()));
+                self.say(Update::Action(tx("reading-the-document").to_string()));
                 Ok(session.text().to_string())
             }
             "replace_text" => {
                 let (old, new) = (string("old_text")?, string("new_text")?);
-                self.say(Update::Action("Editando o documento".to_string()));
+                self.say(Update::Action(tx("editing-the-document").to_string()));
                 let start = find_unique(session.text(), old)?;
                 let mut rest = session.text().to_string();
                 rest.replace_range(start..start + old.len(), "");
@@ -263,13 +265,13 @@ impl Worker {
             }
             "append_text" => {
                 let text = string("text")?;
-                self.say(Update::Action("Escrevendo no fim do documento".to_string()));
+                self.say(Update::Action(tx("writing-at-the-end-of-the-document").to_string()));
                 let end = session.text().len();
                 self.type_in(session, end, text);
                 Ok("Done.".to_string())
             }
             "check_document" => {
-                self.say(Update::Action("Verificando o documento".to_string()));
+                self.say(Update::Action(tx("checking-the-document").to_string()));
                 self.check(session)
             }
             other => Err(format!("There is no tool called {other}.")),

@@ -7,7 +7,7 @@ pub struct Template {
 
 pub const TEMPLATES: [Template; 4] = [
     Template {
-        name: "Artigo",
+        name: "article",
         source: r#"#set document(title: "Título do artigo")
 #set page(paper: "a4", margin: 2.5cm, numbering: "1")
 #set text(lang: "pt", size: 11pt)
@@ -39,7 +39,7 @@ Resuma o que os resultados significam.
 "#,
     },
     Template {
-        name: "Relatório (ABNT)",
+        name: "report-abnt",
         source: r#"#set document(title: "Título do relatório")
 #set page(paper: "a4", margin: (top: 3cm, left: 3cm, bottom: 2cm, right: 2cm))
 #set text(lang: "pt", size: 12pt)
@@ -72,7 +72,7 @@ Apresente as conclusões.
 "#,
     },
     Template {
-        name: "Carta",
+        name: "letter",
         source: r#"#set page(paper: "a4", margin: 3cm)
 #set text(lang: "pt", size: 12pt)
 #set par(justify: true)
@@ -92,7 +92,7 @@ Seu nome
 "#,
     },
     Template {
-        name: "Currículo",
+        name: "rsum",
         source: r#"#set page(paper: "a4", margin: 2cm)
 #set text(lang: "pt", size: 10.5pt)
 #show heading: it => [

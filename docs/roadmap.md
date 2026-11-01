@@ -17,6 +17,6 @@ Pearl's plan and progress log. Each section says what is done and its **Next:** 
 - **Next:** comments (#12); a relay for the internet (#13).
 
 ## Getting it to people
-- *Done:* the licences in the program; the gates and CI.
-- **Next:** everything in `AGENTS.md`'s languages rule; try what no person has tried (#7); an installer (#8).
+- *Done:* the licences in the program; the gates and CI; the interface in English and Portuguese.
+- **Next:** try what no person has tried (#7); an installer (#8); document text in English (#14).
 - **Decisions:** crates (#1), the copyright holder (#2), the splash picture's terms (#3).

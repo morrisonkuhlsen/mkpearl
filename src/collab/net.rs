@@ -2,6 +2,8 @@
 //! guest holds one, to the host. One thread reads and one writes per connection, and at the host a
 //! hub thread owns the list of guests. The window talks to them through channels.
 
+use crate::i18n::tx;
+use crate::tr;
 use std::collections::HashMap;
 use std::io;
 use std::net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs};
@@ -355,12 +357,12 @@ fn guest_loop(
     waker: &Waker,
     slot: &std::sync::Mutex<Option<TcpStream>>,
 ) -> String {
-    let unreachable = || format!("Não foi possível conectar a {address}. A sessão ainda está aberta e na mesma rede?");
+    let unreachable = || tr!("cant-connect", address = address.to_string());
     let Some(target) = address.to_socket_addrs().ok().and_then(|mut a| a.next()) else { return unreachable() };
     let Ok(mut stream) = TcpStream::connect_timeout(&target, CONNECT_TIMEOUT) else { return unreachable() };
     let _ = stream.set_nodelay(true);
     let Ok(cipher) = wire::handshake(&mut stream, key, true) else {
-        return "A sessão recusou a entrada. Confira se o link está completo e atual.".to_string();
+        return tx("the-session-refused-the-connection-check-that").to_string();
     };
     if let (Ok(mut slot), Ok(clone)) = (slot.lock(), stream.try_clone()) {
         *slot = Some(clone);
@@ -377,10 +379,10 @@ fn guest_loop(
     wake(waker);
     loop {
         let Ok(bytes) = wire::receive(&mut stream, &cipher) else {
-            return "A sessão terminou.".to_string();
+            return tx("the-session-ended").to_string();
         };
         let Some(message) = Message::decode(&bytes) else {
-            return "A sessão enviou dados inválidos e foi encerrada.".to_string();
+            return tx("the-session-sent-invalid-data-and-was").to_string();
         };
         let incoming = match message {
             // Written here, off the window's thread, and only inside the session's folder.

@@ -1,6 +1,8 @@
 //! The recently used documents, one path per line in the user's configuration folder. Losing this
 //! list costs nothing, so a failure to read or write it is ignored.
 
+use crate::i18n::tx;
+use crate::tr;
 use std::path::{Path, PathBuf};
 
 const MAX_RECENT: usize = 20;
@@ -94,14 +96,13 @@ pub fn push(list: &mut Vec<PathBuf>, path: &Path) -> bool {
 
 /// How long ago, in words.
 pub fn age(seconds: u64) -> String {
-    let plural = |n: u64, one: &str, many: &str| format!("há {n} {}", if n == 1 { one } else { many });
     match seconds {
-        0..60 => "agora há pouco".to_string(),
-        60..3_600 => plural(seconds / 60, "minuto", "minutos"),
-        3_600..86_400 => plural(seconds / 3_600, "hora", "horas"),
-        86_400..2_592_000 => plural(seconds / 86_400, "dia", "dias"),
-        2_592_000..31_536_000 => plural(seconds / 2_592_000, "mês", "meses"),
-        _ => plural(seconds / 31_536_000, "ano", "anos"),
+        0..60 => tx("just-now").to_string(),
+        60..3_600 => tr!("age-minutes", n = seconds / 60),
+        3_600..86_400 => tr!("age-hours", n = seconds / 3_600),
+        86_400..2_592_000 => tr!("age-days", n = seconds / 86_400),
+        2_592_000..31_536_000 => tr!("age-months", n = seconds / 2_592_000),
+        _ => tr!("age-years", n = seconds / 31_536_000),
     }
 }
 

@@ -2,6 +2,8 @@
 //! it: whole copies of the source, in a folder for that document under the user's data folder,
 //! readable by this user alone. Older versions thin out with age.
 
+use crate::i18n::tx;
+use crate::tr;
 use std::collections::HashSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -43,12 +45,12 @@ impl Kind {
 
     pub fn label(self) -> &'static str {
         match self {
-            Kind::Opened => "Ao abrir",
-            Kind::Saved => "Salvo",
-            Kind::Autosaved => "Salvamento automático",
-            Kind::BeforeRestore => "Antes de restaurar",
-            Kind::BeforeClaude => "Antes do Claude",
-            Kind::AfterClaude => "Depois do Claude",
+            Kind::Opened => tx("on-opening"),
+            Kind::Saved => tx("saved"),
+            Kind::Autosaved => tx("autosave-2"),
+            Kind::BeforeRestore => tx("before-restoring"),
+            Kind::BeforeClaude => tx("before-claude"),
+            Kind::AfterClaude => tx("after-claude"),
         }
     }
 }
@@ -216,11 +218,11 @@ pub fn to_remove(versions: &[(u64, u64)], now: u64) -> HashSet<u64> {
 pub fn describe(stamp: u64, now: u64) -> String {
     use chrono::{Local, TimeZone};
     let local = |ms: u64| Local.timestamp_millis_opt(i64::try_from(ms).unwrap_or(0)).single();
-    let (Some(when), Some(today)) = (local(stamp), local(now)) else { return "Data desconhecida".to_string() };
+    let (Some(when), Some(today)) = (local(stamp), local(now)) else { return tx("unknown-date").to_string() };
     let days = (today.date_naive() - when.date_naive()).num_days();
     match days {
-        0 => format!("Hoje, {}", when.format("%H:%M")),
-        1 => format!("Ontem, {}", when.format("%H:%M")),
+        0 => tr!("today", time = when.format("%H:%M").to_string()),
+        1 => tr!("yesterday", time = when.format("%H:%M").to_string()),
         _ => when.format("%d/%m/%Y, %H:%M").to_string(),
     }
 }

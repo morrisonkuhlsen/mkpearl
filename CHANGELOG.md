@@ -15,3 +15,4 @@ Every release of Pearl, newest first, in the spirit of
 - Rulers in centimetres around the pages, with the margins shaded.
 - Recovery: text left unsaved by a crash is offered back when Pearl opens again.
 - Third-party licences, readable under About.
+- English and Brazilian Portuguese: choose under File, Options; it starts in the system's language.
