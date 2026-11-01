@@ -1,0 +1,264 @@
+# Start here
+## Your first document
+?? first start begin paragraph text
+In Typst, you write the text as it is. A blank line starts a new paragraph. The source is on the left, and the finished pages on the right.
+
+The examples in this pane are live: edit the code below and watch the result change at once.
+```example
+Hello, world!
+
+This is the second paragraph.
+```
+> Try: change "world" to your name and add a third paragraph.
+## Bold, italic and underline
+?? bold italic underline highlight emphasis formatting
+Use `*asterisks*` for bold and `_underscores_` for italic. For the rest, call a function with `#`, such as `#underline[...]`.
+```example
+This is *important*, and this is _delicate_.
+
+#underline[Underlined] and #strike[struck out].
+
+#highlight[Highlighter] works too.
+```
+> Try: make a word bold and italic at once.
+## Headings
+?? heading title section subsection numbering
+Start the line with `=`. Each further `=` goes down a level.
+```example
+= Chapter
+== Section
+=== Subsection
+The subsection's text.
+```
+To number the headings, use a rule at the start of the document:
+```example
+#set heading(numbering: "1.1")
+= Introduction
+== Goals
+= Methods
+```
+> Try: change the numbering to "I.a".
+## Lists
+?? list bullets numbered items
+Use `-` for bullets and `+` for numbered lists. Indent with spaces for sub-items.
+```example
+- First
+- Second
+  - A detail
+
++ Step one
++ Step two
+```
+> Try: make a shopping list with a sub-item.
+# Layout
+## Page and margins
+?? page margin paper a4 a5 size landscape page numbers
+The `#set page` rule sets the paper, margins and numbering, from where it appears onwards. In Pearl, you can also drag the margins on the ruler.
+```text
+#set page(paper: "a4", margin: 2.5cm, numbering: "1")
+```
+```example
+#set page(width: 8cm, height: 4cm, margin: 1cm, fill: luma(240))
+A small page, just to see the effect.
+```
+> Try: raise the margin to 2cm and watch the text adjust.
+## Font and size
+?? font size letter colour language text
+The `#set text` rule changes how text looks from there on. Declare the language too: it sets the hyphenation and words such as "Figure".
+```example
+#set text(size: 14pt, fill: blue, lang: "en")
+Blue and larger text.
+
+#text(size: 9pt, fill: gray)[Only this part is smaller.]
+```
+> Try: change the colour to `red` and the size to 18pt.
+## Alignment and spacing
+?? align centre justify space leading paragraph indent
+`#align` places a block, and `#set par` controls paragraphs. `#v` and `#h` make space.
+```example
+#align(center)[Centred]
+#v(8pt)
+#align(right)[On the right]
+
+#set par(justify: true, first-line-indent: 1em)
+This paragraph is justified, with its first line indented, as in many academic papers.
+```
+> Try: change `center` to `left`.
+## Columns and grids
+?? columns grid side by side
+`#columns` splits text into columns. `#grid` puts things side by side with no borders.
+```example
+#grid(
+  columns: (1fr, 1fr),
+  gutter: 8pt,
+  rect(width: 100%)[Left],
+  rect(width: 100%)[Right],
+)
+```
+> Try: add a third column.
+# Content
+## Images and figures
+?? image figure photo caption picture paste
+In Pearl, the easiest way is to paste the image with Ctrl+V or use the button in the Insert tab: the file goes to the document's folder, and the code goes in by itself.
+```text
+#figure(
+  image("images/photo.png", width: 60%),
+  caption: [My caption],
+)
+```
+`#figure` works with any content, and numbers itself:
+```example
+#figure(
+  rect(width: 3cm, height: 1.5cm, fill: aqua),
+  caption: [A rectangle],
+)
+```
+> Try: change the rectangle's width and the caption.
+## Tables
+?? table rows columns cells header
+Say how many columns the table has and list the cells in order.
+```example
+#table(
+  columns: 2,
+  [*Name*], [*Grade*],
+  [Ana], [9.5],
+  [Beto], [8.0],
+)
+```
+> Try: add an "Absences" column.
+## Links and footnotes
+?? link address url note footnote
+Addresses become links by themselves. `#link` gives them other words, and `#footnote` makes a note at the foot of the page.
+```example
+See https://typst.app or the #link("https://typst.app")[Typst site].
+
+A claim.#footnote[The explanation goes here.]
+```
+> Try: add a second note.
+# Math
+## Formulas
+?? math formula equation dollar inline block
+Put the formula between `$`. With no spaces at the ends it stays in the line; with spaces it becomes a centred block.
+```example
+The area is $A = pi r^2$ in this case.
+
+$ E = m c^2 $
+```
+> Try: write $a^2 + b^2 = c^2$ as a block.
+## Fractions, roots and symbols
+?? fraction root sum integral greek symbols subscript superscript
+A slash makes a fraction. Symbols have full names, such as `alpha` and `sum`. See them all in the Symbols pane.
+```example
+$ x = (-b plus.minus sqrt(b^2 - 4 a c)) / (2 a) $
+
+$ sum_(i=1)^n i = (n(n+1)) / 2 $
+
+$ alpha + beta >= gamma $
+```
+> Try: write the integral of x from 0 to 1 with `integral_0^1 x dif x`.
+## Matrices and numbered equations
+?? matrix numbered equation aligned cases system
+`mat` and `cases` build structures. `&` aligns lines, and a rule on `math.equation` numbers the equations.
+```example
+#set math.equation(numbering: "(1)")
+$ A = mat(1, 2; 3, 4) $
+
+$ f(x) &= x^2 + 2x \
+       &= x(x + 2) $
+```
+> Try: make the matrix 3 by 3.
+# References
+## Labels and cross-references
+?? label cross reference ref at figure section
+Give something a name with `<name>` and point at it with `@name`. The numbers update themselves.
+```example
+#set heading(numbering: "1.")
+= Methods <methods>
+As described in @methods and in @fig-a.
+
+#figure(rect(width: 1cm, height: 1cm), caption: [A square]) <fig-a>
+```
+> Try: make another heading with a label and cite it.
+## Bibliography and citations
+?? bibliography citation cite bib doi abnt apa references
+Open the References pane: import a `.bib` or paste a DOI, and click to cite. Pearl adds the bibliography when it's missing. In code, it looks like this:
+```text
+As @lecun2015 showed.
+
+#bibliography("refs.bib", style: "apa")
+```
+The pane's **Check online** button looks up each reference in public services.
+## Contents and lists
+?? contents index outline list of figures tables
+`#outline` builds the contents from the headings, and can list figures and tables too.
+```example
+#outline()
+
+= Introduction
+= Conclusion
+```
+```text
+#outline(title: [Figures], target: figure.where(kind: image))
+```
+> Try: change the title with `title: [Index]`.
+# Programming
+## Variables
+?? variable let value expression calculation
+`#let` keeps a value, and `#` uses it in the text. Typst does sums too.
+```example
+#let name = "Pearl"
+#let total = 3 * 7
+
+#name worked out #total.
+```
+> Try: make a variable `year` and show `year + 1`.
+## Functions
+?? function def parameter argument reuse
+`#let` makes functions too, useful for repeating a format.
+```example
+#let warning(body) = rect(fill: yellow, inset: 6pt)[*Warning:* #body]
+
+#warning[Save before leaving.]
+#warning[Check the references.]
+```
+> Try: change the warning's colour.
+## Set and show rules
+?? set show rule style template transform
+`#set` sets default values, and `#show` transforms what appears. That keeps the style in one place.
+```example
+#show heading: set text(fill: maroon)
+#show "Pearl": name => strong(name)
+
+= A coloured heading
+Pearl is bold here.
+```
+> Try: change the headings' colour.
+## Conditions and loops
+?? if else for while loop condition repeat
+`if` chooses and `for` repeats. Inside `#[...]`, you're back to writing text.
+```example
+#let grade = 8
+
+#if grade >= 7 [Passed] else [Failed]
+
+#for i in range(1, 4) [
+  - Item #i
+]
+```
+> Try: change the grade to 5.
+# Pearl
+## Typing on the pages
+?? pearl type page edit click caret wysiwyg
+Click any text on a page: the caret appears there, and what you type goes into the source. This also works with only the pages on show. A click in a blank goes to the nearest text. The source remains the only thing that changes, so undo, sessions and history stay the same.
+## Ruler and margins
+?? pearl ruler margins drag
+Drag the edge between the grey and the light part of the ruler to change a margin. On release, Pearl updates the `#set page` rule in the source, and one Ctrl+Z undoes it all.
+## Sessions and Claude
+?? pearl session collaborate real time claude ai link
+Start a session from the View tab or the share icon, and send the link: whoever joins edits the same document, encrypted. The Claude pane talks about the document and can join the session as one more person, with your API key.
+## Versions and recovery
+?? pearl history version recover autosave save
+The Versions pane keeps the document as you save: see what changed, look at old pages and restore. If the program closes suddenly, the unsaved text is offered when it opens again.
+## Shortcuts
+?? pearl shortcuts keyboard f1 help
+F1 opens this documentation and searches for the word at the caret. Ctrl+F searches the document, Ctrl+S saves, Ctrl+E exports the PDF, Ctrl+Space asks for suggestions, and Ctrl+B and Ctrl+I apply bold and italic.

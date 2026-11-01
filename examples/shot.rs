@@ -47,7 +47,7 @@ fn main() {
     if let Some(tab) = args.get(1) {
         app.set_tab(tab);
     }
-    for (flag, side) in [("details", 0), ("outline", 1), ("files", 2), ("symbols", 3), ("problems", 4), ("claude", 5), ("versions", 6)] {
+    for (flag, side) in [("details", 0), ("outline", 1), ("files", 2), ("symbols", 3), ("problems", 4), ("claude", 5), ("versions", 6), ("docs", 8)] {
         if args.iter().any(|a| a == flag) {
             app.open_side(side);
         }
@@ -69,6 +69,10 @@ fn main() {
         if args.iter().any(|a| a == "references") {
             app.open_side(7);
         }
+    }
+    if let Some(lesson) = args.iter().find_map(|a| a.strip_prefix("lesson=")) {
+        app.open_side(8);
+        app.open_lesson(lesson.parse().expect("a lesson's number"));
     }
     if args.iter().any(|a| a == "licenses") {
         app.open_licenses();
@@ -109,6 +113,13 @@ fn main() {
         std::thread::sleep(Duration::from_millis(20));
     }
     harness.run_steps(90);
+    if args.iter().any(|a| a == "docs" || a.starts_with("lesson=")) {
+        // The examples run on the compiler's thread.
+        for _ in 0..60 {
+            harness.step();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
     if args.iter().any(|a| a == "references") {
         // The list is read on a thread of its own.
         for _ in 0..40 {

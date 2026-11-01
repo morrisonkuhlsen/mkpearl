@@ -20,7 +20,8 @@ the licenses above.
 
 The message catalog code in src/i18n.rs is adapted from MK Perth (MIT OR Apache-2.0).
 
-Typesetting is done by Typst (https://github.com/typst/typst), Apache-2.0. Pearl is not made or
+Typesetting is done by Typst (https://github.com/typst/typst), Apache-2.0. The function reference
+in the Documentation pane is the documentation Typst carries inside itself. Pearl is not made or
 endorsed by the Typst project.
 
 Fonts in the interface (SIL Open Font License 1.1): Inter and JetBrains Mono; see assets/fonts/OFL-*.txt.

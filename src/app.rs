@@ -30,6 +30,7 @@ use crate::theme::{self, ThemeChoice, Tokens};
 use crate::widgets::{field_menu, glyphs, group_begin, group_end, icon_button_mono, labelled, sep, toggle, tool, tool_menu};
 
 mod backstage;
+mod docs;
 mod references;
 
 /// The tabs, by the ids of their names.
@@ -160,6 +161,7 @@ enum Side {
     Problems,
     Versions,
     Claude,
+    Docs,
 }
 
 /// A past version looked at in the Versions pane.
@@ -342,6 +344,7 @@ pub struct App {
     recovery: Option<Recovery>,
     references: Shelf,
     reference_search: String,
+    docs: docs::Docs,
     doi_input: String,
     doi_lookup: Option<Receiver<Result<String, &'static str>>>,
     servers: Servers,
@@ -466,6 +469,7 @@ impl App {
             recovery: None,
             references: Shelf::default(),
             reference_search: String::new(),
+            docs: docs::Docs::load(),
             doi_input: String::new(),
             doi_lookup: None,
             servers: Servers::default(),
@@ -538,9 +542,10 @@ impl App {
 
     /// Opens a side pane by its place on the strip.
     pub fn open_side(&mut self, index: usize) {
-        self.side = [Side::Details, Side::Outline, Side::Files, Side::Symbols, Side::Problems, Side::Claude, Side::Versions, Side::References]
-            .get(index)
-            .copied();
+        self.side =
+            [Side::Details, Side::Outline, Side::Files, Side::Symbols, Side::Problems, Side::Claude, Side::Versions, Side::References, Side::Docs]
+                .get(index)
+                .copied();
     }
 
     pub fn text(&self) -> &str {
@@ -707,6 +712,7 @@ impl App {
                     self.want_focus = true;
                     self.page_typing = true;
                 }
+                Event::ExampleDone { request, result } => self.docs.receive(ctx, request, result),
                 Event::CaretAt { byte, page, x, y, size } => {
                     let moved = self.page_caret.is_none_or(|(p, old_x, old_y, _)| p != page || old_x != x || old_y != y);
                     self.follow_caret |= moved && self.page_typing;
@@ -1082,6 +1088,9 @@ impl App {
         }
         if pressed(Modifiers::COMMAND, Key::E) {
             self.export_pdf();
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F1)) {
+            self.help_at_caret(ctx);
         }
         // The rest act on the editor and the pages, which the File view covers.
         if self.backstage.is_some() {
@@ -2117,6 +2126,10 @@ impl App {
                         let help = top_label(ui, tx("help"), theme::ui_font(13.0), t.text, MENU_H, t);
                         egui::Popup::menu(&help).show(|ui| {
                             ui.set_min_width(230.0);
+                            if ui.button(tx("documentation")).clicked() {
+                                self.side = Some(Side::Docs);
+                                ui.close();
+                            }
                             for (label, url) in [
                                 (tx("typst-documentation"), "https://typst.app/docs/"),
                                 (tx("math-reference"), "https://typst.app/docs/reference/math/"),
@@ -2692,7 +2705,7 @@ impl App {
         ui.painter().vline(rect.left(), rect.y_range(), Stroke::new(1.0, t.separator));
         let errors = self.diags.iter().filter(|d| d.error).count();
         let mut top = rect.top() + 4.0;
-        for (k, (side, icon, name, badge)) in [
+        let items = [
             (Side::Details, Icon::Info, tx("details"), 0),
             (Side::Outline, Icon::SheetList, tx("outline"), 0),
             (Side::Files, Icon::Folder, tx("files"), 0),
@@ -2701,13 +2714,19 @@ impl App {
             (Side::Problems, Icon::Validation, tx("problems"), errors),
             (Side::Versions, Icon::Clock, tx("versions"), 0),
             (Side::Claude, Icon::Pen, "Claude", 0),
-        ]
-        .into_iter()
-        .enumerate()
-        {
+            (Side::Docs, Icon::Note, tx("documentation"), 0),
+        ];
+        let font = theme::ui_font(13.0);
+        let full_height = |name: &str, badge: usize| {
+            26.0 + ui.painter().layout_no_wrap(name.to_string(), font.clone(), t.text).size().x + if badge > 0 { 18.0 } else { 6.0 }
+        };
+        // Where the names don't all fit, the icons stand alone, and each says its name under the pointer.
+        let needed: f32 = items.iter().map(|(_, _, name, badge)| full_height(name, *badge) + 2.0).sum();
+        let compact = needed + 4.0 > rect.height();
+        for (k, (side, icon, name, badge)) in items.into_iter().enumerate() {
             let on = self.side == Some(side);
-            let galley = ui.painter().layout_no_wrap(name.to_string(), theme::ui_font(13.0), t.text);
-            let height = 26.0 + galley.size().x + if badge > 0 { 18.0 } else { 6.0 };
+            let galley = ui.painter().layout_no_wrap(name.to_string(), font.clone(), t.text);
+            let height = if compact { 26.0 } else { full_height(name, badge) };
             let slot = Rect::from_min_size(pos2(rect.left() + 1.0, top), vec2(rect.width() - 1.0, height));
             top += height + 2.0;
             let resp = ui.interact(slot, ui.scope_id().with(("side", k)), Sense::click());
@@ -2722,9 +2741,13 @@ impl App {
             crate::icons::paint(ui.painter(), Rect::from_center_size(pos2(x, slot.top() + 12.0), vec2(14.0, 14.0)), icon, t.text);
             // Turned a quarter clockwise, it reads downwards and its height lies to the left of `at`.
             let at = pos2(x + galley.size().y / 2.0, slot.top() + 24.0);
-            ui.painter().add(egui::epaint::TextShape::new(at, galley, if on { t.accent } else { t.text }).with_angle(std::f32::consts::FRAC_PI_2));
+            if !compact {
+                ui.painter()
+                    .add(egui::epaint::TextShape::new(at, galley, if on { t.accent } else { t.text }).with_angle(std::f32::consts::FRAC_PI_2));
+            }
             if badge > 0 {
-                ui.painter().text(pos2(x, slot.bottom() - 9.0), egui::Align2::CENTER_CENTER, badge.to_string(), theme::ui_font(12.0), t.danger);
+                let place = if compact { pos2(slot.right() - 7.0, slot.top() + 6.0) } else { pos2(x, slot.bottom() - 9.0) };
+                ui.painter().text(place, egui::Align2::CENTER_CENTER, badge.to_string(), theme::ui_font(12.0), t.danger);
             }
             if resp.on_hover_text(name).clicked() {
                 self.side = if on { None } else { Some(side) };
@@ -2741,6 +2764,7 @@ impl App {
             Side::Outline => (Icon::SheetList, tx("outline")),
             Side::Files => (Icon::Folder, tx("files")),
             Side::References => (Icon::Book, tx("references")),
+            Side::Docs => (Icon::Note, tx("documentation")),
             Side::Symbols => (Icon::Symbol, tx("symbols")),
             Side::Problems => (Icon::Validation, tx("problems")),
             Side::Versions => (Icon::Clock, tx("versions")),
@@ -2768,6 +2792,7 @@ impl App {
                 Side::Outline => self.pane_outline(ui, t),
                 Side::Files => self.pane_files(ui, t),
                 Side::References => self.pane_references(ui, t),
+                Side::Docs => self.pane_docs(ui, t),
                 Side::Symbols => self.pane_symbols(ui, t),
                 Side::Versions => self.pane_versions(ui, t),
                 Side::Claude => self.pane_claude(ui, t),

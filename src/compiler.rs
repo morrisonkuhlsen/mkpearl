@@ -48,6 +48,11 @@ pub enum Job {
     Locate {
         byte: usize,
     },
+    /// Compiles an example of the documentation, on its own. `request` comes back with the answer.
+    Example {
+        request: u64,
+        text: String,
+    },
     /// Where a byte offset of the source falls in the pages, for the caret drawn there.
     Caret {
         byte: usize,
@@ -78,7 +83,7 @@ pub struct Suggestion {
     pub kind: &'static str,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Pixels {
     pub size: [usize; 2],
     /// Premultiplied RGBA.
@@ -116,6 +121,11 @@ pub enum Event {
         page: usize,
         y_pt: f32,
         x_pt: f32,
+    },
+    /// The answer to [`Job::Example`]: its first page, or why it failed.
+    ExampleDone {
+        request: u64,
+        result: Result<Pixels, String>,
     },
     /// The answer to [`Job::Caret`], in points from the page's top left: `y` is the text's baseline.
     CaretAt {
@@ -182,6 +192,7 @@ struct Worker {
     world: Option<DocWorld>,
     path: Option<PathBuf>,
     probe_world: Option<DocWorld>,
+    example_world: Option<DocWorld>,
     probe_path: Option<PathBuf>,
     doc: Option<PagedDocument>,
     rendered: HashMap<u128, Pixels>,
@@ -197,6 +208,7 @@ impl Worker {
             world: None,
             path: None,
             probe_world: None,
+            example_world: None,
             probe_path: None,
             doc: None,
             rendered: HashMap::new(),
@@ -357,6 +369,10 @@ impl Worker {
             Job::Compile { .. } | Job::Complete { .. } | Job::Hover { .. } | Job::Caret { .. } => {}
             Job::Click { page, x, y } => self.click(page, x, y),
             Job::Locate { byte } => self.locate(byte),
+            Job::Example { request, text } => {
+                let result = self.example(&text);
+                self.emit(Event::ExampleDone { request, result });
+            }
             Job::ExportPdf(path) => {
                 let result = self.export(&path).map(|()| path);
                 self.emit(Event::Exported(result));
@@ -463,6 +479,27 @@ impl Worker {
         if let Some(p) = typst_ide::jump_from_cursor(doc, world.source(), byte).first() {
             self.emit(Event::JumpToPage { page: p.page.get() - 1, y_pt: p.point.y.to_pt() as f32, x_pt: p.point.x.to_pt() as f32 });
         }
+    }
+
+    /// An example, in a world of its own so the document's stays as it is, on a page the width of the pane.
+    fn example(&mut self, text: &str) -> Result<Pixels, String> {
+        const PAGE: &str = "#set page(width: 260pt, height: auto, margin: 8pt)\n";
+        const SCALE: f64 = 2.0;
+        if self.example_world.is_none() {
+            self.example_world = DocWorld::new(Arc::clone(&self.fonts), None);
+        }
+        let world = self.example_world.as_mut().ok_or(tx("the-example-could-not-run"))?;
+        world.update(&format!("{PAGE}{text}"));
+        let world = &*world;
+        let Ok(warned) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| typst::compile::<PagedDocument>(world))) else {
+            self.example_world = None;
+            return Err(tx("the-example-could-not-run").to_string());
+        };
+        let doc = warned.output.map_err(|errors| errors.first().map_or_else(String::new, |e| e.message.to_string()))?;
+        let page = doc.pages().first().ok_or(tx("the-example-could-not-run"))?;
+        let options = RenderOptions { pixel_per_pt: typst::utils::Scalar::new(SCALE), render_bleed: false };
+        let map = typst_render::render(page, &options);
+        Ok(Pixels { size: [map.width() as usize, map.height() as usize], rgba: Arc::new(map.take_demultiplied()) })
     }
 
     /// Typst's own answer gives the start of the whole run of text, so the glyphs are searched here
@@ -603,6 +640,48 @@ mod tests {
                 Event::Compiled { pages, diags, .. } => return (pages, diags),
                 Event::Failed(e) => panic!("{e}"),
                 _ => {}
+            }
+        }
+    }
+
+    #[test]
+    fn every_example_of_the_lessons_runs_in_both_languages() {
+        let c = Compiler::start().unwrap();
+        let mut asked = Vec::new();
+        for lang in [crate::i18n::Lang::PtBr, crate::i18n::Lang::En] {
+            crate::i18n::set(lang);
+            for lesson in crate::guide::lessons() {
+                for block in &lesson.blocks {
+                    if let crate::guide::Block::Example(text) = block {
+                        c.send(Job::Example { request: asked.len() as u64, text: text.clone() });
+                        asked.push((lesson.title.clone(), text.clone()));
+                    }
+                }
+            }
+        }
+        crate::i18n::set(crate::i18n::Lang::PtBr);
+        assert!(asked.len() > 40);
+        let mut answered = 0;
+        while answered < asked.len() {
+            if let Event::ExampleDone { request, result } = c.events.recv_timeout(Duration::from_secs(120)).unwrap() {
+                let (title, text) = &asked[request as usize];
+                let pixels = result.unwrap_or_else(|e| panic!("{title}: {e}\n{text}"));
+                assert!(pixels.size[0] > 100 && pixels.size[1] > 10);
+                answered += 1;
+            }
+        }
+    }
+
+    #[test]
+    fn a_broken_example_says_why_and_leaves_the_document_alone() {
+        let c = Compiler::start().unwrap();
+        c.send(Job::Compile { text: "Documento".into(), path: None });
+        c.send(Job::Example { request: 1, text: "#nao_existe()".into() });
+        loop {
+            if let Event::ExampleDone { request, result } = c.events.recv_timeout(Duration::from_secs(120)).unwrap() {
+                assert_eq!(request, 1);
+                assert!(result.unwrap_err().contains("nao_existe"));
+                break;
             }
         }
     }

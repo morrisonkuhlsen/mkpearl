@@ -23,6 +23,9 @@ Every release of Pearl, newest first, in the spirit of
 - References by DOI, and their check: citations with no entry and entries never cited are shown as
   you write; on request, each reference is looked up at doi.org or Crossref. Only DOIs and titles leave
   your computer, and only when you ask.
+- A Documentation pane in the right strip: lessons with examples you can edit and see at once, a search,
+  a reference of every Typst function, and F1 for the word at the caret. Where the strip's names
+  don't fit, its icons stand alone.
 - Typing on the pages: a click puts a caret there, also with only the pages on show, and what's typed
   goes into the source.
 - Margins dragged on the rulers change the `#set page` rule, as one undo step.
