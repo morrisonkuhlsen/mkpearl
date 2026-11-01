@@ -23,14 +23,20 @@ pub struct Entry {
     pub title: String,
     pub authors: String,
     pub year: String,
+    pub doi: Option<String>,
     /// What a search looks through, folded.
     haystack: String,
 }
 
 impl Entry {
-    fn new(key: String, title: String, authors: String, year: String) -> Self {
-        let haystack = fold(&format!("{key} {title} {authors} {year}"));
-        Self { key, title, authors, year, haystack }
+    fn new(key: String, title: String, authors: String, year: String, doi: Option<String>) -> Self {
+        let haystack = fold(&format!("{key} {title} {authors} {year} {}", doi.as_deref().unwrap_or_default()));
+        Self { key, title, authors, year, doi, haystack }
+    }
+
+    /// What a check's result belongs to: when these change, the result no longer holds.
+    pub fn identity(&self) -> String {
+        format!("{}\u{0}{}\u{0}{}", self.key, self.title, self.doi.as_deref().unwrap_or_default())
     }
 
     /// Whether it has every word of a search, ignoring case and accents.
@@ -48,7 +54,7 @@ pub struct BibFile {
 }
 
 /// Lower case and without accents, so that "goncalves" finds "Gonçalves".
-fn fold(text: &str) -> String {
+pub fn fold(text: &str) -> String {
     text.chars()
         .flat_map(char::to_lowercase)
         .map(|c| match c {
@@ -74,6 +80,7 @@ pub fn parse_bib(text: &str) -> Option<Vec<Entry>> {
             entry.title().map_or_else(String::new, |t| t.value.to_string()),
             authors.join(", "),
             entry.date().map_or_else(String::new, |d| d.year.to_string()),
+            entry.keyed_serial_number("doi").map(str::to_string),
         )
     });
     Some(entries.collect())
@@ -169,6 +176,91 @@ pub fn used_files(source: &str) -> Option<Vec<String>> {
         }
     }
     found
+}
+
+/// How the document uses references, from its syntax.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Usage {
+    /// Keys in `@key`, `#cite` and `#ref`, in the order written, each once.
+    pub cited: Vec<String>,
+    /// Labels the document puts on its own things, which `@` may point at too.
+    pub labels: Vec<String>,
+    /// It includes other files, whose citations aren't seen here.
+    pub includes: bool,
+}
+
+pub fn usage(source: &str) -> Usage {
+    fn add(list: &mut Vec<String>, item: &str) {
+        if !list.iter().any(|known| known == item) {
+            list.push(item.to_string());
+        }
+    }
+    let text = |node: &LinkedNode| source.get(node.range()).unwrap_or_default().to_string();
+    let root = parse(source);
+    let mut found = Usage::default();
+    let mut pending = vec![LinkedNode::new(&root)];
+    while let Some(node) = pending.pop() {
+        match node.kind() {
+            SyntaxKind::RefMarker => add(&mut found.cited, text(&node).trim_start_matches('@')),
+            SyntaxKind::Label => add(&mut found.labels, text(&node).trim_matches(['<', '>'])),
+            SyntaxKind::ModuleInclude => found.includes = true,
+            _ => {}
+        }
+        // `#cite(<key>)` and `#cite(label("key"))`: the first is no label being defined.
+        let is_citing = node.kind() == SyntaxKind::FuncCall
+            && node.children().next().is_some_and(|callee| callee.kind() == SyntaxKind::Ident && matches!(text(&callee).as_str(), "cite" | "ref"));
+        if is_citing {
+            let args = node.children().find(|child| child.kind() == SyntaxKind::Args);
+            for arg in args.iter().flat_map(LinkedNode::children) {
+                match arg.kind() {
+                    SyntaxKind::Label => add(&mut found.cited, text(&arg).trim_matches(['<', '>'])),
+                    SyntaxKind::FuncCall if arg.children().next().is_some_and(|callee| text(&callee) == "label") => {
+                        let inner = arg.children().find(|child| child.kind() == SyntaxKind::Args);
+                        for value in inner.iter().flat_map(LinkedNode::children).filter(|v| v.kind() == SyntaxKind::Str) {
+                            add(&mut found.cited, text(&value).trim_matches('"'));
+                        }
+                    }
+                    SyntaxKind::Named => pending.push(arg),
+                    _ => {}
+                }
+            }
+        } else {
+            // Children go last-first off the stack, so that keys come in the order written.
+            let children: Vec<_> = node.children().collect();
+            pending.extend(children.into_iter().rev());
+        }
+    }
+    found
+}
+
+/// Keys the document cites with no entry to back them.
+pub fn missing<'a>(usage: &'a Usage, entries: &[&Entry]) -> Vec<&'a str> {
+    let known = |key: &&String| entries.iter().any(|entry| &entry.key == *key) || usage.labels.contains(key);
+    usage.cited.iter().filter(|key| !known(key)).map(String::as_str).collect()
+}
+
+/// Adds one entry fetched from outside to a `.bib` file, creating it if needed, and never touching what
+/// is there. A key already in use gets a number. Returns the entry's key, or the id of a message.
+pub fn append_entry(file: &Path, bibtex: &str, known_keys: &[&str]) -> Result<String, &'static str> {
+    let entries = parse_bib(bibtex).ok_or("the-doi-gave-no-usable-reference")?;
+    let [entry] = entries.as_slice() else { return Err("the-doi-gave-no-usable-reference") };
+    let key = &entry.key;
+    let mut free = key.clone();
+    let mut number = 2;
+    while known_keys.contains(&free.as_str()) {
+        free = format!("{key}-{number}");
+        number += 1;
+    }
+    // The key is what follows the entry's first brace.
+    let opening = bibtex.find('{').ok_or("the-doi-gave-no-usable-reference")?;
+    let after = opening + 1;
+    let rest = bibtex.get(after..).ok_or("the-doi-gave-no-usable-reference")?;
+    let tail = rest.trim_start().strip_prefix(key.as_str()).ok_or("the-doi-gave-no-usable-reference")?;
+    let text = format!("{}{free}{}", bibtex.get(..after).unwrap_or_default(), tail);
+    let mut out = fs::OpenOptions::new().create(true).append(true).open(file).map_err(|_| "the-reference-could-not-be-saved")?;
+    use std::io::Write;
+    writeln!(out, "\n{}", text.trim()).map_err(|_| "the-reference-could-not-be-saved")?;
+    Ok(free)
 }
 
 /// The files whose references can be cited: those the document's bibliography names; before it has
@@ -275,6 +367,54 @@ mod tests {
         for query in ["knuth", "perolas 1984"] {
             assert!(!first.matches(query), "{query}");
         }
+    }
+
+    // As doi.org sent it: an unquoted month and a dash in the pages.
+    const FROM_DOI: &str = " @article{LeCun_2015, title={Deep learning}, volume={521}, ISSN={1476-4687}, url={http://dx.doi.org/10.1038/nature14539}, DOI={10.1038/nature14539}, number={7553}, journal={Nature}, publisher={Springer Science and Business Media LLC}, author={LeCun, Yann and Bengio, Yoshua and Hinton, Geoffrey}, year={2015}, month=May, pages={436–444} }\n";
+
+    #[test]
+    fn an_entry_from_doi_org_is_read_with_its_doi() {
+        let entries = parse_bib(FROM_DOI).unwrap();
+        assert_eq!(entries[0].key, "LeCun_2015");
+        assert_eq!(entries[0].title, "Deep learning");
+        assert_eq!(entries[0].doi.as_deref(), Some("10.1038/nature14539"));
+        assert!(entries[0].matches("nature14539"));
+    }
+
+    #[test]
+    fn appending_keeps_what_is_there_and_finds_a_free_key() {
+        let file = std::env::temp_dir().join(format!("pearl-append-{}.bib", std::process::id()));
+        fs::write(&file, BIB).unwrap();
+        assert_eq!(append_entry(&file, FROM_DOI, &["goncalves2020"]), Ok("LeCun_2015".to_string()));
+        assert_eq!(append_entry(&file, FROM_DOI, &["LeCun_2015"]), Ok("LeCun_2015-2".to_string()));
+        let keys: Vec<String> = parse_bib(&fs::read_to_string(&file).unwrap()).unwrap().into_iter().map(|e| e.key).collect();
+        assert_eq!(keys.len(), 4, "{keys:?}");
+        assert!(keys.contains(&"goncalves2020".to_string()) && keys.contains(&"LeCun_2015-2".to_string()));
+        for bad in ["", "<html>", "@article{", "@misc{a, title={A}} @misc{b, title={B}}"] {
+            assert_eq!(append_entry(&file, bad, &[]), Err("the-doi-gave-no-usable-reference"), "{bad}");
+        }
+        fs::remove_file(file).unwrap();
+    }
+
+    #[test]
+    fn citations_are_read_from_the_syntax() {
+        let source = "@a e @b[p. 1] e @a.\n#cite(<c>, supplement: [x])\n#cite(label(\"d/e\"), form: \"year\")\n// @comentario\n`@bruto`\n$x$ <eq>\nmail@exemplo.com\n";
+        let found = usage(source);
+        // Typst reads the address as a citation too, and fails on it unless the `@` is escaped.
+        assert_eq!(found.cited, ["a", "b", "c", "d/e", "exemplo.com"]);
+        assert_eq!(found.labels, ["eq"]);
+        assert!(!found.includes);
+        assert!(usage("#include \"cap.typ\"").includes);
+    }
+
+    #[test]
+    fn a_citation_is_missing_only_with_no_entry_and_no_label() {
+        let found = usage("@knuth84 e @fig e @nada\n#figure([x]) <fig>\n");
+        let entries = parse_bib(BIB).unwrap();
+        let refs: Vec<&Entry> = entries.iter().collect();
+        let book = "knuth:84";
+        assert!(refs.iter().any(|e| e.key == book));
+        assert_eq!(missing(&found, &refs), ["knuth84", "nada"]);
     }
 
     #[test]

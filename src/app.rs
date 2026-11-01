@@ -5,6 +5,7 @@ use crate::tr;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::mpsc::Receiver;
 
 use egui::text::{CCursor, CCursorRange};
 use egui::{Align, Color32, FontId, Id, Key, KeyboardShortcut, Modifiers, Rect, Sense, Stroke, TextureHandle, TextureOptions, Ui, pos2, vec2};
@@ -12,9 +13,10 @@ use egui::{Align, Color32, FontId, Id, Key, KeyboardShortcut, Modifiers, Rect, S
 use self::backstage::Page as FilePage;
 use crate::assistant::api::{self, Connection, Credential, Usage};
 use crate::assistant::{Assistant, Update};
-use crate::bib::{self, Shelf};
+use crate::bib::Shelf;
 use crate::collab::{Change, Session};
 use crate::compiler::{Compiler, Diag, Event, Job, Page, Suggestion};
+use crate::doi::{Servers, Verdict};
 use crate::edit::{self, Sel};
 use crate::highlight;
 use crate::history::{self, Store, Version};
@@ -28,6 +30,7 @@ use crate::theme::{self, ThemeChoice, Tokens};
 use crate::widgets::{field_menu, glyphs, group_begin, group_end, icon_button_mono, labelled, sep, toggle, tool, tool_menu};
 
 mod backstage;
+mod references;
 
 /// The tabs, by the ids of their names.
 const TABS: [&str; 6] = ["home-2", "insert", "page-layout", "references", "math", "view"];
@@ -339,6 +342,11 @@ pub struct App {
     recovery: Option<Recovery>,
     references: Shelf,
     reference_search: String,
+    doi_input: String,
+    doi_lookup: Option<Receiver<Result<String, &'static str>>>,
+    servers: Servers,
+    verdicts: HashMap<String, Verdict>,
+    checking: Option<Receiver<(String, Verdict)>>,
     /// Whether a picture brought into an unsaved document asks where to save it.
     asks_to_save: bool,
     recovery_written_at: f64,
@@ -443,6 +451,11 @@ impl App {
             recovery: None,
             references: Shelf::default(),
             reference_search: String::new(),
+            doi_input: String::new(),
+            doi_lookup: None,
+            servers: Servers::default(),
+            verdicts: HashMap::new(),
+            checking: None,
             asks_to_save: false,
             recovery_written_at: f64::NEG_INFINITY,
             orphans: Vec::new(),
@@ -2807,121 +2820,6 @@ impl App {
         }
     }
 
-    fn pane_references(&mut self, ui: &mut Ui, t: &Tokens) {
-        const MAX_SHOWN: usize = 200;
-        let ctx = ui.ctx().clone();
-        let guest = self.session.as_ref().is_some_and(|s| !s.is_host());
-        let folder = self.session.as_ref().and_then(Session::guest_path).or_else(|| self.path.clone());
-        self.references.tick(&ctx, folder.as_deref().and_then(Path::parent).map(Path::to_path_buf));
-        // A guest has only the files the host's document uses, and can't send any.
-        if !guest && ui.button(tx("import-a-bib-file")).clicked() {
-            self.ask_to_import(&ctx);
-        }
-        ui.add_space(4.0);
-        let search = ui.add(
-            egui::TextEdit::singleline(&mut self.reference_search).hint_text(tx("search-by-title-author-key-or-year")).desired_width(f32::INFINITY),
-        );
-        let enter = search.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-        ui.add_space(4.0);
-
-        let used = bib::used_files(&self.text);
-        let files = bib::citable(&self.references.files, used.as_deref());
-        let mut chosen = None;
-        let matching: Vec<(&str, &bib::Entry)> = files
-            .iter()
-            .flat_map(|file| file.entries.iter().map(|entry| (file.path.as_str(), entry)))
-            .filter(|(_, entry)| entry.matches(&self.reference_search))
-            .collect();
-        if self.references.files.is_empty() {
-            let empty = if folder.is_none() { tx("save-the-document-to-see-its-references") } else { tx("no-bib-files-in-the-folder") };
-            ui.colored_label(t.text_dim, empty);
-        } else if matching.is_empty() {
-            ui.colored_label(t.text_dim, tx("no-reference-matches"));
-        } else {
-            ui.colored_label(t.text_dim, tx("click-a-reference-to-cite-it"));
-            ui.add_space(4.0);
-        }
-        if enter && let Some((file, entry)) = matching.first() {
-            chosen = Some((file.to_string(), entry.key.clone()));
-        }
-        for (file, entry) in matching.iter().take(MAX_SHOWN) {
-            let title = if entry.title.is_empty() { &entry.key } else { &entry.title };
-            let button = egui::Button::new(egui::RichText::new(title).color(t.text)).frame_when_inactive(false).truncate();
-            let detail: Vec<&str> = [entry.authors.as_str(), entry.year.as_str(), entry.key.as_str()].into_iter().filter(|s| !s.is_empty()).collect();
-            let detail = detail.join(" · ");
-            if ui.add(button).on_hover_text(format!("{title}\n{detail}\n{file}")).clicked() {
-                chosen = Some((file.to_string(), entry.key.clone()));
-            }
-            ui.add(egui::Label::new(egui::RichText::new(detail).small().color(t.text_dim)).truncate());
-            ui.add_space(3.0);
-        }
-        if matching.len() > MAX_SHOWN {
-            ui.colored_label(t.text_dim, tr!("n-more-references", count = (matching.len() - MAX_SHOWN).to_string()));
-        }
-        ui.add_space(6.0);
-        let outside: Vec<&str> =
-            self.references.files.iter().filter(|f| !files.iter().any(|shown| shown.path == f.path)).map(|f| f.path.as_str()).collect();
-        if !outside.is_empty() {
-            ui.colored_label(t.text_dim, tr!("bib-files-outside-the-bibliography", files = outside.join(", ")));
-        }
-        for failed in self.references.files.iter().filter(|f| f.failed) {
-            ui.colored_label(t.danger, tr!("bib-file-could-not-be-read", file = failed.path.clone()));
-        }
-        if let Some((file, key)) = chosen {
-            self.cite(&ctx, &file, &key);
-        }
-    }
-
-    fn ask_to_import(&mut self, ctx: &egui::Context) {
-        let Some(dir) = self.saved_folder(tx("save-the-document-before-importing-references")) else { return };
-        if let Some(file) = rfd::FileDialog::new().add_filter("BibTeX", &["bib"]).pick_file() {
-            self.import_references(ctx, &dir, &file);
-        }
-    }
-
-    fn import_references(&mut self, ctx: &egui::Context, dir: &Path, file: &Path) {
-        match bib::import(dir, file) {
-            Ok((path, count)) => {
-                self.status = tr!("references-imported", file = path, count = count.to_string());
-                self.references.refresh();
-                ctx.request_repaint();
-            }
-            Err(id) => self.status = tx(id).into(),
-        }
-    }
-
-    /// Imports a file into the document's folder, as the pane's button does after its dialog.
-    pub fn import_references_from(&mut self, ctx: &egui::Context, file: &Path) {
-        if let Some(dir) = self.path.as_deref().and_then(Path::parent).map(Path::to_path_buf) {
-            self.import_references(ctx, &dir, file);
-        }
-    }
-
-    pub fn search_references(&mut self, query: &str) {
-        query.clone_into(&mut self.reference_search);
-    }
-
-    /// Puts a citation at the caret, as one change with the bibliography it needs: without one in
-    /// the document, a citation is an error.
-    fn cite(&mut self, ctx: &egui::Context, file: &str, key: &str) {
-        let citation = bib::citation(key);
-        let bibliography = bib::used_files(&self.text).is_none().then(|| edit::file_snippet(file));
-        let added = bibliography.is_some();
-        self.edit(ctx, |text, sel| {
-            let next = edit::insert_citation(text, sel, &citation);
-            if let Some(bibliography) = &bibliography {
-                if !text.is_empty() && !text.ends_with('\n') {
-                    text.push('\n');
-                }
-                text.push_str(bibliography);
-            }
-            next
-        });
-        if added {
-            self.status = tx("bibliography-added-at-the-end").into();
-        }
-    }
-
     fn pane_symbols(&mut self, ui: &mut Ui, t: &Tokens) {
         let ctx = ui.ctx().clone();
         for (group, symbols) in SYMBOL_GROUPS {
@@ -3765,7 +3663,7 @@ impl App {
             for d in &self.diags {
                 let tokens = Tokens::get(ui.ctx());
                 let (kind, color) = if d.error { (tx("error"), tokens.danger) } else { (tx("warning"), tokens.warning) };
-                let place = d.byte.map_or_else(String::new, |b| tr!("on-line", line = edit::line_of(&self.text, b)));
+                let place = d.byte.map_or_else(String::new, |b| format!(" {}", tr!("on-line", line = edit::line_of(&self.text, b))));
                 ui.horizontal(|ui| {
                     ui.colored_label(color, egui::RichText::new(format!("{kind}{place}:")).font(theme::ui_bold(12.5)));
                     if ui.add(egui::Label::new(&d.message).sense(Sense::click())).on_hover_text(tx("go-to-the-passage")).clicked() {

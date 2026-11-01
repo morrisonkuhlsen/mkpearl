@@ -118,8 +118,8 @@ pub fn insert_block(buffer: &mut String, (a, b): Sel, text: &str) -> Sel {
     if at_start { insert_plain(buffer, (a, b), text) } else { insert_plain(buffer, (a, b), &format!("\n{text}")) }
 }
 
-/// Inserts a citation, set apart from a word it would otherwise run into: `@` after a letter isn't a
-/// reference at all, and a letter after the key would become part of it.
+/// Inserts a citation, set apart from the words around it: a letter after the key would become part
+/// of the key.
 pub fn insert_citation(buffer: &mut String, (a, b): Sel, citation: &str) -> Sel {
     let word = |c: char| c.is_alphanumeric() || c == '_';
     let before = buffer.get(..byte_of(buffer, a)).and_then(|s| s.chars().next_back()).is_some_and(word);

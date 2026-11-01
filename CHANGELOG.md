@@ -20,6 +20,9 @@ Every release of Pearl, newest first, in the spirit of
   the document, with a figure at the caret. An unsaved document asks where to save first. Dragging doesn't work under Wayland yet (#15).
 - A References pane: import a `.bib`, search it and click to cite at the caret, with the bibliography
   added to the document when it has none.
+- References by DOI, and their check: citations with no entry and entries never cited are shown as
+  you write; on request, each reference is looked up at doi.org or Crossref. Only DOIs and titles leave
+  your computer, and only when you ask.
 - Copying and pasting with other programs, which didn't reach the system's clipboard.
 - Third-party licences, readable under About.
 - English and Brazilian Portuguese: choose under File, Options; it starts in the system's language.
