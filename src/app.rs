@@ -7,6 +7,8 @@ use egui::text::{CCursor, CCursorRange};
 use egui::{Align, Color32, FontId, Id, Key, KeyboardShortcut, Modifiers, Rect, Sense, Stroke, TextureHandle, TextureOptions, Ui, pos2, vec2};
 
 use self::backstage::Page as FilePage;
+use crate::assistant::api::{self, Connection, Credential, Usage};
+use crate::assistant::{Assistant, Update};
 use crate::collab::{Change, Session};
 use crate::compiler::{Compiler, Diag, Event, Job, Page, Suggestion};
 use crate::edit::{self, Sel};
@@ -19,6 +21,13 @@ use crate::widgets::{field_menu, glyphs, group_begin, group_end, icon_button_mon
 mod backstage;
 
 const TABS: [&str; 6] = ["Página Inicial", "Inserir", "Layout da Página", "Referências", "Matemática", "Exibir"];
+/// Where a saved API key is kept, readable by this user alone.
+const KEY_FILE: &str = "anthropic-key";
+/// Most search matches highlighted at a time.
+const MAX_MATCHES_SHOWN: usize = 2000;
+const LIST_BULLETS: &str = "Lista com marcadores";
+const LIST_NUMBERED: &str = "Lista numerada";
+const LIST_TERMS: &str = "Lista de termos";
 const RAIL_WIDTH: f32 = 44.0;
 const SIDE_WIDTH: f32 = 320.0;
 const SIDE_STRIP: f32 = 30.0;
@@ -100,6 +109,15 @@ enum Side {
     Files,
     Symbols,
     Problems,
+    Claude,
+}
+
+/// A line of the conversation with Claude.
+enum Said {
+    Person(String),
+    Claude(String),
+    Action(String),
+    Problem(String),
 }
 
 /// The Symbols pane: groups of the glyph shown and the Typst math code it inserts.
@@ -158,6 +176,18 @@ struct Completions {
     selected: usize,
 }
 
+/// The pointer resting on the source, and what's shown for it.
+#[derive(Default)]
+struct Hover {
+    /// The byte under the pointer, and since when.
+    byte: Option<usize>,
+    since: f64,
+    asked: bool,
+    request: u64,
+    /// The words on show, whether they're code, and the byte they're for.
+    tip: Option<(String, bool, usize)>,
+}
+
 struct TableDialog {
     rows: usize,
     cols: usize,
@@ -204,11 +234,22 @@ pub struct App {
     /// The File view, when open, on this page.
     backstage: Option<FilePage>,
     theme: ThemeChoice,
+    hover: Hover,
+    kept_selection: Option<Sel>,
     completions: Option<Completions>,
     /// The newest question asked of the compiler; older answers are dropped.
     completion_request: u64,
     /// Scroll the list to the selected suggestion on the next frame.
     completion_scroll: bool,
+    /// Claude, once asked for something; it stays in the session until sent away.
+    assistant: Option<Assistant>,
+    assistant_busy: bool,
+    transcript: Vec<Said>,
+    assistant_input: String,
+    assistant_usage: Usage,
+    key_input: String,
+    /// The session exists only for Claude, on this machine, and goes when Claude does.
+    session_private: bool,
     /// The session being edited together, if any.
     session: Option<Session>,
     share_dialog: Option<ShareDialog>,
@@ -262,6 +303,15 @@ impl App {
             files: Vec::new(),
             backstage: None,
             theme: ThemeChoice::load(),
+            hover: Hover::default(),
+            kept_selection: None,
+            assistant: None,
+            assistant_busy: false,
+            transcript: Vec::new(),
+            assistant_input: String::new(),
+            assistant_usage: Usage::default(),
+            key_input: String::new(),
+            session_private: false,
             completions: None,
             completion_request: 0,
             completion_scroll: false,
@@ -288,7 +338,7 @@ impl App {
 
     /// Opens a side pane by its place on the strip.
     pub fn open_side(&mut self, index: usize) {
-        self.side = [Side::Details, Side::Outline, Side::Files, Side::Symbols, Side::Problems].get(index).copied();
+        self.side = [Side::Details, Side::Outline, Side::Files, Side::Symbols, Side::Problems, Side::Claude].get(index).copied();
     }
 
     pub fn text(&self) -> &str {
@@ -305,6 +355,32 @@ impl App {
 
     pub fn is_dirty(&self) -> bool {
         self.dirty
+    }
+
+    /// Opens the search, as Ctrl+F does.
+    pub fn open_search(&mut self) {
+        self.open_find();
+    }
+
+    /// The text selected in the editor.
+    pub fn selected_text(&self, ctx: &egui::Context) -> String {
+        edit::selected(&self.text, self.selection(ctx)).to_string()
+    }
+
+    /// Selects a char range in the editor, and focuses it.
+    pub fn select(&mut self, ctx: &egui::Context, a: usize, b: usize) {
+        self.set_selection(ctx, (a, b));
+        self.want_focus = true;
+    }
+
+    /// The char range selected in the editor.
+    pub fn selected_range(&self, ctx: &egui::Context) -> (usize, usize) {
+        self.selection(ctx)
+    }
+
+    /// The words of the tip on show for the pointer's resting place.
+    pub fn hover_words(&self) -> Option<&str> {
+        self.hover.tip.as_ref().map(|t| t.0.as_str())
     }
 
     /// The labels of the suggestions on show.
@@ -405,6 +481,12 @@ impl App {
                     self.scroll_page = Some((page, y_pt));
                     self.marker = Some((page, pos2(x_pt, y_pt), ctx.input(|i| i.time)));
                 }
+                Event::Hovered { request, tip } => {
+                    if request == self.hover.request {
+                        let byte = self.hover.byte.unwrap_or(0);
+                        self.hover.tip = tip.filter(|(words, _)| !words.trim().is_empty()).map(|(words, code)| (words, code, byte));
+                    }
+                }
                 Event::Completions { request, from, suggestions } => {
                     if request == self.completion_request {
                         let (a, b) = self.selection(ctx);
@@ -426,9 +508,18 @@ impl App {
         }
     }
 
+    /// The selection, as chars. The editor collapses its own when it loses the focus, so while
+    /// something else has the focus (a ribbon button, the search, Claude's panel) this is the one it
+    /// had, which is the one they mean.
     fn selection(&self, ctx: &egui::Context) -> Sel {
         let n = self.text.chars().count();
-        let range = egui::TextEdit::load_state(ctx, Id::unique(EDITOR)).and_then(|s| s.cursor.char_range());
+        let id = Id::unique(EDITOR);
+        if !ctx.memory(|m| m.has_focus(id))
+            && let Some((a, b)) = self.kept_selection
+        {
+            return (a.min(n), b.min(n));
+        }
+        let range = egui::TextEdit::load_state(ctx, id).and_then(|s| s.cursor.char_range());
         let (a, b) = range.map_or((n, n), |r| {
             let (p, q): (usize, usize) = (r.primary.index.into(), r.secondary.index.into());
             (p.min(q), p.max(q))
@@ -436,11 +527,12 @@ impl App {
         (a.min(n), b.min(n))
     }
 
-    fn set_selection(&self, ctx: &egui::Context, (a, b): Sel) {
+    fn set_selection(&mut self, ctx: &egui::Context, (a, b): Sel) {
         let id = Id::unique(EDITOR);
         let mut state = egui::TextEdit::load_state(ctx, id).unwrap_or_default();
         state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(a), CCursor::new(b))));
         egui::TextEdit::store_state(ctx, id, state);
+        self.kept_selection = Some((a, b));
     }
 
     fn edit(&mut self, ctx: &egui::Context, f: impl FnOnce(&mut String, Sel) -> Sel) {
@@ -675,6 +767,7 @@ impl App {
             self.ask_completions(ctx, true);
         }
         self.completion_keys(ctx);
+        self.typing_help(ctx);
         // Before the editor sees them: its own history doesn't suit a session (see `undo`).
         if self.session.is_some() {
             if pressed(shift, Key::Z) || pressed(Modifiers::COMMAND, Key::Y) {
@@ -739,6 +832,54 @@ impl App {
         self.edit(ctx, |text, _| edit::apply_completion(text, list.from, to, &apply));
     }
 
+    /// Brackets and quotes typed into the editor, taken before it sees them. All of a frame's typing
+    /// goes through here when any of it is one of those, so it stays in order.
+    fn typing_help(&mut self, ctx: &egui::Context) {
+        if !ctx.memory(|m| m.has_focus(Id::unique(EDITOR))) {
+            return;
+        }
+        let single = |t: &str| {
+            let mut chars = t.chars();
+            chars.next().filter(|c| chars.next().is_none() && crate::typing::is_special(*c))
+        };
+        let wanted = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(t) if single(t).is_some())));
+        let backspace = ctx.input(|i| {
+            i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::Backspace, pressed: true, modifiers, .. } if modifiers.is_none()))
+        });
+        if wanted {
+            let mut typed = Vec::new();
+            ctx.input_mut(|i| {
+                i.events.retain(|e| match e {
+                    egui::Event::Text(t) => {
+                        typed.push(t.clone());
+                        false
+                    }
+                    _ => true,
+                });
+            });
+            for piece in typed {
+                self.edit(ctx, |text, sel| match single(&piece).and_then(|c| crate::typing::type_char(text, sel, c)) {
+                    Some(next) => next,
+                    None => edit::insert_plain(text, sel, &piece),
+                });
+            }
+            if self.worth_completing(ctx) {
+                self.ask_completions(ctx, false);
+            } else {
+                self.completions = None;
+            }
+        } else if backspace {
+            let sel = self.selection(ctx);
+            let mut trial = self.text.clone();
+            if crate::typing::backspace_pair(&mut trial, sel).is_some() {
+                ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Backspace));
+                self.edit(ctx, |text, sel| crate::typing::backspace_pair(text, sel).unwrap_or(sel));
+                self.completions = None;
+                self.completion_request += 1;
+            }
+        }
+    }
+
     /// The keys a list on show takes before the editor sees them.
     fn completion_keys(&mut self, ctx: &egui::Context) {
         let pressed = |k: Key| ctx.input_mut(|i| i.consume_key(Modifiers::NONE, k));
@@ -782,8 +923,207 @@ impl App {
     pub fn show(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         self.session_receive(&ctx);
+        self.assistant_receive(&ctx);
         self.show_window(ui);
         self.session_send(&ctx);
+    }
+
+    /// The way to the API: a saved key, or the environment's. The address can be overridden as in the
+    /// official clients.
+    fn api_connection() -> Option<Connection> {
+        let from_env = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+        let credential = crate::recent::read_setting(KEY_FILE)
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty())
+            .or_else(|| from_env("ANTHROPIC_API_KEY"))
+            .map(Credential::ApiKey)
+            .or_else(|| from_env("ANTHROPIC_AUTH_TOKEN").map(Credential::Token))?;
+        Some(Connection { url: from_env("ANTHROPIC_BASE_URL").unwrap_or_else(|| api::DEFAULT_URL.to_string()), credential })
+    }
+
+    /// Sends Claude what the person asked, bringing it into the session the first time: into the one
+    /// under way, or into a private one on this machine.
+    pub fn ask_claude(&mut self, ctx: &egui::Context, instruction: &str) {
+        let Some(connection) = Self::api_connection() else {
+            self.transcript.push(Said::Problem("Falta a chave da API.".to_string()));
+            return;
+        };
+        if self.session.is_none() {
+            let file_name = self.path.as_deref().and_then(Path::file_name).map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+            match Session::host_on("127.0.0.1:0", &self.text, &self.user_name, &file_name) {
+                Ok(session) => {
+                    session.set_waker(ctx);
+                    self.session = Some(session);
+                    self.session_private = true;
+                }
+                Err(e) => {
+                    self.transcript.push(Said::Problem(e));
+                    return;
+                }
+            }
+        }
+        let Some(session) = &self.session else { return };
+        if session.is_waiting() {
+            self.transcript.push(Said::Problem("Espere a sessão terminar de conectar.".to_string()));
+            return;
+        }
+        if self.assistant.is_none() {
+            match Assistant::start(session.link().to_string(), connection) {
+                Ok(assistant) => {
+                    assistant.set_waker(ctx);
+                    self.assistant = Some(assistant);
+                }
+                Err(e) => {
+                    self.transcript.push(Said::Problem(e));
+                    return;
+                }
+            }
+        }
+        let selection = self.selection(ctx);
+        let selected = (selection.0 != selection.1).then(|| edit::selected(&self.text, selection).to_string());
+        self.transcript.push(Said::Person(instruction.to_string()));
+        self.assistant_busy = true;
+        if let Some(assistant) = &self.assistant {
+            assistant.ask(instruction.to_string(), selected);
+        }
+    }
+
+    fn assistant_receive(&mut self, _ctx: &egui::Context) {
+        if self.session.is_none() {
+            self.session_private = false;
+        }
+        let Some(assistant) = &self.assistant else { return };
+        let updates: Vec<Update> = assistant.updates.try_iter().collect();
+        for update in updates {
+            match update {
+                Update::Connected => {}
+                Update::Text(text) => match self.transcript.last_mut() {
+                    Some(Said::Claude(said)) => said.push_str(&text),
+                    _ => self.transcript.push(Said::Claude(text)),
+                },
+                Update::Action(action) => self.transcript.push(Said::Action(action)),
+                Update::Usage(usage) => self.assistant_usage.add(usage),
+                Update::Done => self.assistant_busy = false,
+                Update::Stopped => {
+                    self.assistant_busy = false;
+                    self.transcript.push(Said::Action("Parado".to_string()));
+                }
+                Update::Undone => self.transcript.push(Said::Action("O que o Claude fez foi desfeito".to_string())),
+                Update::Problem(message) => {
+                    self.assistant_busy = false;
+                    self.transcript.push(Said::Problem(message));
+                }
+                Update::Gone(reason) => {
+                    self.assistant_busy = false;
+                    self.assistant = None;
+                    self.transcript.push(Said::Problem(reason));
+                }
+            }
+        }
+    }
+
+    /// Sends Claude away, and with it the session that existed only for it.
+    fn dismiss_claude(&mut self) {
+        self.assistant = None;
+        self.assistant_busy = false;
+        if self.session_private {
+            self.session = None;
+            self.session_private = false;
+            self.compile();
+        }
+    }
+
+    /// The conversation with Claude, as lines.
+    pub fn claude_said(&self) -> Vec<String> {
+        self.transcript
+            .iter()
+            .map(|s| match s {
+                Said::Person(t) | Said::Claude(t) | Said::Action(t) | Said::Problem(t) => t.clone(),
+            })
+            .collect()
+    }
+
+    pub fn claude_is_busy(&self) -> bool {
+        self.assistant_busy
+    }
+
+    fn pane_claude(&mut self, ui: &mut Ui, t: &Tokens) {
+        let ctx = ui.ctx().clone();
+        let Some(_) = Self::api_connection() else {
+            ui.label("O Claude entra no documento como mais uma pessoa: com cursor e nome próprios, e você pode desfazer só o que ele fez.");
+            ui.add_space(8.0);
+            ui.label("Cole uma chave da API da Anthropic (console.anthropic.com):");
+            ui.add(egui::TextEdit::singleline(&mut self.key_input).password(true).desired_width(f32::INFINITY).hint_text("sk-ant-…"));
+            ui.add_space(4.0);
+            if ui.add_enabled(!self.key_input.trim().is_empty(), egui::Button::new("Salvar a chave")).clicked() {
+                if crate::recent::write_secret(KEY_FILE, self.key_input.trim()) {
+                    self.key_input.clear();
+                } else {
+                    self.status = "Não foi possível guardar a chave.".into();
+                }
+            }
+            ui.add_space(8.0);
+            ui.colored_label(t.text_dim, "A chave fica só neste computador, nunca vai para os outros da sessão. Cada pedido consome créditos da sua conta.");
+            return;
+        };
+        for said in &self.transcript {
+            match said {
+                Said::Person(text) => {
+                    ui.add_space(6.0);
+                    ui.label(egui::RichText::new(text).font(theme::ui_bold(12.5)).color(t.text));
+                }
+                Said::Claude(text) => {
+                    ui.label(egui::RichText::new(text).color(t.text));
+                }
+                Said::Action(text) => {
+                    ui.label(egui::RichText::new(text).font(theme::ui_font(11.5)).color(t.text_dim));
+                }
+                Said::Problem(text) => {
+                    ui.label(egui::RichText::new(text).color(t.danger));
+                }
+            }
+        }
+        if self.transcript.is_empty() {
+            ui.colored_label(t.text_dim, "Peça o que quiser no documento: você vê o Claude escrevendo e pode continuar digitando. Se houver texto selecionado, ele vai junto.");
+        }
+        ui.add_space(10.0);
+        let input_id = Id::unique("claude-input");
+        // Before the field sees it: Enter sends, and Shift+Enter is a new line.
+        let enter = !self.assistant_busy && ui.memory(|m| m.has_focus(input_id)) && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
+        ui.add(egui::TextEdit::multiline(&mut self.assistant_input).id(input_id).desired_rows(3).desired_width(f32::INFINITY).hint_text("Peça algo ao Claude…"));
+        ui.horizontal(|ui| {
+            if self.assistant_busy {
+                if ui.button("Parar").clicked()
+                    && let Some(assistant) = &self.assistant
+                {
+                    assistant.stop();
+                }
+            } else {
+                let ready = !self.assistant_input.trim().is_empty();
+                if (ui.add_enabled(ready, egui::Button::new("Enviar")).clicked() || enter) && ready {
+                    let instruction = std::mem::take(&mut self.assistant_input);
+                    self.ask_claude(&ctx, instruction.trim());
+                }
+            }
+            if self.assistant.is_some() && ui.add_enabled(!self.assistant_busy, egui::Button::new("Desfazer o que ele fez")).clicked()
+                && let Some(assistant) = &self.assistant
+            {
+                assistant.undo_all();
+            }
+        });
+        if self.assistant.is_some() && ui.add_enabled(!self.assistant_busy, egui::Button::new("Tirar o Claude do documento")).clicked() {
+            self.dismiss_claude();
+        }
+        ui.add_space(10.0);
+        let u = self.assistant_usage;
+        if u.input + u.output + u.cache_read > 0 {
+            ui.colored_label(t.text_dim, format!("Tokens: {} de entrada, {} em cache, {} de saída", u.input + u.cache_write, u.cache_read, u.output));
+        }
+        ui.colored_label(t.text_dim, format!("O documento é enviado à Anthropic para o Claude trabalhar, e cada pedido consome créditos da sua conta. Modelo: {}.", api::MODEL));
+        if crate::recent::read_setting(KEY_FILE).is_some() && ui.small_button("Remover a chave salva").clicked() {
+            crate::recent::remove_setting(KEY_FILE);
+            self.dismiss_claude();
+        }
     }
 
     /// Takes in what the others did, keeping this person's selection on the same words.
@@ -944,7 +1284,11 @@ impl App {
                         keep = false;
                         return;
                     };
-                    if let Some(link) = session.share_link() {
+                    if self.session_private {
+                        ui.label("Esta sessão é só entre você e o Claude, neste computador.");
+                        ui.label("Para editar com outras pessoas, tire o Claude do documento e inicie uma sessão compartilhada; depois é só chamá-lo de novo.");
+                        ui.add_space(8.0);
+                    } else if let Some(link) = session.share_link() {
                         ui.label("Envie este link a quem vai editar com você:");
                         let mut shown = link.to_string();
                         ui.add(egui::TextEdit::singleline(&mut shown).desired_width(f32::INFINITY).font(egui::TextStyle::Monospace));
@@ -1330,6 +1674,9 @@ impl App {
         let level = line.chars().take_while(|c| *c == '=').count();
         match level {
             1..=6 if line.get(level..).is_some_and(|r| r.starts_with(' ')) => format!("Título {level}"),
+            _ if line.starts_with("- ") => LIST_BULLETS.to_string(),
+            _ if line.starts_with("+ ") => LIST_NUMBERED.to_string(),
+            _ if line.starts_with("/ ") => LIST_TERMS.to_string(),
             _ => "Normal".to_string(),
         }
     }
@@ -1436,12 +1783,19 @@ impl App {
         }
         sep(ui, "Parágrafo");
         let style = self.current_style(&ctx);
-        field_menu(ui, &style, 100.0, "Estilo da linha do cursor", |ui| {
+        field_menu(ui, &style, 156.0, "Estilo da linha do cursor", |ui| {
             if ui.selectable_label(style == "Normal", "Normal").clicked() {
                 self.clear_marker(&ctx);
                 ui.close();
             }
             for (label, marker) in [("Título 1", "= "), ("Título 2", "== "), ("Título 3", "=== "), ("Título 4", "==== ")] {
+                if ui.selectable_label(style == label, label).clicked() {
+                    self.marker_line(&ctx, marker);
+                    ui.close();
+                }
+            }
+            ui.separator();
+            for (label, marker) in [(LIST_BULLETS, "- "), (LIST_NUMBERED, "+ "), (LIST_TERMS, "/ ")] {
                 if ui.selectable_label(style == label, label).clicked() {
                     self.marker_line(&ctx, marker);
                     ui.close();
@@ -1471,6 +1825,8 @@ impl App {
             Some("- ".to_string())
         } else if line.starts_with("+ ") {
             Some("+ ".to_string())
+        } else if line.starts_with("/ ") {
+            Some("/ ".to_string())
         } else {
             None
         };
@@ -1780,6 +2136,7 @@ impl App {
             (Side::Files, Icon::Folder, "Arquivos", 0),
             (Side::Symbols, Icon::Symbol, "Símbolos", 0),
             (Side::Problems, Icon::Validation, "Problemas", errors),
+            (Side::Claude, Icon::Pen, "Claude", 0),
         ]
         .into_iter()
         .enumerate()
@@ -1821,6 +2178,7 @@ impl App {
             Side::Files => (Icon::Folder, "Arquivos"),
             Side::Symbols => (Icon::Symbol, "Símbolos"),
             Side::Problems => (Icon::Validation, "Problemas"),
+            Side::Claude => (Icon::Pen, "Claude"),
         };
         let inner = rect.shrink2(vec2(10.0, 6.0));
         ui.scope_builder(egui::UiBuilder::new().max_rect(inner), |ui| {
@@ -1844,6 +2202,7 @@ impl App {
                 Side::Outline => self.pane_outline(ui, t),
                 Side::Files => self.pane_files(ui, t),
                 Side::Symbols => self.pane_symbols(ui, t),
+                Side::Claude => self.pane_claude(ui, t),
                 Side::Problems => {
                     if self.diags.is_empty() {
                         ui.colored_label(t.text_dim, "Nenhum problema neste documento.");
@@ -1978,16 +2337,15 @@ impl App {
     }
 
     fn find_step(&mut self, ctx: &egui::Context, backwards: bool) {
-        let Some(query) = self.find.clone() else { return };
         let (a, b) = self.selection(ctx);
-        let from = if backwards { a } else { b };
-        match edit::find(&self.text, &query, from, backwards) {
-            Some(found) => {
-                self.set_selection(ctx, found);
-                self.scroll_caret = true;
-            }
-            None if !query.is_empty() => self.status = format!("“{query}” não foi encontrado."),
-            None => {}
+        self.find_from(ctx, if backwards { a } else { b }, backwards);
+    }
+
+    fn find_from(&mut self, ctx: &egui::Context, from: usize, backwards: bool) {
+        let Some(query) = self.find.clone() else { return };
+        if let Some(found) = edit::find(&self.text, &query, from, backwards) {
+            self.set_selection(ctx, found);
+            self.scroll_caret = true;
         }
     }
 
@@ -2033,8 +2391,21 @@ impl App {
         if let Some(c) = pending {
             self.set_selection(&ctx, (c, c));
         }
+        // Coming back to the editor: with the focus before it draws, or it would collapse the
+        // selection again, and with the one it had.
+        if want_focus {
+            if let Some(kept) = self.kept_selection
+                && !ctx.memory(|m| m.has_focus(id))
+            {
+                self.set_selection(&ctx, kept);
+            }
+            ctx.memory_mut(|m| m.request_focus(id));
+        }
         let scroll_caret = std::mem::take(&mut self.scroll_caret);
         let show_numbers = self.line_numbers;
+        let scroll_target = self.selection(&ctx).0;
+        let found = self.find.as_deref().map_or_else(Vec::new, |q| edit::find_all(&self.text, q, MAX_MATCHES_SHOWN));
+        let current_match = self.find.as_ref().map(|_| self.selection(&ctx));
         let waiting = self.session.as_ref().is_some_and(Session::is_waiting);
         let carets = self.session.as_ref().map_or_else(Vec::new, Session::cursors);
         let App { text, colored, .. } = self;
@@ -2051,6 +2422,9 @@ impl App {
         let mut changed = false;
         let mut caret_rect = None;
         let mut focused = false;
+        let mut hover_byte = None;
+        let mut hover_pos = None;
+        let mut kept = None;
         egui::ScrollArea::vertical().id_salt("source-scroll").auto_shrink([false, false]).show(ui, |ui| {
             let min_h = ui.available_height();
             ui.horizontal_top(|ui| {
@@ -2101,15 +2475,50 @@ impl App {
                     caret_rect = Some(output.galley.pos_from_cursor(range.primary).translate(output.galley_pos.to_vec2()));
                 }
                 focused = output.response.has_focus();
-                if scroll_caret && let Some(range) = output.cursor_range {
-                    let caret = output.galley.pos_from_cursor(range.primary);
+                if focused && let Some(range) = output.cursor_range {
+                    let (p, q): (usize, usize) = (range.primary.index.into(), range.secondary.index.into());
+                    kept = Some((p.min(q), p.max(q)));
+                }
+                // What's under the pointer: nothing when it's off the text or past a line's end.
+                hover_byte = ui.ctx().pointer_hover_pos().filter(|_| output.response.hovered()).and_then(|p| {
+                    let cursor = output.galley.cursor_from_pos(p - output.galley_pos);
+                    let at = output.galley.pos_from_cursor(cursor).translate(output.galley_pos.to_vec2());
+                    let near = (p.y - at.center().y).abs() <= at.height() / 2.0 + 1.0 && (p.x - at.left()).abs() <= 12.0;
+                    near.then(|| edit::byte_of(text, cursor.index.into()))
+                });
+                hover_pos = ui.ctx().pointer_hover_pos();
+                // By the selection itself: the editor only gives its range while it has the focus, and
+                // a search keeps the focus in its own field.
+                if scroll_caret {
+                    let caret = output.galley.pos_from_cursor(CCursor::new(scroll_target));
                     scroll_to = Some(caret.translate(output.galley_pos.to_vec2()));
+                }
+                // The search's matches, over the text: the editor shows a selection only with the
+                // focus, and this way all of them can be seen.
+                for (a, b) in &found {
+                    let place = |c: usize| output.galley.pos_from_cursor(CCursor::new(c)).translate(output.galley_pos.to_vec2());
+                    let current = current_match == Some((*a, *b));
+                    let fill = if current { t.accent.gamma_multiply(0.55) } else { t.accent.gamma_multiply(0.22) };
+                    let (from, to) = (place(*a), place(*b));
+                    if (from.top() - to.top()).abs() < 1.0 {
+                        ui.painter().rect_filled(Rect::from_min_max(from.min, to.max), 1.0, fill);
+                    } else {
+                        // Wrapped across rows: letter by letter, each on its own.
+                        for c in *a..*b {
+                            let (one, next) = (place(c), place(c + 1));
+                            let right = if (one.top() - next.top()).abs() < 1.0 { next.left() } else { one.left() + 8.0 };
+                            ui.painter().rect_filled(Rect::from_min_max(one.min, pos2(right, one.bottom())), 1.0, fill);
+                        }
+                    }
                 }
             });
             if let Some(rect) = scroll_to {
                 ui.scroll_to_rect(rect.expand(30.0), Some(Align::Center));
             }
         });
+        if kept.is_some() {
+            self.kept_selection = kept;
+        }
         if changed {
             self.dirty = true;
             self.changed_at = ctx.input(|i| i.time);
@@ -2128,9 +2537,49 @@ impl App {
         if !changed && (moved || (!focused && !pointer_on_list && !want_focus)) {
             self.completions = None;
         }
+        self.hover_tick(&ctx, hover_byte, hover_pos, changed, t);
         if let Some(caret) = caret_rect {
             self.completion_popup(&ctx, caret, t);
         }
+    }
+
+    /// Asks about what the pointer has rested on, and shows the answer beside it.
+    fn hover_tick(&mut self, ctx: &egui::Context, byte: Option<usize>, pointer: Option<egui::Pos2>, changed: bool, t: &Tokens) {
+        const REST: f64 = 0.4;
+        let now = ctx.input(|i| i.time);
+        // Typing, or a list on show, leaves no room for a tip: and the answer would be about old text.
+        let busy = changed || self.completions.is_some() || ctx.input(|i| i.pointer.any_down());
+        if busy || byte != self.hover.byte {
+            self.hover.byte = if busy { None } else { byte };
+            self.hover.since = now;
+            self.hover.asked = false;
+            self.hover.tip = None;
+            self.hover.request += 1;
+        }
+        if let Some(at) = self.hover.byte
+            && !self.hover.asked
+        {
+            let waited = now - self.hover.since;
+            if waited >= REST {
+                self.hover.asked = true;
+                self.compiler.send(Job::Hover { request: self.hover.request, byte: at });
+            } else {
+                ctx.request_repaint_after_secs((REST - waited) as f32);
+            }
+        }
+        let (Some((words, code, _)), Some(pointer)) = (&self.hover.tip, pointer) else { return };
+        egui::Area::new(Id::unique("source-tip")).order(egui::Order::Tooltip).fixed_pos(pointer + vec2(10.0, 16.0)).constrain(true).interactable(false).show(ctx, |ui| {
+            egui::Frame::popup(ui.style()).fill(t.menu_bg).stroke(Stroke::new(1.0, t.separator)).inner_margin(8).show(ui, |ui| {
+                ui.set_max_width(420.0);
+                // A long documentation entry is cut: this is a reminder, not the manual.
+                let shown: String = words.chars().take(600).collect();
+                let cut = shown.len() < words.len();
+                let text = if cut { format!("{shown}…") } else { shown };
+                let rich = egui::RichText::new(text).color(t.text);
+                let rich = if *code { rich.font(FontId::monospace(12.5)) } else { rich.font(theme::ui_font(12.5)) };
+                ui.add(egui::Label::new(rich).wrap());
+            });
+        });
     }
 
     /// The suggestions, under the caret (over it when there's no room below), with what the chosen
@@ -2366,15 +2815,18 @@ impl App {
         }
         if let Some(mut query) = self.find.take() {
             let mut keep = true;
-            let (mut next, mut previous) = (false, false);
-            egui::Window::new("Localizar").collapsible(false).resizable(false).title_bar(false).anchor(egui::Align2::RIGHT_TOP, [-16.0, 134.0]).show(ctx, |ui| {
+            let (mut next, mut previous, mut edited) = (false, false, false);
+            let matches = edit::find_all(&self.text, &query, MAX_MATCHES_SHOWN);
+            let selection = self.selection(ctx);
+            let place = matches.iter().position(|m| *m == selection);
+            egui::Window::new("Localizar").collapsible(false).resizable(false).title_bar(false).anchor(egui::Align2::RIGHT_TOP, [-44.0, 134.0]).show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     let field = ui.add(egui::TextEdit::singleline(&mut query).desired_width(200.0).hint_text("Localizar no documento"));
                     if std::mem::take(&mut self.find_focus) {
                         field.request_focus();
                     }
-                    let enter = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-                    if enter {
+                    edited = field.changed();
+                    if field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                         next = !ui.input(|i| i.modifiers.shift);
                         previous = !next;
                         field.request_focus();
@@ -2383,6 +2835,13 @@ impl App {
                         keep = false;
                     }
                     let t = Tokens::get(ui.ctx());
+                    let count = match (query.is_empty(), matches.len(), place) {
+                        (true, ..) => String::new(),
+                        (false, 0, _) => "Nenhum".to_string(),
+                        (false, n, Some(i)) => format!("{} de {n}", i + 1),
+                        (false, n, None) => format!("{n}"),
+                    };
+                    ui.add_sized([64.0, 20.0], egui::Label::new(egui::RichText::new(count).font(theme::ui_font(12.0)).color(if matches.is_empty() && !query.is_empty() { t.danger } else { t.text_dim })));
                     previous |= icon_button_mono(ui, Icon::ChevronUp, t.text_dim, "Anterior (Shift+Enter)", vec2(24.0, 22.0)).clicked();
                     next |= icon_button_mono(ui, Icon::Chevron, t.text_dim, "Próximo (Enter)", vec2(24.0, 22.0)).clicked();
                     if icon_button_mono(ui, Icon::Close, t.text_dim, "Fechar (Esc)", vec2(24.0, 22.0)).clicked() {
@@ -2391,7 +2850,10 @@ impl App {
                 });
             });
             self.find = keep.then_some(query);
-            if next || previous {
+            if edited {
+                // As it's typed, from where the current match or the caret begins.
+                self.find_from(ctx, selection.0, false);
+            } else if next || previous {
                 self.find_step(ctx, previous);
             }
             if !keep {

@@ -47,6 +47,40 @@ pub fn save(list: &[PathBuf]) {
     let _ = std::fs::write(f, lines.join("\n"));
 }
 
+/// A secret kept readable by this user alone. False when it couldn't be written that way.
+pub fn write_secret(name: &str, value: &str) -> bool {
+    use std::io::Write;
+    let Some(f) = config_file(name) else { return false };
+    if let Some(dir) = f.parent()
+        && std::fs::create_dir_all(dir).is_err()
+    {
+        return false;
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let Ok(mut file) = options.open(&f) else { return false };
+    // An older file keeps its permissions when opened: tighten them too.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if file.set_permissions(std::fs::Permissions::from_mode(0o600)).is_err() {
+            return false;
+        }
+    }
+    file.write_all(value.as_bytes()).is_ok()
+}
+
+pub fn remove_setting(name: &str) {
+    if let Some(f) = config_file(name) {
+        let _ = std::fs::remove_file(f);
+    }
+}
+
 /// Moves `path` to the front. False when it already was there, so nothing need be written.
 pub fn push(list: &mut Vec<PathBuf>, path: &Path) -> bool {
     if list.first().is_some_and(|p| p == path) {

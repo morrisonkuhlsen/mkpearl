@@ -43,7 +43,7 @@ fn marker_len(line: &str) -> usize {
     if eq > 0 && line[eq..].starts_with(' ') {
         return eq + 1;
     }
-    if line.starts_with("- ") || line.starts_with("+ ") {
+    if line.starts_with("- ") || line.starts_with("+ ") || line.starts_with("/ ") {
         return 2;
     }
     0
@@ -173,6 +173,30 @@ pub fn open_brackets(text: &str, byte: usize) -> String {
     if in_string { format!("\"{closers}") } else { closers }
 }
 
+/// Typst's documentation as plain words: links keep their text, and the marks go.
+pub fn plain_doc(doc: &str) -> String {
+    let mut out = String::with_capacity(doc.len());
+    let mut rest = doc;
+    while let Some(open) = rest.find('[') {
+        let (before, after) = rest.split_at(open);
+        out.push_str(before);
+        // `[text](target)` becomes `text`; any other bracket stays as it is.
+        match after.find("](") {
+            Some(mid) if !after.get(1..mid).unwrap_or_default().contains(['[', '\n']) => {
+                let tail = after.get(mid + 2..).unwrap_or_default();
+                out.push_str(after.get(1..mid).unwrap_or_default());
+                rest = tail.find(')').map_or("", |end| tail.get(end + 1..).unwrap_or_default());
+            }
+            _ => {
+                out.push('[');
+                rest = after.get(1..).unwrap_or_default();
+            }
+        }
+    }
+    out.push_str(rest);
+    out.replace("**", "").replace('`', "")
+}
+
 /// A completion's text without its `${…}` placeholders, and where the first placeholder is, as a
 /// char range of the plain text (the caret, or what's to be typed over).
 pub fn expand_snippet(snippet: &str) -> (String, Option<Sel>) {
@@ -244,6 +268,27 @@ pub fn toggle_comment(text: &mut String, (a, b): Sel) -> Sel {
     let n = changed.chars().count();
     text.replace_range(start..end, &changed);
     (start_c, start_c + n)
+}
+
+/// Every match of `query`, ignoring case, not overlapping, as char ranges, up to `limit`.
+pub fn find_all(text: &str, query: &str, limit: usize) -> Vec<Sel> {
+    let needle: Vec<char> = query.chars().flat_map(char::to_lowercase).collect();
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let hay: Vec<char> = text.chars().collect();
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at + needle.len() <= hay.len() && out.len() < limit {
+        let fits = hay.get(at..at + needle.len()).is_some_and(|w| w.iter().zip(&needle).all(|(h, n)| h.to_lowercase().eq(std::iter::once(*n))));
+        if fits {
+            out.push((at, at + needle.len()));
+            at += needle.len();
+        } else {
+            at += 1;
+        }
+    }
+    out
 }
 
 /// The next match of `query` from char `from`, ignoring case, wrapping round the end of the text.
@@ -387,6 +432,31 @@ mod tests {
         assert_eq!(open_brackets("// (\n#g(", 8), ")");
         assert_eq!(open_brackets("sem par )", 9), "");
         assert_eq!(open_brackets("ação", 999), "");
+    }
+
+    #[test]
+    fn documentation_reads_as_plain_words() {
+        assert_eq!(plain_doc("Aligns [content]($align) `here` **now**."), "Aligns content here now.");
+        assert_eq!(plain_doc("a [b] c"), "a [b] c");
+        assert_eq!(plain_doc("[x](y"), "x");
+        assert_eq!(plain_doc("[" ), "[");
+        assert_eq!(plain_doc("ação [é](ü) ç"), "ação é ç");
+    }
+
+    #[test]
+    fn every_match_is_found_without_overlap_and_within_the_limit() {
+        assert_eq!(find_all("Ação ação", "AÇÃO", 10), [(0, 4), (5, 9)]);
+        assert_eq!(find_all("aaaa", "aa", 10), [(0, 2), (2, 4)]);
+        assert_eq!(find_all("aaaa", "a", 2).len(), 2);
+        assert!(find_all("abc", "", 10).is_empty());
+        assert!(find_all("a", "abc", 10).is_empty());
+    }
+
+    #[test]
+    fn a_term_list_marker_counts_as_a_marker() {
+        let mut t = "/ termo".to_string();
+        line_marker(&mut t, (3, 3), "- ");
+        assert_eq!(t, "- termo");
     }
 
     #[test]

@@ -119,3 +119,201 @@ fn a_letter_typed_while_the_list_is_up_is_replaced_too() {
     assert!(h.state().text().starts_with("#align("), "{:?}", h.state().text());
     assert!(!h.state().text().contains("alig("), "{:?}", h.state().text());
 }
+
+fn type_chars(h: &mut Harness<'_, App>, text: &str) {
+    for c in text.chars() {
+        type_text(h, &c.to_string());
+    }
+}
+
+#[test]
+fn brackets_close_as_typed_and_the_list_comes_inside_them() {
+    let mut h = window();
+    type_chars(&mut h, "#set text(");
+    assert_eq!(h.state().text(), "#set text()");
+    until(&mut h, "parameters inside the pair", |a| a.completion_labels().iter().any(|l| l == "fill"));
+    h.key_press(Key::Escape);
+    h.step();
+    // Typing on goes inside, and the closer steps over the one already there.
+    type_chars(&mut h, "size: 1pt)");
+    assert_eq!(h.state().text(), "#set text(size: 1pt)");
+}
+
+#[test]
+fn a_whole_call_typed_quickly_comes_out_right() {
+    let mut h = window();
+    // Several characters in one frame, brackets among them, stay in order.
+    h.event(Event::Text("#".to_string()));
+    h.event(Event::Text("f".to_string()));
+    h.event(Event::Text("(".to_string()));
+    h.event(Event::Text("x".to_string()));
+    h.step();
+    assert_eq!(h.state().text(), "#f(x)");
+}
+
+#[test]
+fn backspace_takes_an_empty_pair() {
+    let mut h = window();
+    type_chars(&mut h, "x(");
+    assert_eq!(h.state().text(), "x()");
+    h.key_press(Key::Backspace);
+    h.step();
+    assert_eq!(h.state().text(), "x");
+    h.key_press(Key::Backspace);
+    h.step();
+    assert_eq!(h.state().text(), "");
+}
+
+#[test]
+fn a_typed_pair_counts_as_a_change() {
+    let mut h = window();
+    type_chars(&mut h, "(");
+    assert_eq!(h.state().text(), "()");
+    assert!(h.state().is_dirty());
+}
+
+#[test]
+fn resting_the_pointer_on_a_function_shows_what_it_does() {
+    let mut h = window();
+    h.state_mut().set_text("#align(center)[texto]");
+    until(&mut h, "a compile of it", |a| a.page_count() > 0);
+    for _ in 0..6 {
+        h.step();
+    }
+    // Over "align" on the first line: the frame, the rail, the line numbers, three characters in.
+    let over = egui::pos2(8.0 + 44.0 + 46.0 + 4.0 + 3.5 * 7.8, 132.0 + 8.0 + 8.0);
+    h.event(Event::PointerMoved(over));
+    until(&mut h, "the tip", |a| a.hover_words().is_some());
+    assert!(h.state().hover_words().unwrap().to_lowercase().contains("align"), "{:?}", h.state().hover_words());
+    // Moving off the text takes it away.
+    h.event(Event::PointerMoved(egui::pos2(300.0, 600.0)));
+    h.step();
+    h.step();
+    assert_eq!(h.state().hover_words(), None);
+}
+
+fn searching<'a>(text: &str) -> Harness<'a, App> {
+    let mut h = window();
+    h.state_mut().set_text(text);
+    h.step();
+    h.state_mut().open_search();
+    for _ in 0..4 {
+        h.step();
+    }
+    h
+}
+
+#[test]
+fn the_search_finds_as_it_is_typed() {
+    let mut h = searching("uma Palavra aqui\ne palavra ali\n");
+    h.event(Event::Text("palavra".to_string()));
+    for _ in 0..3 {
+        h.step();
+    }
+    let ctx = h.ctx.clone();
+    assert_eq!(h.state().selected_text(&ctx), "Palavra", "selected without pressing anything, ignoring case");
+    assert_eq!(h.state().selected_range(&ctx), (4, 11));
+}
+
+#[test]
+fn enter_goes_to_the_next_match_and_wraps_round() {
+    let mut h = searching("a x\nb x\nc x\n");
+    h.event(Event::Text("x".to_string()));
+    for _ in 0..3 {
+        h.step();
+    }
+    let ctx = h.ctx.clone();
+    let mut seen = vec![h.state().selected_range(&ctx)];
+    for _ in 0..3 {
+        h.key_press(Key::Enter);
+        for _ in 0..3 {
+            h.step();
+        }
+        seen.push(h.state().selected_range(&ctx));
+    }
+    assert_eq!(seen, [(2, 3), (6, 7), (10, 11), (2, 3)]);
+    assert!(!h.state().text().contains("\n\n"), "Enter didn't reach the document");
+}
+
+#[test]
+fn nothing_found_leaves_the_text_and_selection_alone() {
+    let mut h = searching("abc");
+    let ctx = h.ctx.clone();
+    let before = h.state().selected_range(&ctx);
+    h.event(Event::Text("zzz".to_string()));
+    for _ in 0..3 {
+        h.step();
+    }
+    assert_eq!(h.state().selected_range(&ctx), before);
+    assert_eq!(h.state().text(), "abc");
+}
+
+#[test]
+fn a_ribbon_button_acts_on_the_selection_though_clicking_it_takes_the_focus() {
+    use egui_kittest::kittest::Queryable as _;
+    let mut h = window();
+    h.state_mut().set_text("uma palavra aqui");
+    h.step();
+    let ctx = h.ctx.clone();
+    h.state_mut().select(&ctx, 4, 11);
+    for _ in 0..4 {
+        h.step();
+    }
+    assert_eq!(h.state().selected_text(&ctx), "palavra");
+    h.get_by_label("Negrito (Ctrl+B)").click();
+    for _ in 0..4 {
+        h.step();
+    }
+    assert_eq!(h.state().text(), "uma *palavra* aqui");
+}
+
+#[test]
+fn closing_the_search_leaves_the_match_selected_in_the_editor() {
+    let mut h = searching("um alvo aqui");
+    h.event(Event::Text("alvo".to_string()));
+    for _ in 0..3 {
+        h.step();
+    }
+    h.key_press(Key::Escape);
+    for _ in 0..4 {
+        h.step();
+    }
+    let ctx = h.ctx.clone();
+    assert_eq!(h.state().selected_text(&ctx), "alvo");
+    // Typing replaces it, as with any selection: the focus really came back.
+    h.event(Event::Text("novo".to_string()));
+    h.step();
+    assert_eq!(h.state().text(), "um novo aqui");
+}
+
+#[test]
+fn the_style_box_turns_a_line_into_a_list_and_shows_it() {
+    use egui_kittest::kittest::Queryable as _;
+    let mut h = window();
+    h.state_mut().set_text("item");
+    h.step();
+    let ctx = h.ctx.clone();
+    h.state_mut().select(&ctx, 2, 2);
+    for _ in 0..3 {
+        h.step();
+    }
+    h.get_by_label("Estilo da linha do cursor").click();
+    for _ in 0..3 {
+        h.step();
+    }
+    // The ribbon has a button of that name too; the menu's item is the last one drawn.
+    h.get_all_by_label("Lista numerada").last().unwrap().click();
+    for _ in 0..4 {
+        h.step();
+    }
+    assert_eq!(h.state().text(), "+ item");
+    h.get_by_label("Estilo da linha do cursor").click();
+    for _ in 0..3 {
+        h.step();
+    }
+    h.get_by_label("Normal").click();
+    for _ in 0..4 {
+        h.step();
+    }
+    assert_eq!(h.state().text(), "item");
+}

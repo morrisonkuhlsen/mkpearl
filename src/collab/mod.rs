@@ -50,6 +50,8 @@ pub struct Session {
     name: String,
     /// The link to give others (host only).
     share_link: Option<String>,
+    /// The link this session was joined by, or that it's hosted at.
+    link_text: String,
     is_host: bool,
     /// Guest: still waiting for the document.
     waiting: bool,
@@ -82,6 +84,7 @@ impl Session {
             id: random_id()?,
             name: wire::clean_name(name),
             share_link: Some(wire::format_link(&address, &key)),
+            link_text: wire::format_link(&address, &key),
             is_host: true,
             waiting: false,
             file_name: wire::safe_file_name(file_name),
@@ -96,6 +99,7 @@ impl Session {
 
     /// Joins the session behind `link`. The document arrives later, as [`Change::Text`].
     pub fn join(link: &str, name: &str) -> Result<Session, String> {
+        let link_text = link.trim().to_string();
         let (address, key) = wire::parse_link(link).ok_or_else(|| "Esse não é um link de sessão do Pearl.".to_string())?;
         let id = random_id()?;
         let folder = std::env::temp_dir().join(format!("pearl-session-{id:016x}"));
@@ -109,6 +113,7 @@ impl Session {
             id,
             name,
             share_link: None,
+            link_text,
             is_host: false,
             waiting: true,
             file_name: "documento.typ".to_string(),
@@ -141,6 +146,11 @@ impl Session {
 
     pub fn share_link(&self) -> Option<&str> {
         self.share_link.as_deref()
+    }
+
+    /// The link that gets into this session, for Claude to come in by.
+    pub fn link(&self) -> &str {
+        &self.link_text
     }
 
     pub fn name(&self) -> &str {

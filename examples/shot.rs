@@ -44,7 +44,7 @@ fn main() {
     if let Some(tab) = args.get(1) {
         app.set_tab(tab);
     }
-    for (flag, side) in [("details", 0), ("outline", 1), ("files", 2), ("symbols", 3), ("problems", 4)] {
+    for (flag, side) in [("details", 0), ("outline", 1), ("files", 2), ("symbols", 3), ("problems", 4), ("claude", 5)] {
         if args.iter().any(|a| a == flag) {
             app.open_side(side);
         }
@@ -85,6 +85,22 @@ fn main() {
         std::thread::sleep(Duration::from_millis(20));
     }
     harness.run_steps(90);
+    if args.iter().any(|a| a == "hover") {
+        harness.event(egui::Event::PointerMoved(egui::pos2(8.0 + 44.0 + 46.0 + 4.0 + 3.0 * 7.8, 237.0)));
+        for _ in 0..80 {
+            harness.step();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    if args.iter().any(|a| a == "search") {
+        harness.state_mut().open_search();
+        harness.step();
+        harness.step();
+        harness.event(egui::Event::Text("tabela".to_string()));
+        for _ in 0..10 {
+            harness.step();
+        }
+    }
     if completing {
         harness.event(egui::Event::Text("#set text(".to_string()));
         for _ in 0..40 {

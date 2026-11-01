@@ -37,6 +37,8 @@ pub enum Job {
     /// Shows the place in the pages for a byte offset of the source.
     Locate { byte: usize },
     ExportPdf(PathBuf),
+    /// What the thing at a byte offset is, for the pointer resting on it.
+    Hover { request: u64, byte: usize },
     /// What could be typed at a byte offset. `explicit`: asked for with Ctrl+Space.
     Complete { request: u64, byte: usize, explicit: bool },
 }
@@ -80,6 +82,8 @@ pub enum Event {
     Compiled { pages: Option<Vec<Page>>, diags: Vec<Diag>, millis: u128 },
     JumpToSource { byte: usize },
     JumpToPage { page: usize, y_pt: f32, x_pt: f32 },
+    /// The answer to [`Job::Hover`]: the words to show, and whether they're code.
+    Hovered { request: u64, tip: Option<(String, bool)> },
     /// The answer to [`Job::Complete`]: suggestions replacing the text from `from` to the caret.
     Completions { request: u64, from: usize, suggestions: Vec<Suggestion> },
     /// The files of the project the document read (path from its folder, path on disk).
@@ -149,9 +153,11 @@ impl Worker {
             let mut compile = None;
             let mut others = Vec::new();
             let mut complete = None;
+            let mut hover = None;
             for job in std::iter::once(first).chain(jobs.try_iter()) {
                 match job {
                     Job::Compile { text, path } => compile = Some((text, path)),
+                    Job::Hover { request, byte } => hover = Some((request, byte)),
                     // Only the newest question matters too: answers to old ones go unused.
                     Job::Complete { request, byte, explicit } => complete = Some((request, byte, explicit)),
                     other => others.push(other),
@@ -162,6 +168,9 @@ impl Worker {
             }
             for job in others {
                 self.other(job);
+            }
+            if let Some((request, byte)) = hover {
+                self.hover(request, byte);
             }
             if let Some((request, byte, explicit)) = complete {
                 self.complete(request, byte, explicit);
@@ -241,7 +250,7 @@ impl Worker {
 
     fn other(&mut self, job: Job) {
         match job {
-            Job::Compile { .. } | Job::Complete { .. } => {}
+            Job::Compile { .. } | Job::Complete { .. } | Job::Hover { .. } => {}
             Job::Click { page, x, y } => self.click(page, x, y),
             Job::Locate { byte } => self.locate(byte),
             Job::ExportPdf(path) => {
@@ -249,6 +258,25 @@ impl Worker {
                 self.emit(Event::Exported(result));
             }
         }
+    }
+
+    fn hover(&self, request: u64, byte: usize) {
+        let Some(world) = &self.world else { return };
+        let source = world.source();
+        let tip = source.text().is_char_boundary(byte).then(|| {
+            // Analysis runs the document's code: a panic in it must not take the thread along.
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                // The character under the pointer is the one after the offset.
+                typst_ide::tooltip(world, self.doc.as_ref(), source, byte, typst::syntax::Side::After)
+            }))
+            .ok()
+            .flatten()
+        });
+        let tip = tip.flatten().map(|t| match t {
+            typst_ide::Tooltip::Text(text) => (crate::edit::plain_doc(&text), false),
+            typst_ide::Tooltip::Code(code) => (code.to_string(), true),
+        });
+        self.emit(Event::Hovered { request, tip });
     }
 
     fn complete(&mut self, request: u64, byte: usize, explicit: bool) {
@@ -480,6 +508,45 @@ mod tests {
                 break;
             }
         }
+    }
+
+    fn hovered(text: &str, byte: usize) -> Option<(String, bool)> {
+        let c = Compiler::start().unwrap();
+        c.send(Job::Compile { text: text.into(), path: None });
+        c.send(Job::Hover { request: 3, byte });
+        loop {
+            if let Event::Hovered { request, tip } = c.events.recv_timeout(Duration::from_secs(120)).unwrap() {
+                assert_eq!(request, 3);
+                return tip;
+            }
+        }
+    }
+
+    #[test]
+    fn resting_on_a_function_tells_what_it_does() {
+        let (words, code) = hovered("#align(center)[x]", 3).unwrap();
+        assert!(!code);
+        assert!(words.to_lowercase().contains("align"), "{words}");
+        assert!(!words.contains("]("), "links are gone: {words}");
+    }
+
+    #[test]
+    fn resting_on_a_variable_shows_its_value() {
+        let text = "#let total = 40 + 2\n#total";
+        let (words, code) = hovered(text, text.rfind("total").unwrap() + 1).unwrap();
+        assert!(code);
+        assert!(words.contains("42"), "{words}");
+    }
+
+    #[test]
+    fn resting_on_plain_text_tells_nothing() {
+        assert_eq!(hovered("um texto comum", 5), None);
+    }
+
+    #[test]
+    fn resting_past_the_end_or_inside_a_character_does_not_panic() {
+        assert_eq!(hovered("ação", 2), None);
+        assert_eq!(hovered("ação", 999), None);
     }
 
     #[test]
