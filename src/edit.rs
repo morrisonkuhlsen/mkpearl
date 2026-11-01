@@ -1,5 +1,7 @@
 //! Source edits behind the ribbon. Pure functions over text and char offsets.
 
+use typst::syntax::{LinkedNode, SyntaxKind, parse};
+
 /// A selection as char offsets (start <= end).
 pub type Sel = (usize, usize);
 
@@ -82,6 +84,46 @@ pub fn set_rule(text: &mut String, (a, b): Sel, key: &str, line: &str) -> Sel {
     text.insert_str(0, &format!("{line}\n"));
     let n = line.chars().count() + 1;
     (a + n, b + n)
+}
+
+/// Sets the page's margins: replaces the value in the document's last `#set page(margin: …)`, whatever
+/// else that rule says and however it's written, or adds a rule at the top when there is none.
+pub fn set_page_margin(text: &mut String, (a, b): Sel, value: &str) -> Sel {
+    let Some(range) = last_margin_value(text) else {
+        let line = format!("#set page(margin: {value})\n");
+        let n = line.chars().count();
+        text.insert_str(0, &line);
+        return (a + n, b + n);
+    };
+    let (start, end) = (char_of(text, range.start), char_of(text, range.end));
+    let new_end = start + value.chars().count();
+    text.replace_range(range, value);
+    let shift = |c: usize| {
+        if c >= end { c - end + new_end } else { c.min(if c > start { new_end } else { c }) }
+    };
+    (shift(a), shift(b))
+}
+
+fn last_margin_value(source: &str) -> Option<std::ops::Range<usize>> {
+    let root = parse(source);
+    let mut pending = vec![LinkedNode::new(&root)];
+    let mut found: Option<std::ops::Range<usize>> = None;
+    while let Some(node) = pending.pop() {
+        if node.kind() == SyntaxKind::SetRule && node.children().any(|c| c.kind() == SyntaxKind::Ident && source.get(c.range()) == Some("page")) {
+            let args = node.children().find(|c| c.kind() == SyntaxKind::Args);
+            for arg in args.iter().flat_map(LinkedNode::children).filter(|a| a.kind() == SyntaxKind::Named) {
+                let mut parts = arg.children();
+                if parts.next().is_some_and(|name| source.get(name.range()) == Some("margin"))
+                    && let Some(value) = arg.children().rfind(|p| !p.kind().is_trivia() && p.kind() != SyntaxKind::Colon)
+                    && found.as_ref().is_none_or(|f| value.offset() > f.start)
+                {
+                    found = Some(value.range());
+                }
+            }
+        }
+        pending.extend(node.children());
+    }
+    found
 }
 
 /// A table with `cols` columns and `rows` body rows; the caret lands in the first cell.
@@ -383,6 +425,25 @@ mod tests {
         let s = set_rule(&mut t, s, "#set page(paper", "#set page(paper: \"a5\")");
         assert_eq!(t, "#set page(paper: \"a5\")\nç\n");
         assert_eq!(s, (24, 24));
+    }
+
+    #[test]
+    fn the_margin_is_set_wherever_the_rule_keeps_it() {
+        let set = |text: &str, at: usize| {
+            let mut buffer = text.to_string();
+            let sel = set_page_margin(&mut buffer, (at, at), "1cm");
+            (buffer, sel.0)
+        };
+        assert_eq!(set("Texto", 2), ("#set page(margin: 1cm)\nTexto".to_string(), 25));
+        assert_eq!(set("#set page(margin: 2.5cm)\nTexto", 26).0, "#set page(margin: 1cm)\nTexto");
+        assert_eq!(set("#set page(margin: 2.5cm)\nTexto", 26).1, 24, "the caret stays on its letter");
+        assert_eq!(
+            set("#set page(paper: \"a5\", margin: (x: 2cm), numbering: \"1\")\nT", 0).0,
+            "#set page(paper: \"a5\", margin: 1cm, numbering: \"1\")\nT"
+        );
+        assert_eq!(set("#set page(margin: 2cm)\nA\n#set page(margin: 3cm)\nB", 0).0, "#set page(margin: 2cm)\nA\n#set page(margin: 1cm)\nB");
+        assert_eq!(set("// #set page(margin: 2cm)\nA", 0).0, "#set page(margin: 1cm)\n// #set page(margin: 2cm)\nA", "a comment is no rule");
+        assert_eq!(set("#set page(paper: \"a5\")\nA", 0).0, "#set page(margin: 1cm)\n#set page(paper: \"a5\")\nA");
     }
 
     #[test]

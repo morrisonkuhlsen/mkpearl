@@ -123,6 +123,25 @@ fn main() {
             std::thread::sleep(Duration::from_millis(10));
         }
     }
+    if args.iter().any(|a| a == "typing") {
+        let page = harness.state().page_rect(0).expect("a page");
+        let at = page.min + page.size() * egui::vec2(0.3, 0.11);
+        harness.event(egui::Event::PointerMoved(at));
+        harness.step();
+        for pressed in [true, false] {
+            harness.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+            harness.step();
+        }
+        for _ in 0..40 {
+            harness.step();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        println!("caret on the page: {:?}", harness.state().page_caret());
+        // The caret blinks: stop while it's on.
+        while (harness.ctx.input(|i| i.time) * 2.0) as i64 % 2 != 0 {
+            harness.step();
+        }
+    }
     if args.iter().any(|a| a == "dropping") {
         harness.input_mut().hovered_files.push(egui::HoveredFile { path: Some("foto.png".into()), mime: "image/png".to_string() });
         harness.step();

@@ -23,7 +23,7 @@ use crate::history::{self, Store, Version};
 use crate::icons::Icon;
 use crate::images;
 use crate::recovery::{self, Orphan, Recovery};
-use crate::ruler::{self, RULER};
+use crate::ruler::{self, Edge, RULER};
 use crate::sample::SAMPLE;
 use crate::spell::{self, Speller};
 use crate::theme::{self, ThemeChoice, Tokens};
@@ -357,6 +357,21 @@ pub struct App {
     ruler: bool,
     /// Where the rulers were last drawn: along the top, then down the side.
     ruler_strips: Option<(Rect, Rect)>,
+    /// Where each margin can be grabbed, on the rulers.
+    margin_handles: Vec<(Edge, egui::Pos2)>,
+    /// The margin being dragged and the value it would get, in points.
+    margin_drag: Option<(Edge, f32)>,
+    /// The caret on the pages: page, x, baseline and text size, in points.
+    page_caret: Option<(usize, f32, f32, f32)>,
+    /// What the caret on the pages was last asked for: the byte, and of which compile.
+    caret_asked: Option<(usize, u64)>,
+    compiles: u64,
+    /// The last click on a page reached the source, so the keyboard writes there.
+    page_typing: bool,
+    /// The caret has moved in the pages, which should follow it.
+    follow_caret: bool,
+    /// Where the pages are on screen, for the tests' pointer.
+    page_rects: Vec<Rect>,
     /// The Files pane's listing, read when the pane opens or on Refresh.
     files: Vec<String>,
     /// The File view, when open, on this page.
@@ -464,6 +479,14 @@ impl App {
             line_numbers: true,
             ruler: crate::recent::read_setting(RULER_FILE).is_none_or(|v| v.trim() != "off"),
             ruler_strips: None,
+            margin_handles: Vec::new(),
+            margin_drag: None,
+            page_caret: None,
+            caret_asked: None,
+            compiles: 0,
+            page_typing: false,
+            follow_caret: false,
+            page_rects: Vec::new(),
             files: Vec::new(),
             backstage: None,
             theme: ThemeChoice::load(),
@@ -615,6 +638,21 @@ impl App {
     }
 
     /// Where the rulers were last drawn, if they were: along the top, then down the side.
+    /// Where the pointer grabs this margin, on the rulers.
+    pub fn margin_handle(&self, edge: Edge) -> Option<egui::Pos2> {
+        self.margin_handles.iter().find(|(e, _)| *e == edge).map(|(_, at)| *at)
+    }
+
+    /// Where a page is on screen.
+    pub fn page_rect(&self, page: usize) -> Option<Rect> {
+        self.page_rects.get(page).copied()
+    }
+
+    /// The caret drawn on the pages: page, x, baseline and text size, in points.
+    pub fn page_caret(&self) -> Option<(usize, f32, f32, f32)> {
+        self.page_caret
+    }
+
     pub fn ruler_strips(&self) -> Option<(Rect, Rect)> {
         self.ruler_strips
     }
@@ -659,6 +697,7 @@ impl App {
                         self.pages = pages;
                     }
                     self.millis = Some(millis);
+                    self.compiles += 1;
                     self.status = tr!("compiled-in", ms = millis.to_string());
                     self.diags = diags;
                 }
@@ -666,6 +705,15 @@ impl App {
                     self.pending_caret = Some(edit::char_of(&self.text, byte));
                     self.scroll_caret = true;
                     self.want_focus = true;
+                    self.page_typing = true;
+                }
+                Event::CaretAt { byte, page, x, y, size } => {
+                    let moved = self.page_caret.is_none_or(|(p, old_x, old_y, _)| p != page || old_x != x || old_y != y);
+                    self.follow_caret |= moved && self.page_typing;
+                    let current = self.caret_asked.map(|(b, _)| b);
+                    if current == Some(byte) {
+                        self.page_caret = Some((page, x, y, size));
+                    }
                 }
                 Event::JumpToPage { page, y_pt, x_pt } => {
                     self.scroll_page = Some((page, y_pt));
@@ -1096,7 +1144,8 @@ impl App {
     /// Whether what was just typed may start or narrow a completion: not after a space or line end.
     fn worth_completing(&self, ctx: &egui::Context) -> bool {
         let (a, b) = self.selection(ctx);
-        a == b && a > 0 && self.text.chars().nth(a - 1).is_some_and(|c| !c.is_whitespace())
+        // Its list goes beside the source, which isn't on show.
+        self.layout != Layout::Pages && a == b && a > 0 && self.text.chars().nth(a - 1).is_some_and(|c| !c.is_whitespace())
     }
 
     fn accept_completion(&mut self, ctx: &egui::Context, index: usize) {
@@ -1878,7 +1927,17 @@ impl App {
                     egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.input_bg)).show(ui, |ui| self.editor(ui, &t));
                 }
                 Layout::Pages => {
-                    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.desk)).show(ui, |ui| self.preview(ui, &t));
+                    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.desk)).show(ui, |ui| {
+                        // Out of sight and out of the pointer's way, the editor still takes the keyboard:
+                        // what's typed on a page has the same undo, typing help and sessions.
+                        if self.page_typing {
+                            let rect = Rect::from_min_size(ui.max_rect().min, vec2(ui.max_rect().width(), 1.0));
+                            let mut hidden = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+                            hidden.set_clip_rect(Rect::NOTHING);
+                            self.editor(&mut hidden, &t);
+                        }
+                        self.preview(ui, &t);
+                    });
                 }
             }
         });
@@ -2368,12 +2427,12 @@ impl App {
         tool_menu(ui, Icon::Margins, tx("page-margins"), |ui| {
             for (name, m) in [(tx("normal"), "2.5cm"), (tx("narrow"), "1.27cm"), (tx("moderate"), "2cm"), (tx("wide"), "3.5cm")] {
                 if ui.button(format!("{name} ({m})")).clicked() {
-                    self.rule(&ctx, "#set page(margin", &format!("#set page(margin: {m})"));
+                    self.set_margin(&ctx, m);
                     ui.close();
                 }
             }
             if ui.button("ABNT (3 / 2 cm)").clicked() {
-                self.rule(&ctx, "#set page(margin", "#set page(margin: (top: 3cm, left: 3cm, bottom: 2cm, right: 2cm))");
+                self.set_margin(&ctx, "(top: 3cm, left: 3cm, bottom: 2cm, right: 2cm)");
                 ui.close();
             }
         });
@@ -3545,6 +3604,18 @@ impl App {
         let zoom = self.zoom.unwrap_or(self.fit_zoom);
         let scroll_page = self.scroll_page.take();
         let now = ui.input(|i| i.time);
+        // The caret on the pages, while the keyboard writes in the source.
+        let typing = !self.previewing && ui.ctx().memory(|m| m.has_focus(Id::unique(EDITOR)));
+        if typing {
+            let byte = edit::byte_of(&self.text, self.selection(ui.ctx()).0);
+            if self.caret_asked != Some((byte, self.compiles)) {
+                self.caret_asked = Some((byte, self.compiles));
+                self.compiler.send(Job::Caret { byte });
+            }
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+        }
+        let page_caret = self.page_caret.filter(|_| typing);
+        let follow = std::mem::take(&mut self.follow_caret);
         let mut click = None;
         let mut placed = Vec::with_capacity(self.pages.len());
         let mut pages_ui = ui.new_child(egui::UiBuilder::new().max_rect(pages_area));
@@ -3570,7 +3641,19 @@ impl App {
                         click = Some((i, at.x, at.y));
                     }
                     if resp.hovered() {
-                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
+                    }
+                    if let Some((p, x, y, size)) = page_caret
+                        && p == i
+                    {
+                        let base = rect.min + vec2(x, y) * zoom;
+                        let line = Rect::from_min_max(base - vec2(0.75, size * 0.8 * zoom), base + vec2(0.75, size * 0.2 * zoom));
+                        if (now * 2.0) as i64 % 2 == 0 {
+                            ui.painter().rect_filled(line, 0.0, t.accent);
+                        }
+                        if follow {
+                            ui.scroll_to_rect(line.expand(40.0), None);
+                        }
                     }
                     if let Some((p, y)) = scroll_page
                         && p == i
@@ -3593,9 +3676,11 @@ impl App {
             ui.add_space(PAD);
         });
         self.ruler_strips = None;
+        self.margin_handles.clear();
         if self.ruler {
             self.paint_rulers(ui, area, scrolled.inner_rect, &placed, zoom, t);
         }
+        self.page_rects = placed;
         // A past version's pages don't correspond to the source on show.
         if let Some((page, x, y)) = click.filter(|_| !self.previewing) {
             self.compiler.send(Job::Click { page, x: f64::from(x), y: f64::from(y) });
@@ -3624,6 +3709,69 @@ impl App {
         ruler::paint(p, top, true, &across, zoom, t);
         ruler::paint(p, side, false, &down, zoom, t);
         self.ruler_strips = Some((top, side));
+        if self.previewing {
+            return;
+        }
+        let page = self
+            .pages
+            .iter()
+            .zip(placed)
+            .max_by(|a, b| visible(a.1).total_cmp(&visible(b.1)))
+            .and_then(|(page, rect)| page.margins.map(|m| (m, *rect)));
+        let Some((margins, rect)) = page else { return };
+        let across = ruler::Span::new(rect.left(), rect.right(), Some((margins[0], margins[1])), zoom);
+        let down = ruler::Span::new(rect.top(), rect.bottom(), Some((margins[2], margins[3])), zoom);
+        for (edge, strip, span, start, at, slot) in [
+            (Edge::Left, top, across, true, across.margin_from, 0),
+            (Edge::Right, top, across, false, across.margin_to, 1),
+            (Edge::Top, side, down, true, down.margin_from, 2),
+            (Edge::Bottom, side, down, false, down.margin_to, 3),
+        ] {
+            let horizontal = matches!(edge, Edge::Left | Edge::Right);
+            let centre = if horizontal { pos2(at, strip.center().y) } else { pos2(strip.center().x, at) };
+            if !strip.contains(centre) {
+                continue;
+            }
+            self.margin_handles.push((edge, centre));
+            let size = if horizontal { vec2(9.0, RULER) } else { vec2(RULER, 9.0) };
+            let handle = ui.interact(Rect::from_center_size(centre, size), ui.scope_id().with(("margin", slot)), Sense::drag());
+            if handle.hovered() || handle.dragged() {
+                ui.ctx().set_cursor_icon(if horizontal { egui::CursorIcon::ResizeHorizontal } else { egui::CursorIcon::ResizeVertical });
+            }
+            let pointer = handle.interact_pointer_pos();
+            if handle.dragged()
+                && let Some(pointer) = pointer
+            {
+                let value = span.dragged(if horizontal { pointer.x } else { pointer.y }, start, zoom);
+                self.margin_drag = Some((edge, value));
+                // Where the writing area would end, and how far that is, while nothing changes yet.
+                let line = if start { span.from + value * zoom } else { span.to - value * zoom };
+                let (a, b) = if horizontal {
+                    (pos2(line, view.top()), pos2(line, view.bottom()))
+                } else {
+                    (pos2(view.left(), line), pos2(view.right(), line))
+                };
+                let guide = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, ui.scope_id().with("margin-guide")));
+                guide.line_segment([a, b], Stroke::new(1.0, t.accent));
+                let label = if horizontal { pos2(line + 6.0, view.top() + 4.0) } else { pos2(view.left() + 6.0, line + 4.0) };
+                guide.text(label, egui::Align2::LEFT_TOP, ruler::in_cm(value), theme::ui_font(12.0), t.accent);
+            }
+            if handle.drag_stopped()
+                && let Some((dragged, value)) = self.margin_drag.take()
+                && dragged == edge
+            {
+                let mut new = margins;
+                new[slot] = value;
+                if ruler::in_cm(value) != ruler::in_cm(margins[slot]) {
+                    self.set_margin(ui.ctx(), &ruler::margin_value(new));
+                }
+            }
+        }
+    }
+
+    /// Writes the page's margins in the source, as one change.
+    fn set_margin(&mut self, ctx: &egui::Context, value: &str) {
+        self.edit(ctx, |text, sel| edit::set_page_margin(text, sel, value));
     }
 
     fn footer_height(&self) -> f32 {

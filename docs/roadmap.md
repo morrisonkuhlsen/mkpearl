@@ -6,8 +6,9 @@ Pearl's plan and progress log. Each section says what is done and its **Next:** 
 - *Done:* Typst compiled in-process and incrementally; live pages, clicking a page to reach its
   source and back; ribbon, File view, rail, strip and status bar after MK Matrix and MK Perth; themes;
   splash; autocompletion, closing brackets, hover help and search; rulers; spell checking in pt-BR;
-  images by pasting and dragging; a References pane, with DOIs and a check of the citations.
-- **Next:** drag the margins on the rulers (#10). Known: #4, #5, #15.
+  images by pasting and dragging; a References pane, with DOIs and a check of the citations;
+  typing on the pages and dragging the margins on the rulers.
+- **Next:** editing on the pages: figures (#20). Known: #4, #5, #15.
 
 ## Keeping the work
 - *Done:* autosave; version history; recovery after a crash.

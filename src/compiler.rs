@@ -14,7 +14,8 @@ use typst::WorldExt;
 use typst::diag::Severity;
 use typst::foundations::{Label, Value};
 use typst::introspection::{Introspector, MetadataElem, PagedPosition};
-use typst::layout::{Abs, Point};
+use typst::layout::{Abs, Frame, FrameItem, Point, Transform};
+use typst::syntax::{FileId, LinkedNode, Side, Span, SyntaxKind};
 use typst::utils::{PicoStr, hash128};
 use typst_ide::Jump;
 use typst_layout::PagedDocument;
@@ -45,6 +46,10 @@ pub enum Job {
     },
     /// Shows the place in the pages for a byte offset of the source.
     Locate {
+        byte: usize,
+    },
+    /// Where a byte offset of the source falls in the pages, for the caret drawn there.
+    Caret {
         byte: usize,
     },
     ExportPdf(PathBuf),
@@ -111,6 +116,14 @@ pub enum Event {
         page: usize,
         y_pt: f32,
         x_pt: f32,
+    },
+    /// The answer to [`Job::Caret`], in points from the page's top left: `y` is the text's baseline.
+    CaretAt {
+        byte: usize,
+        page: usize,
+        x: f32,
+        y: f32,
+        size: f32,
     },
     /// The answer to [`Job::Hover`]: the words to show, and whether they're code.
     Hovered {
@@ -204,10 +217,12 @@ impl Worker {
             let mut others = Vec::new();
             let mut complete = None;
             let mut hover = None;
+            let mut caret = None;
             for job in std::iter::once(first).chain(jobs.try_iter()) {
                 match job {
                     Job::Compile { text, path } => compile = Some((text, path)),
                     Job::Hover { request, byte } => hover = Some((request, byte)),
+                    Job::Caret { byte } => caret = Some(byte),
                     // Only the newest question matters too: answers to old ones go unused.
                     Job::Complete { request, byte, explicit } => complete = Some((request, byte, explicit)),
                     other => others.push(other),
@@ -218,6 +233,9 @@ impl Worker {
             }
             for job in others {
                 self.other(job);
+            }
+            if let Some(byte) = caret {
+                self.caret(byte);
             }
             if let Some((request, byte)) = hover {
                 self.hover(request, byte);
@@ -336,7 +354,7 @@ impl Worker {
 
     fn other(&mut self, job: Job) {
         match job {
-            Job::Compile { .. } | Job::Complete { .. } | Job::Hover { .. } => {}
+            Job::Compile { .. } | Job::Complete { .. } | Job::Hover { .. } | Job::Caret { .. } => {}
             Job::Click { page, x, y } => self.click(page, x, y),
             Job::Locate { byte } => self.locate(byte),
             Job::ExportPdf(path) => {
@@ -420,7 +438,21 @@ impl Worker {
             Some(Jump::Position(p)) => {
                 self.emit(Event::JumpToPage { page: p.page.get() - 1, y_pt: p.point.y.to_pt() as f32, x_pt: p.point.x.to_pt() as f32 })
             }
-            _ => {}
+            Some(Jump::File(..) | Jump::Url(_)) => {}
+            // In the blank beside or below the text: the nearest of this document's own text, as in a
+            // word processor.
+            None => {
+                let main = typst::World::main(world);
+                let mut nearest: Option<(f64, Span, u16)> = None;
+                if let Some(page) = doc.pages().get(position.page.get() - 1) {
+                    nearest_glyph(&page.frame, Transform::identity(), position.point, main, &mut nearest);
+                }
+                if let Some((_, span, offset)) = nearest
+                    && let Some(range) = world.range(span)
+                {
+                    self.emit(Event::JumpToSource { byte: range.start + usize::from(offset) });
+                }
+            }
         }
     }
 
@@ -433,11 +465,90 @@ impl Worker {
         }
     }
 
+    /// Typst's own answer gives the start of the whole run of text, so the glyphs are searched here
+    /// for the one that came from this byte.
+    fn caret(&self, byte: usize) {
+        let (Some(world), Some(doc)) = (&self.world, &self.doc) else { return };
+        let source = world.source();
+        let root = LinkedNode::new(source.root());
+        let is_text = |node: &LinkedNode| matches!(node.kind(), SyntaxKind::Text | SyntaxKind::MathText);
+        let Some(node) = root.leaf_at(byte, Side::Before).filter(is_text).or_else(|| root.leaf_at(byte, Side::After).filter(is_text)) else {
+            return;
+        };
+        let wanted = byte.saturating_sub(node.offset());
+        let Ok(wanted) = u16::try_from(wanted) else { return };
+        let mut best: Option<(u16, usize, Point, f32)> = None;
+        for (index, page) in doc.pages().iter().enumerate() {
+            caret_in_frame(&page.frame, Transform::identity(), node.span(), wanted, index, &mut best);
+        }
+        if let Some((_, page, at, size)) = best {
+            self.emit(Event::CaretAt { byte, page, x: at.x.to_pt() as f32, y: at.y.to_pt() as f32, size });
+        }
+    }
+
     fn export(&self, path: &std::path::Path) -> Result<(), String> {
         let doc = self.doc.as_ref().ok_or(tx("the-document-hasnt-compiled-yet"))?;
         let bytes = typst_pdf::pdf(doc, &PdfOptions::default())
             .map_err(|errors| errors.iter().map(|e| e.message.to_string()).collect::<Vec<_>>().join("; "))?;
         std::fs::write(path, bytes).map_err(|e| e.to_string())
+    }
+}
+
+/// Keeps, in `nearest`, the end of the glyph of the main file closest to `to`. Distance across lines
+/// counts for more than along them, so that a click beside a line goes to that line.
+fn nearest_glyph(frame: &Frame, ts: Transform, to: Point, main: FileId, nearest: &mut Option<(f64, Span, u16)>) {
+    for (pos, item) in frame.items() {
+        match item {
+            FrameItem::Group(group) => {
+                let inner = ts.pre_concat(Transform::translate(pos.x, pos.y)).pre_concat(group.transform);
+                nearest_glyph(&group.frame, inner, to, main, nearest);
+            }
+            FrameItem::Text(text) => {
+                let mut x = Abs::zero();
+                for glyph in &text.glyphs {
+                    let advance = glyph.x_advance.at(text.size);
+                    let (span, offset) = glyph.span;
+                    if span.id() == Some(main) {
+                        let middle = text.size * 0.3;
+                        let start = Point::new(pos.x + x, pos.y - middle).transform(ts);
+                        let (across, down) = ((start.x - to.x).to_pt(), (start.y - to.y).to_pt());
+                        let distance = across.abs() + down.abs() * 8.0;
+                        if nearest.as_ref().is_none_or(|(best, ..)| distance < *best) {
+                            *nearest = Some((distance, span, offset));
+                        }
+                    }
+                    x += advance;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Keeps, in `best`, the place of the glyph of `span` closest before the byte `wanted` of it.
+fn caret_in_frame(frame: &Frame, ts: Transform, span: Span, wanted: u16, page: usize, best: &mut Option<(u16, usize, Point, f32)>) {
+    for (pos, item) in frame.items() {
+        match item {
+            FrameItem::Group(group) => {
+                let inner = ts.pre_concat(Transform::translate(pos.x, pos.y)).pre_concat(group.transform);
+                caret_in_frame(&group.frame, inner, span, wanted, page, best);
+            }
+            FrameItem::Text(text) => {
+                let mut x = Abs::zero();
+                for glyph in &text.glyphs {
+                    let advance = glyph.x_advance.at(text.size);
+                    let (glyph_span, offset) = glyph.span;
+                    if glyph_span == span && offset <= wanted && best.as_ref().is_none_or(|(b, ..)| offset > *b) {
+                        // The caret goes after this glyph once `wanted` has passed its start.
+                        let across = if wanted > offset { x + advance } else { x };
+                        let at = Point::new(pos.x + across, pos.y).transform(ts);
+                        *best = Some((offset, page, at, text.size.to_pt() as f32));
+                    }
+                    x += advance;
+                }
+            }
+            _ => {}
+        }
     }
 }
 

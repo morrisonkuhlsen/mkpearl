@@ -23,6 +23,9 @@ Every release of Pearl, newest first, in the spirit of
 - References by DOI, and their check: citations with no entry and entries never cited are shown as
   you write; on request, each reference is looked up at doi.org or Crossref. Only DOIs and titles leave
   your computer, and only when you ask.
+- Typing on the pages: a click puts a caret there, also with only the pages on show, and what's typed
+  goes into the source.
+- Margins dragged on the rulers change the `#set page` rule, as one undo step.
 - Copying and pasting with other programs, which didn't reach the system's clipboard.
 - Third-party licences, readable under About.
 - English and Brazilian Portuguese: choose under File, Options; it starts in the system's language.

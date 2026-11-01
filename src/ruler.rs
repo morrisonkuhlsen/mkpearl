@@ -32,6 +32,45 @@ impl Span {
     }
 }
 
+/// A margin that can be dragged, along the rulers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Edge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+/// The least writing area a drag leaves, in points.
+const LEAST_WRITING: f32 = 2.0 * POINTS_PER_CM;
+
+impl Span {
+    /// The margin, in points, for a pointer at `at` dragging the start (or else the end) of the
+    /// writing area, kept on the page, with room to write, and in tenths of a centimetre.
+    pub fn dragged(&self, at: f32, start: bool, zoom: f32) -> f32 {
+        let length = (self.to - self.from) / zoom;
+        let (raw, other) = if start {
+            ((at - self.from) / zoom, (self.to - self.margin_to) / zoom)
+        } else {
+            ((self.to - at) / zoom, (self.margin_from - self.from) / zoom)
+        };
+        let tenth = POINTS_PER_CM / 10.0;
+        let snapped = (raw / tenth).round() * tenth;
+        snapped.min(length - other - LEAST_WRITING).max(0.0)
+    }
+}
+
+/// How a margin is written in the source: centimetres, in tenths.
+pub fn in_cm(points: f32) -> String {
+    let tenths = (points / POINTS_PER_CM * 10.0).round() as i64;
+    if tenths % 10 == 0 { format!("{}cm", tenths / 10) } else { format!("{}.{}cm", tenths / 10, tenths % 10) }
+}
+
+/// The value of `margin:` for these margins, in points: left, right, top and bottom.
+pub fn margin_value([left, right, top, bottom]: [f32; 4]) -> String {
+    format!("(top: {}, bottom: {}, left: {}, right: {})", in_cm(top), in_cm(bottom), in_cm(left), in_cm(right))
+}
+
 /// A mark on a ruler: a number, or a line of the given length.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Mark {
@@ -136,6 +175,28 @@ mod tests {
         }));
         let unknown = Span::new(0.0, 500.0, None, 1.0);
         assert_eq!((unknown.margin_from, unknown.margin_to), (0.0, 500.0));
+    }
+
+    #[test]
+    fn a_dragged_margin_snaps_and_stays_in_the_page() {
+        let zoom = 2.0;
+        let page = 500.0 * zoom;
+        let span = Span::new(100.0, 100.0 + page, Some((60.0, 60.0)), zoom);
+        // Three centimetres from the page's edge, a little off.
+        let three = 3.0 * POINTS_PER_CM;
+        assert!((span.dragged(100.0 + three * zoom + 0.4, true, zoom) - three).abs() < 0.01);
+        assert!((span.dragged(100.0 + page - three * zoom, false, zoom) - three).abs() < 0.01);
+        assert_eq!(span.dragged(0.0, true, zoom), 0.0, "off the page");
+        assert!((span.dragged(5000.0, true, zoom) - (500.0 - 60.0 - LEAST_WRITING)).abs() < 0.01, "room to write stays");
+    }
+
+    #[test]
+    fn margins_are_written_in_tenths_of_a_centimetre() {
+        assert_eq!(in_cm(3.0 * POINTS_PER_CM), "3cm");
+        assert_eq!(in_cm(2.54 * POINTS_PER_CM), "2.5cm");
+        assert_eq!(in_cm(0.0), "0cm");
+        let cm = POINTS_PER_CM;
+        assert_eq!(margin_value([3.0 * cm, 2.0 * cm, 3.0 * cm, 2.0 * cm]), "(top: 3cm, bottom: 2cm, left: 3cm, right: 2cm)");
     }
 
     #[test]
