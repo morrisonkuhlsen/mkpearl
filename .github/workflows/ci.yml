@@ -50,5 +50,9 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
+      # The licence file covers every platform's dependencies, and its test reads them offline.
+      - name: Fetch the dependencies of every platform
+        run: cargo fetch --locked
+
       - name: Every gate
         run: cargo xtask ci

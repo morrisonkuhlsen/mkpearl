@@ -215,8 +215,11 @@ mod tests {
 
     #[test]
     fn a_pasted_text_stands_for_files_only_when_every_line_is_one() {
-        let expected = [PathBuf::from("/tmp/uma foto.png"), PathBuf::from("/tmp/ç.png")];
-        assert_eq!(files_in_text("file:///tmp/uma%20foto.png\r\nfile://localhost/tmp/%C3%A7.png\n").as_deref(), Some(&expected[..]));
+        let base = if cfg!(windows) { "C:/tmp" } else { "/tmp" };
+        let address = if cfg!(windows) { "/C:/tmp" } else { "/tmp" };
+        let expected = [PathBuf::from(format!("{base}/uma foto.png")), PathBuf::from(format!("{base}/ç.png"))];
+        let text = format!("file://{address}/uma%20foto.png\r\nfile://localhost{address}/%C3%A7.png\n");
+        assert_eq!(files_in_text(&text).as_deref(), Some(&expected[..]));
         for text in ["", "olá", "file:///tmp/a.png\nolá", "file://servidor/a.png", "file:///a%2", "file:///a%zz", "file:///a%ff", "/nao/existe.png"]
         {
             assert_eq!(files_in_text(text), None, "{text:?}");

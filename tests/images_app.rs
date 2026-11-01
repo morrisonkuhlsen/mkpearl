@@ -120,7 +120,9 @@ fn pictures_reach_the_document_by_drag_and_by_paste() {
     compiled(&mut h, "after pasting pixels");
 
     // A file copied in a file manager arrives as its address, and isn't typed as text.
-    h.event(Event::Paste(format!("file://{}", picture.display()).replace(' ', "%20")));
+    let address = picture.display().to_string().replace('\\', "/").replace(' ', "%20");
+    let address = if address.starts_with('/') { address } else { format!("/{address}") };
+    h.event(Event::Paste(format!("file://{address}")));
     h.step();
     h.step();
     assert!(!h.state().text().contains("file://"), "{:?}", h.state().text());
