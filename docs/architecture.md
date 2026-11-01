@@ -1,6 +1,6 @@
 # Architecture
 
-One crate for now (#1).
+One crate, by the owner's decision: nothing needs the split yet, and it would touch all the code (#1).
 
 | Module | What it holds |
 | --- | --- |

@@ -33,7 +33,7 @@ People trust Pearl with their writing; a crash loses their work. **This outranks
 - **Languages.** Every user-visible text comes from the catalogs in `locales/*.ftl` through `tr!`, in English and Português (Brasil); their tests fail on a missing message or placeholder.
 - **Secrets stay.** The API key is stored only locally, readable by this user alone, and never reaches a session's peers. Claude never spends the user's credits without their approval: tests use a pretend server.
 - **Sessions** are encrypted end to end with the key in the link; a peer's message is hostile input.
-- **Not a target yet:** WebAssembly, and the layering of the siblings. Whether Pearl splits into crates is #1.
+- **Not a target yet:** WebAssembly, and the layering of the siblings. Pearl stays one crate until something needs the split (decided in #1).
 - **CHANGELOG.** Anything a user would notice gets a line in [`CHANGELOG.md`](CHANGELOG.md) under `## [Unreleased]`.
 - **Quality gates** before every commit: `cargo xtask ci` (fmt, clippy -D warnings, tests, assets, panics). Run it as `cargo xtask ci && git commit …`: a pipe after it hides its failure. One change per commit, its message saying what and why. Push only when the user asks.
 - **Look at it.** Render the window offscreen with `cargo run --example shot -- out.png [tab] [dark]`; never capture the user's screen.
