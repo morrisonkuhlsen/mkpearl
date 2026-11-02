@@ -289,6 +289,9 @@ O painel Problemas também aponta o que impede o documento de chegar a todos: im
 #image(bytes("<svg xmlns='http://www.w3.org/2000/svg' width='40' height='20'><rect width='40' height='20' fill='teal'/></svg>"), alt: "Um retângulo verde-azulado", width: 2cm)
 ```
 > Tente: tire o `alt:`, em um documento seu, e abra o painel Problemas.
+## Linha do tempo da escrita
+?? linha do tempo histórico versão controle trecho parágrafo apagado recuperar trazer de volta
+No painel Versões, Linha do tempo da escrita abre um controle deslizante sobre as versões do documento, com as páginas de cada uma e os trechos que ela tem e o documento não tem mais. Mover o controle não muda nada. Trazer de volta recoloca um trecho onde ele estava, em um único Ctrl+Z, e deixa o resto como está. Uma versão que não pode ser lida é pulada, com um aviso.
 ## Comparar versões nas páginas
 ?? pearl comparar versão diferença revisão antes depois histórico
 No painel Versões, escolha uma versão e clique em Comparar nas páginas. As páginas de antes e de agora ficam lado a lado: verde para o que entrou, vermelho para o que saiu e azul para o que mudou de lugar. Os botões Anterior e Próxima percorrem as mudanças, e nada no documento é alterado.

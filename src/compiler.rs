@@ -36,6 +36,8 @@ const CACHE_SLACK: usize = 32;
 const VARIANT_PAGES: usize = 4;
 const THUMBNAIL_SIDES: [f64; 2] = [380.0, 540.0];
 /// A search for fitting stops here with the best it has.
+/// The most pages of a past version kept to look at.
+const TIMELINE_PAGES: usize = 24;
 const FIT_TIME_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 pub enum Job {
@@ -87,6 +89,13 @@ pub enum Job {
         target: usize,
     },
     CancelFit,
+    /// Reads a past version and compiles it, off this thread.
+    TimelineVersion {
+        request: u64,
+        store: crate::history::Store,
+        version: crate::history::Version,
+        path: Option<PathBuf>,
+    },
     /// Where a byte offset of the source falls in the pages, for the caret drawn there.
     Caret {
         byte: usize,
@@ -159,6 +168,13 @@ pub struct VariantView {
     pub thumbnails: Vec<Pixels>,
     /// It looks just like the document does now: its rules are overruled, or already there.
     pub same_as_now: bool,
+}
+
+/// A past version: its text, and its pages or why it doesn't compile.
+pub struct TimelineView {
+    pub text: String,
+    /// How many pages it has, and the first of them, small.
+    pub pages: Result<(usize, Vec<Pixels>), String>,
 }
 
 /// Why a document isn't an accessible PDF, in Typst's own words, and where.
@@ -254,6 +270,12 @@ pub enum Event {
     FitDone {
         request: u64,
         result: Result<FitAnswer, String>,
+    },
+    /// The answer to [`Job::TimelineVersion`]. Nothing, for a version that can't be read.
+    TimelineDone {
+        request: u64,
+        stamp: u64,
+        result: Option<TimelineView>,
     },
     /// The answer to [`Job::Caret`], in points from the page's top left: `y` is the text's baseline.
     CaretAt {
@@ -532,6 +554,7 @@ impl Worker {
             Job::CancelVariants => self.variants_wanted.store(0, Ordering::Relaxed),
             Job::Fit { request, text, path, target } => self.start_fit(request, text, path, target),
             Job::CancelFit => self.fit_wanted.store(0, Ordering::Relaxed),
+            Job::TimelineVersion { request, store, version, path } => self.start_timeline_version(request, store, version, path),
             Job::ExportPdf { path, accessible } => {
                 let event = match self.export(&path, accessible) {
                     Ok(()) => Event::Exported(Ok(path)),
@@ -754,6 +777,30 @@ impl Worker {
             for index in 0..count {
                 told(index, Err(tx("the-compiler-failed-on-this-document").to_string()));
             }
+        }
+    }
+
+    fn start_timeline_version(&self, request: u64, store: crate::history::Store, version: crate::history::Version, path: Option<PathBuf>) {
+        let (fonts, events, wake) = (Arc::clone(&self.fonts), self.events.clone(), Arc::clone(&self.wake));
+        let stamp = version.stamp;
+        let tell = move |result: Option<TimelineView>| {
+            let _ = events.send(Event::TimelineDone { request, stamp, result });
+            if let Some(ctx) = wake.get() {
+                ctx.request_repaint();
+            }
+        };
+        let told = tell.clone();
+        let work = move || {
+            let result = store.read(&version).map(|text| {
+                let pages = with_document(&text, &mut None, &fonts, path.as_deref(), |doc| {
+                    (doc.pages().len(), doc.pages().iter().take(TIMELINE_PAGES).map(thumbnail).collect::<Vec<_>>())
+                });
+                TimelineView { text, pages }
+            });
+            tell(result);
+        };
+        if std::thread::Builder::new().name("timeline".into()).stack_size(32 * 1024 * 1024).spawn(work).is_err() {
+            told(None);
         }
     }
 
