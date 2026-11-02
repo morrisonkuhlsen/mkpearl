@@ -40,6 +40,8 @@ Every release of Pearl, newest first, in the spirit of
   the passage, and Ignore lasts until the passage changes.
 - Layout variants: the document set in a few other ways, as thumbnails of its own pages with their page
   counts. Choosing one writes its rules in the source, as one undo step.
+- Fit in pages: the smallest changes to spacing, margins and type size that bring a document to a number
+  of pages, shown before and after, to apply or refuse. It says how close it gets when it can't.
 - A splash screen in the colours and the hand-drawn style of its picture.
 - Typing on the pages: a click puts a caret there, also with only the pages on show, and what's typed
   goes into the source.

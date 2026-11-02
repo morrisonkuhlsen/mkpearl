@@ -33,6 +33,7 @@ mod backstage;
 mod comparing;
 mod docs;
 mod figures;
+mod fit;
 mod formulas;
 mod letterhead;
 mod references;
@@ -388,6 +389,7 @@ pub struct App {
     letterhead_dialog: Option<letterhead::LetterheadDialog>,
     variants_dialog: Option<variants::VariantsDialog>,
     variants_asked: u64,
+    fit_dialog: Option<fit::FitDialog>,
     formulas: formulas::FormulaPane,
     /// The status bar's last compile time, which anything else may replace at any moment.
     compile_status: String,
@@ -517,6 +519,7 @@ impl App {
             letterhead_dialog: None,
             variants_dialog: None,
             variants_asked: 0,
+            fit_dialog: None,
             formulas: formulas::FormulaPane::default(),
             // What it says at the start gives way to the first compile.
             compile_status: tx("loading-fonts").to_string(),
@@ -751,6 +754,7 @@ impl App {
                 Event::Images(images) => self.figures.placed = images,
                 Event::Typography(findings) => self.watch.findings = findings,
                 Event::VariantDone { request, index, result } => self.receive_variant(ctx, request, index, result),
+                Event::FitDone { request, result } => self.receive_fit(ctx, request, result),
                 Event::Compared { request, result } => self.receive_comparison(ctx, request, result),
                 Event::DropTarget { block, byte, above } => self.finish_move(ctx, block, byte, above),
                 Event::ExampleDone { request, result } => self.docs.receive(ctx, request, result),
@@ -2543,6 +2547,9 @@ impl App {
         if labelled(ui, Icon::TextColumns, tx("layout-variants"), tx("see-the-document-set-in-other-ways")).clicked() {
             self.open_layout_variants();
         }
+        if labelled(ui, Icon::Paper, tx("fit-in-pages"), tx("fit-find-the-smallest-changes")).clicked() {
+            self.open_fit_pages();
+        }
         sep(ui, tx("page-setup"));
         tool_menu(ui, Icon::PageNumber, tx("number-the-pages"), |ui| {
             for (name, format) in [("1", "1"), ("1 / N", "1 / 1"), ("i", "i")] {
@@ -3996,6 +4003,7 @@ impl App {
         let tokens = Tokens::get(ctx);
         self.letterhead_window(ctx, &tokens);
         self.variants_window(ctx, &tokens);
+        self.fit_window(ctx, &tokens);
         if self.about {
             let mut open = true;
             egui::Window::new(tx("about-pearl"))

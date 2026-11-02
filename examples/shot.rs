@@ -88,6 +88,12 @@ fn main() {
         app.set_tab("page-layout");
         app.open_layout_variants();
     }
+    if let Some(pages) = args.iter().find_map(|a| a.strip_prefix("fit=")) {
+        app.set_tab("page-layout");
+        app.open_fit_pages();
+        app.set_fit_target(pages.parse().expect("a number of pages"));
+        app.search_fit_pages();
+    }
     if args.iter().any(|a| a == "formulas") {
         app.open_formulas();
     }
@@ -152,6 +158,14 @@ fn main() {
         let started = Instant::now();
         while harness.state().layout_variants().is_some_and(|tiles| tiles.iter().any(Option::is_none)) && started.elapsed() < Duration::from_secs(60)
         {
+            harness.step();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        harness.run_steps(5);
+    }
+    if args.iter().any(|a| a.starts_with("fit=")) {
+        let started = Instant::now();
+        while harness.state().fit_state().is_some_and(|(searching, _)| searching) && started.elapsed() < Duration::from_secs(60) {
             harness.step();
             std::thread::sleep(Duration::from_millis(20));
         }

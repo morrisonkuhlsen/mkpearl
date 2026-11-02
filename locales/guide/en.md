@@ -276,6 +276,9 @@ Some text over the watermark.
 ## Layout variants
 ?? layout variants font margins spacing pages fit compact
 In the Page Layout tab, the Layout variants button shows the document set in a few other ways, on its own pages, each with its page count. Nothing changes until you choose one: Pearl then writes its rules in the source, as one Ctrl+Z. A variant that looks the same as now says so, which means something in the document overrules its rules.
+## Fit in pages
+?? fit pages limit shrink margins spacing size call journal
+In the Page Layout tab, Fit in pages looks for the smallest changes that bring the document to the number of pages you ask for: first the spacing, then the margins, and the type size last. It shows each change and the first and last pages, before and after, and nothing is written until you apply it, as one Ctrl+Z. The words stay as they are. When the target is out of reach within its limits, it says how close it can get.
 ## Typography watch
 ?? typography widow orphan heading margin table figure problems
 The Problems pane also points out what reads badly on the finished pages: a paragraph's first or last line alone on a page, a heading alone at the end of a page, tables and text past the margin, and figures two or more pages from their first mention. With the pane open, each is marked on the page, and a click goes to its passage. Ignore keeps one quiet until that passage changes. It reads only this file's running text, and pages in columns aren't checked for widows and orphans.
