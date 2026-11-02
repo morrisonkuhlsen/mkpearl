@@ -4440,7 +4440,8 @@ fn top_label(ui: &mut Ui, label: &str, font: FontId, color: Color32, menu_h: f32
 /// drawn without the system's frame. `ui` lays them out right to left.
 fn window_controls(ui: &mut Ui, h: f32, t: &Tokens) {
     let maximized = ui.ctx().input(|i| i.viewport().maximized).unwrap_or(false);
-    for (button, tip) in [("close", tx("close")), ("max", if maximized { tx("restore") } else { tx("maximize") }), ("min", tx("minimize"))] {
+    for (button, tip) in [("close", tx("close-the-window")), ("max", if maximized { tx("restore") } else { tx("maximize") }), ("min", tx("minimize"))]
+    {
         let (r, resp) = ui.allocate_exact_size(vec2(46.0, h), Sense::click());
         let close = button == "close";
         if resp.hovered() {

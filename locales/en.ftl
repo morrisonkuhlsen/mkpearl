@@ -74,6 +74,7 @@ close = Close
 close-esc = Close (Esc)
 close-the-comparison = Close
 close-the-pane = Close the pane
+close-the-window = Close the window
 closes-the-document-and-starts-a-blank = Closes the document and starts a blank one
 code-block = Code block
 column-vector = Column vector
