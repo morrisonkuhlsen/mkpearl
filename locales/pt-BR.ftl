@@ -376,6 +376,7 @@ the-typst-source-in-another-file-without = O código Typst em outro arquivo, sem
 theme = Tema
 there-are-no-other-files-in-the = Não há outros arquivos na pasta do documento.
 thirdparty-licences = Licenças de terceiros
+this-image-is-part-of-a-line = Esta imagem faz parte de uma linha maior, então não pode ser movida nem removida daqui.
 this-key-isnt-allowed-to-use-this = Esta chave não tem permissão para usar este modelo.
 this-session-is-only-between-you-and = Esta sessão é só entre você e o Claude, neste computador.
 to-edit-with-other-people-take-claude = Para editar com outras pessoas, tire o Claude do documento e inicie uma sessão compartilhada; depois é só chamá-lo de novo.

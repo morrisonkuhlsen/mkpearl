@@ -153,6 +153,19 @@ fn main() {
             harness.step();
         }
     }
+    if args.iter().any(|a| a == "figure") {
+        let image = *harness.state().placed_images().first().expect("an image");
+        let page = harness.state().page_rect(image.page).expect("its page");
+        let zoom = page.width() / 595.28;
+        let at = page.min + egui::vec2(image.x + image.width / 2.0, image.y + image.height / 2.0) * zoom;
+        harness.event(egui::Event::PointerMoved(at));
+        harness.step();
+        for pressed in [true, false] {
+            harness.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+            harness.step();
+        }
+        harness.step();
+    }
     if args.iter().any(|a| a == "dropping") {
         harness.input_mut().hovered_files.push(egui::HoveredFile { path: Some("foto.png".into()), mime: "image/png".to_string() });
         harness.step();

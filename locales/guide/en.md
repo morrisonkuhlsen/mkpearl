@@ -262,3 +262,6 @@ The Versions pane keeps the document as you save: see what changed, look at old 
 ## Shortcuts
 ?? pearl shortcuts keyboard f1 help
 F1 opens this documentation and searches for the word at the caret. Ctrl+F searches the document, Ctrl+S saves, Ctrl+E exports the PDF, Ctrl+Space asks for suggestions, and Ctrl+B and Ctrl+I apply bold and italic.
+## Figures on the pages
+?? pearl figure image resize move drag delete page
+Click an image on a page to select it. Drag the little square at its corner to change its size: Pearl writes the `width:` in the source. Drag the image itself to move it to another paragraph. The Delete key takes it out of the text without deleting the file, and Esc clears the selection. One Ctrl+Z undoes each action.

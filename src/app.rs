@@ -31,6 +31,7 @@ use crate::widgets::{field_menu, glyphs, group_begin, group_end, icon_button_mon
 
 mod backstage;
 mod docs;
+mod figures;
 mod references;
 
 /// The tabs, by the ids of their names.
@@ -373,6 +374,7 @@ pub struct App {
     page_typing: bool,
     /// The caret has moved in the pages, which should follow it.
     follow_caret: bool,
+    figures: figures::Figures,
     /// Where the pages are on screen, for the tests' pointer.
     page_rects: Vec<Rect>,
     /// The Files pane's listing, read when the pane opens or on Refresh.
@@ -490,6 +492,7 @@ impl App {
             compiles: 0,
             page_typing: false,
             follow_caret: false,
+            figures: figures::Figures::default(),
             page_rects: Vec::new(),
             files: Vec::new(),
             backstage: None,
@@ -712,6 +715,8 @@ impl App {
                     self.want_focus = true;
                     self.page_typing = true;
                 }
+                Event::Images(images) => self.figures.placed = images,
+                Event::DropTarget { block, byte, above } => self.finish_move(ctx, block, byte, above),
                 Event::ExampleDone { request, result } => self.docs.receive(ctx, request, result),
                 Event::CaretAt { byte, page, x, y, size } => {
                     let moved = self.page_caret.is_none_or(|(p, old_x, old_y, _)| p != page || old_x != x || old_y != y);
@@ -783,6 +788,17 @@ impl App {
     fn edit(&mut self, ctx: &egui::Context, f: impl FnOnce(&mut String, Sel) -> Sel) {
         self.previewing = false;
         let sel = self.selection(ctx);
+        // One undo step for each of these, also from the pages, when the editor hasn't had the focus
+        // and so hasn't seen the text as it was.
+        let id = Id::unique(EDITOR);
+        let mut state = egui::TextEdit::load_state(ctx, id).unwrap_or_default();
+        let range = state.cursor.char_range().unwrap_or_else(|| CCursorRange::two(CCursor::new(sel.0), CCursor::new(sel.1)));
+        let mut undoer = state.undoer();
+        undoer.add_undo(&(range, self.text.clone()));
+        state.set_undoer(undoer);
+        egui::TextEdit::store_state(ctx, id, state);
+        // The keyboard follows: with only the pages on show, it needs the editor out of sight.
+        self.page_typing = true;
         let next = f(&mut self.text, sel);
         self.set_selection(ctx, next);
         self.dirty = true;
@@ -1096,6 +1112,7 @@ impl App {
         if self.backstage.is_some() {
             return;
         }
+        self.figure_keys(ctx);
         self.receive_images(ctx);
         if pressed(Modifiers::COMMAND, Key::Space) {
             self.ask_completions(ctx, true);
@@ -3643,6 +3660,8 @@ impl App {
         let follow = std::mem::take(&mut self.follow_caret);
         let mut click = None;
         let mut placed = Vec::with_capacity(self.pages.len());
+        let mut figure_action = None;
+        let figures_on = !self.previewing;
         let mut pages_ui = ui.new_child(egui::UiBuilder::new().max_rect(pages_area));
         let scrolled = egui::ScrollArea::both().id_salt("pages-scroll").auto_shrink([false, false]).show(&mut pages_ui, |ui| {
             ui.add_space(PAD);
@@ -3664,6 +3683,9 @@ impl App {
                     {
                         let at = (p - rect.min) / zoom;
                         click = Some((i, at.x, at.y));
+                    }
+                    if figures_on && let Some(action) = figures::on_page(ui, &self.figures, i, rect, zoom, page.width_pt, t) {
+                        figure_action = Some(action);
                     }
                     if resp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
@@ -3706,6 +3728,7 @@ impl App {
             self.paint_rulers(ui, area, scrolled.inner_rect, &placed, zoom, t);
         }
         self.page_rects = placed;
+        self.figures_after_pages(ui.ctx(), figure_action);
         // A past version's pages don't correspond to the source on show.
         if let Some((page, x, y)) = click.filter(|_| !self.previewing) {
             self.compiler.send(Job::Click { page, x: f64::from(x), y: f64::from(y) });

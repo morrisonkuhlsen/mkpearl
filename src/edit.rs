@@ -1,6 +1,8 @@
 //! Source edits behind the ribbon. Pure functions over text and char offsets.
 
-use typst::syntax::{LinkedNode, SyntaxKind, parse};
+use std::ops::Range;
+
+use typst::syntax::{LinkedNode, Side, SyntaxKind, parse};
 
 /// A selection as char offsets (start <= end).
 pub type Sel = (usize, usize);
@@ -124,6 +126,152 @@ fn last_margin_value(source: &str) -> Option<std::ops::Range<usize>> {
         pending.extend(node.children());
     }
     found
+}
+
+/// An image call in the source, and the block on its own that holds it, where there is one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImageCall {
+    pub call: Range<usize>,
+    /// From the `#` to the end of the call, with a label after it on the same line.
+    pub block: Option<Range<usize>>,
+}
+
+/// The `image(...)` call at this byte, and what surrounds it.
+pub fn image_call_at(source: &str, byte: usize) -> Option<ImageCall> {
+    let root = parse(source);
+    let top = LinkedNode::new(&root);
+    let mut node = top.leaf_at(byte, Side::After)?;
+    let call = loop {
+        if node.kind() == SyntaxKind::FuncCall && node.children().next().is_some_and(|callee| source.get(callee.range()) == Some("image")) {
+            break node.range();
+        }
+        node = node.parent()?.clone();
+    };
+    while let Some(parent) = node.parent().filter(|parent| parent.parent().is_some()) {
+        node = parent.clone();
+    }
+    let block = (node.kind() == SyntaxKind::FuncCall).then_some(()).and_then(|()| {
+        let hash = node.prev_sibling().filter(|sibling| sibling.kind() == SyntaxKind::Hash)?;
+        let label = node.next_sibling().filter(|sibling| {
+            sibling.kind() == SyntaxKind::Label && source.get(node.range().end..sibling.range().start).is_some_and(|between| !between.contains('\n'))
+        });
+        Some(hash.offset()..label.map_or(node.range().end, |l| l.range().end))
+    });
+    Some(ImageCall { call, block })
+}
+
+/// Replaces parts of the text, keeping the selection on the same letters.
+fn replace_keeping(text: &mut String, sel: Sel, mut changes: Vec<(Range<usize>, String)>) -> Sel {
+    changes.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    let (mut a, mut b) = sel;
+    for (range, new) in changes {
+        let (start, end) = (char_of(text, range.start), char_of(text, range.end));
+        let new_end = start + new.chars().count();
+        let shift = |c: usize| if c >= end { c - end + new_end } else { c.min(if c > start { new_end } else { c }) };
+        (a, b) = (shift(a), shift(b));
+        text.replace_range(range, &new);
+    }
+    (a, b)
+}
+
+/// Sets `width:` on the image call starting at this byte, adding it if it's not there. A `height:` goes:
+/// the two together would no longer keep the picture's shape.
+pub fn set_image_width(text: &mut String, sel: Sel, byte: usize, value: &str) -> Sel {
+    let Some(found) = image_call_at(text, byte) else { return sel };
+    let source = text.clone();
+    let root = parse(&source);
+    let top = LinkedNode::new(&root);
+    let Some(mut node) = top.leaf_at(found.call.start, Side::After) else { return sel };
+    while !(node.kind() == SyntaxKind::FuncCall && node.range() == found.call) {
+        let Some(parent) = node.parent() else { return sel };
+        node = parent.clone();
+    }
+    let Some(args) = node.children().find(|child| child.kind() == SyntaxKind::Args) else { return sel };
+    let named = |name: &str| {
+        args.children()
+            .filter(|arg| arg.kind() == SyntaxKind::Named)
+            .find(|arg| arg.children().next().is_some_and(|n| source.get(n.range()) == Some(name)))
+    };
+    let mut changes = Vec::new();
+    if let Some(width) = named("width") {
+        if let Some(old) = width.children().rfind(|p| !p.kind().is_trivia() && p.kind() != SyntaxKind::Colon) {
+            changes.push((old.range(), value.to_string()));
+        }
+    } else if let Some(close) = args.children().rfind(|c| c.kind() == SyntaxKind::RightParen) {
+        let last = args.children().rfind(|c| !c.kind().is_trivia() && c.kind() != SyntaxKind::RightParen);
+        let comma = last.as_ref().is_some_and(|l| !matches!(l.kind(), SyntaxKind::LeftParen | SyntaxKind::Comma));
+        let at = last.map_or(close.offset(), |l| l.range().end);
+        changes.push((at..at, format!("{}width: {value}", if comma { ", " } else { " " })));
+    }
+    if let Some(height) = named("height") {
+        // With the comma after it, or else the one before.
+        let after = height.next_sibling().filter(|n| n.kind() == SyntaxKind::Comma).map(|n| n.range().end);
+        let before = height.prev_sibling().filter(|n| n.kind() == SyntaxKind::Comma).map(|n| n.range().start);
+        let mut range = height.range();
+        if let Some(end) = after {
+            range.end = end;
+        } else if let Some(start) = before {
+            range.start = start;
+        }
+        changes.push((range, String::new()));
+    }
+    replace_keeping(text, sel, changes)
+}
+
+/// Where a block goes when dropped by the text at `target`: on its own line, before or after that
+/// paragraph, with whole code blocks and headings kept apart from it.
+fn drop_line(source: &str, target: usize, above: bool) -> usize {
+    let root = parse(source);
+    let top = LinkedNode::new(&root);
+    let node = top.children().find(|child| child.range().contains(&target));
+    let (start, end) = node.map_or((target, target), |n| (n.range().start, n.range().end));
+    let is_boundary = |line: &str| line.trim().is_empty() || line.starts_with(['#', '=']);
+    if above {
+        let mut at = source.get(..start).and_then(|s| s.rfind('\n')).map_or(0, |n| n + 1);
+        while at > 0 {
+            let previous_start = source.get(..at - 1).and_then(|s| s.rfind('\n')).map_or(0, |n| n + 1);
+            if source.get(previous_start..at - 1).is_none_or(is_boundary) {
+                break;
+            }
+            at = previous_start;
+        }
+        at
+    } else {
+        let mut at = source.get(end..).and_then(|s| s.find('\n')).map_or(source.len(), |n| end + n + 1);
+        while at < source.len() {
+            let next_end = source.get(at..).and_then(|s| s.find('\n')).map_or(source.len(), |n| at + n);
+            if source.get(at..next_end).is_none_or(is_boundary) {
+                break;
+            }
+            at = (next_end + 1).min(source.len());
+        }
+        at
+    }
+}
+
+/// Moves a block of the source to where it's dropped. `None` when it would stay where it is. Returns
+/// where the block's text now starts, in chars.
+pub fn move_block(text: &mut String, block: Range<usize>, target: usize, above: bool) -> Option<usize> {
+    let moved = text.get(block.clone())?.to_string();
+    let whole_end = if text.get(block.end..)?.starts_with('\n') { block.end + 1 } else { block.end };
+    let line = drop_line(text, target, above);
+    if (block.start..=whole_end).contains(&line) {
+        return None;
+    }
+    let at = if line > block.start { line - (whole_end - block.start) } else { line };
+    text.replace_range(block.start..whole_end, "");
+    let needs_line = at > 0 && text.get(..at).is_some_and(|before| !before.ends_with('\n'));
+    let inserted = format!("{}{moved}\n", if needs_line { "\n" } else { "" });
+    text.insert_str(at, &inserted);
+    Some(char_of(text, at + usize::from(needs_line)))
+}
+
+/// Takes a block out of the source, with the line it stood on. Returns where it was, in chars.
+pub fn delete_block(text: &mut String, block: Range<usize>) -> usize {
+    let end = if text.get(block.end..).is_some_and(|rest| rest.starts_with('\n')) { block.end + 1 } else { block.end };
+    let at = char_of(text, block.start);
+    text.replace_range(block.start..end, "");
+    at
 }
 
 /// A table with `cols` columns and `rows` body rows; the caret lands in the first cell.
@@ -425,6 +573,71 @@ mod tests {
         let s = set_rule(&mut t, s, "#set page(paper", "#set page(paper: \"a5\")");
         assert_eq!(t, "#set page(paper: \"a5\")\nç\n");
         assert_eq!(s, (24, 24));
+    }
+
+    const FIGURE: &str = "#figure(\n  image(\"a.png\"),\n  caption: [Legenda],\n) <fig>";
+
+    #[test]
+    fn an_image_call_is_found_with_its_block() {
+        let text = format!("Antes\n\n{FIGURE}\n\nDepois #image(\"b.png\") dentro\n");
+        let byte = text.find("image(\"a").unwrap();
+        let found = image_call_at(&text, byte).unwrap();
+        assert_eq!(&text[found.call.clone()], "image(\"a.png\")");
+        assert_eq!(&text[found.block.clone().unwrap()], FIGURE, "with its label");
+        let inline = image_call_at(&text, text.find("image(\"b").unwrap()).unwrap();
+        assert_eq!(&text[inline.block.unwrap()], "#image(\"b.png\")");
+        assert_eq!(image_call_at(&text, 2), None);
+    }
+
+    #[test]
+    fn the_width_is_set_on_the_call() {
+        let set = |text: &str| {
+            let mut buffer = text.to_string();
+            let byte = text.find("image").unwrap();
+            set_image_width(&mut buffer, (0, 0), byte, "5cm");
+            buffer
+        };
+        assert_eq!(set("#image(\"a.png\")"), "#image(\"a.png\", width: 5cm)");
+        assert_eq!(set("#image(\"a.png\", width: 80%)"), "#image(\"a.png\", width: 5cm)");
+        assert_eq!(set("#image(\"a.png\", height: 2cm)"), "#image(\"a.png\", width: 5cm)");
+        assert_eq!(set("#image(\"a.png\", height: 2cm, fit: \"cover\")"), "#image(\"a.png\",  fit: \"cover\", width: 5cm)");
+        assert_eq!(set("#image(\n  \"a.png\",\n)"), "#image(\n  \"a.png\", width: 5cm\n)");
+    }
+
+    #[test]
+    fn a_block_moves_between_paragraphs_and_never_over_itself() {
+        let text = format!("#set text(size: 11pt)\nUm\ndois\n\n{FIGURE}\n\nTrês\nquatro\n\n= Título\nCinco\n");
+        let block = text.find("#figure").unwrap()..text.find("<fig>").unwrap() + 5;
+        let moved = |target: &str, above: bool| {
+            let mut buffer = text.clone();
+            move_block(&mut buffer, block.clone(), text.find(target).unwrap(), above).map(|_| buffer)
+        };
+        // Below the second line of a paragraph goes after the paragraph, above it before.
+        assert_eq!(moved("quatro", false).unwrap(), format!("#set text(size: 11pt)\nUm\ndois\n\n\nTrês\nquatro\n{FIGURE}\n\n= Título\nCinco\n"));
+        assert_eq!(
+            moved("dois", true).unwrap(),
+            format!("#set text(size: 11pt)\n{FIGURE}\nUm\ndois\n\n\nTrês\nquatro\n\n= Título\nCinco\n"),
+            "after the rule, not before it"
+        );
+        assert_eq!(moved("Cinco", false).unwrap(), format!("#set text(size: 11pt)\nUm\ndois\n\n\nTrês\nquatro\n\n= Título\nCinco\n{FIGURE}\n"));
+    }
+
+    #[test]
+    fn a_block_at_the_end_of_a_text_with_no_newline_moves() {
+        let mut text = "Um\n\n#image(\"a.png\")".to_string();
+        let block = text.find('#').unwrap()..text.len();
+        let at = move_block(&mut text, block, 0, true).unwrap();
+        assert_eq!(text, "#image(\"a.png\")\nUm\n\n");
+        assert_eq!(at, 0);
+        // Right next to itself, it stays.
+        let mut text = "Um\n\n#image(\"a.png\")\nDois\n".to_string();
+        let block = text.find('#').unwrap()..text.find(")\n").unwrap() + 1;
+        let target = text.find("Dois").unwrap();
+        assert_eq!(move_block(&mut text, block, target, true), None);
+        let mut text = "Um\n#image(\"a.png\")\nDois\n".to_string();
+        let block = text.find('#').unwrap()..text.find(")\n").unwrap() + 1;
+        assert_eq!(delete_block(&mut text, block), 3);
+        assert_eq!(text, "Um\nDois\n");
     }
 
     #[test]

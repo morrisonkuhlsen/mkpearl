@@ -15,7 +15,7 @@ use typst::diag::Severity;
 use typst::foundations::{Label, Value};
 use typst::introspection::{Introspector, MetadataElem, PagedPosition};
 use typst::layout::{Abs, Frame, FrameItem, Point, Transform};
-use typst::syntax::{FileId, LinkedNode, Side, Span, SyntaxKind};
+use typst::syntax::{LinkedNode, Side, Span, SyntaxKind};
 use typst::utils::{PicoStr, hash128};
 use typst_ide::Jump;
 use typst_layout::PagedDocument;
@@ -47,6 +47,13 @@ pub enum Job {
     /// Shows the place in the pages for a byte offset of the source.
     Locate {
         byte: usize,
+    },
+    /// Where a block of the source, at `block`, would go if dropped here on a page.
+    Drop {
+        page: usize,
+        x: f64,
+        y: f64,
+        block: std::ops::Range<usize>,
     },
     /// Compiles an example of the documentation, on its own. `request` comes back with the answer.
     Example {
@@ -90,6 +97,17 @@ pub struct Pixels {
     pub rgba: Arc<Vec<u8>>,
 }
 
+/// An image on a page, in points from its top left, and where its call starts in the source.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PlacedImage {
+    pub page: usize,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub byte: usize,
+}
+
 #[derive(Clone)]
 pub struct Page {
     pub hash: u128,
@@ -121,6 +139,14 @@ pub enum Event {
         page: usize,
         y_pt: f32,
         x_pt: f32,
+    },
+    /// The images on the pages, with what the source says about them.
+    Images(Vec<PlacedImage>),
+    /// The answer to [`Job::Drop`]: the byte of the text nearest the drop, and whether it was above it.
+    DropTarget {
+        block: std::ops::Range<usize>,
+        byte: usize,
+        above: bool,
     },
     /// The answer to [`Job::Example`]: its first page, or why it failed.
     ExampleDone {
@@ -336,6 +362,11 @@ impl Worker {
             let files = world.project_files();
             self.emit(Event::Dependencies(files));
         }
+        if pages.is_some()
+            && let Some(doc) = &self.doc
+        {
+            self.emit(Event::Images(self.placed_images(doc)));
+        }
         self.emit(Event::Compiled { pages, diags, millis: started.elapsed().as_millis() });
     }
 
@@ -369,6 +400,7 @@ impl Worker {
             Job::Compile { .. } | Job::Complete { .. } | Job::Hover { .. } | Job::Caret { .. } => {}
             Job::Click { page, x, y } => self.click(page, x, y),
             Job::Locate { byte } => self.locate(byte),
+            Job::Drop { page, x, y, block } => self.drop_target(page, x, y, block),
             Job::Example { request, text } => {
                 let result = self.example(&text);
                 self.emit(Event::ExampleDone { request, result });
@@ -459,14 +491,14 @@ impl Worker {
             // word processor.
             None => {
                 let main = typst::World::main(world);
-                let mut nearest: Option<(f64, Span, u16)> = None;
+                let mut nearest: Option<Nearest> = None;
                 if let Some(page) = doc.pages().get(position.page.get() - 1) {
-                    nearest_glyph(&page.frame, Transform::identity(), position.point, main, &mut nearest);
+                    nearest_glyph(&page.frame, Transform::identity(), position.point, &|span| span.id() == Some(main), &mut nearest);
                 }
-                if let Some((_, span, offset)) = nearest
-                    && let Some(range) = world.range(span)
+                if let Some(found) = nearest
+                    && let Some(range) = world.range(found.span)
                 {
-                    self.emit(Event::JumpToSource { byte: range.start + usize::from(offset) });
+                    self.emit(Event::JumpToSource { byte: range.start + usize::from(found.offset) });
                 }
             }
         }
@@ -478,6 +510,37 @@ impl Worker {
         };
         if let Some(p) = typst_ide::jump_from_cursor(doc, world.source(), byte).first() {
             self.emit(Event::JumpToPage { page: p.page.get() - 1, y_pt: p.point.y.to_pt() as f32, x_pt: p.point.x.to_pt() as f32 });
+        }
+    }
+
+    /// The images of the document's own source, for selecting and dragging on the pages.
+    fn placed_images(&self, doc: &PagedDocument) -> Vec<PlacedImage> {
+        let Some(world) = &self.world else { return Vec::new() };
+        let main = typst::World::main(world);
+        let mut found = Vec::new();
+        for (index, page) in doc.pages().iter().enumerate() {
+            images_in_frame(&page.frame, Transform::identity(), index, &mut found);
+        }
+        found
+            .into_iter()
+            .filter(|(_, _, span)| span.id() == Some(main))
+            .filter_map(|(page, [x, y, width, height], span)| {
+                Some(PlacedImage { page, x: x as f32, y: y as f32, width: width as f32, height: height as f32, byte: world.range(span)?.start })
+            })
+            .collect()
+    }
+
+    fn drop_target(&self, page: usize, x: f64, y: f64, block: std::ops::Range<usize>) {
+        let (Some(world), Some(doc)) = (&self.world, &self.doc) else { return };
+        let Some(page) = doc.pages().get(page) else { return };
+        let main = typst::World::main(world);
+        let wanted = |span: Span| span.id() == Some(main) && world.range(span).is_some_and(|r| r.start < block.start || r.start >= block.end);
+        let mut nearest = None;
+        nearest_glyph(&page.frame, Transform::identity(), Point::new(Abs::pt(x), Abs::pt(y)), &wanted, &mut nearest);
+        if let Some(found) = nearest
+            && let Some(range) = world.range(found.span)
+        {
+            self.emit(Event::DropTarget { block, byte: range.start + usize::from(found.offset), above: found.below < 0.0 });
         }
     }
 
@@ -531,27 +594,36 @@ impl Worker {
     }
 }
 
-/// Keeps, in `nearest`, the end of the glyph of the main file closest to `to`. Distance across lines
-/// counts for more than along them, so that a click beside a line goes to that line.
-fn nearest_glyph(frame: &Frame, ts: Transform, to: Point, main: FileId, nearest: &mut Option<(f64, Span, u16)>) {
+/// The text closest to a point.
+struct Nearest {
+    distance: f64,
+    span: Span,
+    offset: u16,
+    /// How far the point is below the text, in points.
+    below: f64,
+}
+
+/// Keeps, in `nearest`, the glyph that's `wanted` closest to `to`. Distance across lines counts for
+/// more than along them, so that a click beside a line goes to that line.
+fn nearest_glyph(frame: &Frame, ts: Transform, to: Point, wanted: &dyn Fn(Span) -> bool, nearest: &mut Option<Nearest>) {
     for (pos, item) in frame.items() {
         match item {
             FrameItem::Group(group) => {
                 let inner = ts.pre_concat(Transform::translate(pos.x, pos.y)).pre_concat(group.transform);
-                nearest_glyph(&group.frame, inner, to, main, nearest);
+                nearest_glyph(&group.frame, inner, to, wanted, nearest);
             }
             FrameItem::Text(text) => {
                 let mut x = Abs::zero();
                 for glyph in &text.glyphs {
                     let advance = glyph.x_advance.at(text.size);
                     let (span, offset) = glyph.span;
-                    if span.id() == Some(main) {
+                    if wanted(span) {
                         let middle = text.size * 0.3;
                         let start = Point::new(pos.x + x, pos.y - middle).transform(ts);
                         let (across, down) = ((start.x - to.x).to_pt(), (start.y - to.y).to_pt());
                         let distance = across.abs() + down.abs() * 8.0;
-                        if nearest.as_ref().is_none_or(|(best, ..)| distance < *best) {
-                            *nearest = Some((distance, span, offset));
+                        if nearest.as_ref().is_none_or(|best| distance < best.distance) {
+                            *nearest = Some(Nearest { distance, span, offset, below: -down });
                         }
                     }
                     x += advance;
@@ -561,6 +633,31 @@ fn nearest_glyph(frame: &Frame, ts: Transform, to: Point, main: FileId, nearest:
         }
     }
 }
+
+/// The images in a frame, with their boxes as they end up on the page.
+fn images_in_frame(frame: &Frame, ts: Transform, page: usize, found: &mut Vec<(usize, Rect2, Span)>) {
+    for (pos, item) in frame.items() {
+        match item {
+            FrameItem::Group(group) => {
+                let inner = ts.pre_concat(Transform::translate(pos.x, pos.y)).pre_concat(group.transform);
+                images_in_frame(&group.frame, inner, page, found);
+            }
+            FrameItem::Image(_, size, span) => {
+                let corners = [Point::zero(), Point::new(size.x, Abs::zero()), Point::new(Abs::zero(), size.y), Point::new(size.x, size.y)]
+                    .map(|corner| (*pos + corner).transform(ts));
+                let xs = corners.map(|c| c.x.to_pt());
+                let ys = corners.map(|c| c.y.to_pt());
+                let (left, right) = (xs.iter().copied().fold(f64::INFINITY, f64::min), xs.iter().copied().fold(f64::NEG_INFINITY, f64::max));
+                let (top, bottom) = (ys.iter().copied().fold(f64::INFINITY, f64::min), ys.iter().copied().fold(f64::NEG_INFINITY, f64::max));
+                found.push((page, [left, top, right - left, bottom - top], *span));
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Left, top, width and height, in points.
+type Rect2 = [f64; 4];
 
 /// Keeps, in `best`, the place of the glyph of `span` closest before the byte `wanted` of it.
 fn caret_in_frame(frame: &Frame, ts: Transform, span: Span, wanted: u16, page: usize, best: &mut Option<(u16, usize, Point, f32)>) {

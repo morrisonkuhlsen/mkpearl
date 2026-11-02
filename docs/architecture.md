@@ -12,6 +12,7 @@ One crate, by the owner's decision: nothing needs the split yet, and it would to
 | `bib` | the references in the document's `.bib` files, read by the library Typst uses, on a thread of their own |
 | `doi` | what goes out, only when asked: a DOI's entry from doi.org, and each reference's lookup there or at Crossref |
 | `guide`, `app/docs` | the documentation: lessons from `locales/guide/`, the reference from Typst's own text, examples compiled in a world of their own |
+| `app/figures`, `ruler` | editing on the pages: what the pointer does becomes one edit of the source |
 | `history` | versions, whole copies under the user's data folder |
 | `recovery` | copies of unsaved text beside a lock the system releases when a run ends |
 | `spell` | words from Typst's parser, checked by `spellbook` on a thread of its own |
