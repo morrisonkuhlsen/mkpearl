@@ -17,6 +17,7 @@ One crate, by the owner's decision: nothing needs the split yet, and it would to
 | `letterhead`, `app/letterhead` | the settings, the rule they become and the block that holds them in the source |
 | `compare`, `app/comparing` | what changed between two versions, word by word, and where it falls on their pages |
 | `typography`, `app/typography` | what reads badly on the finished pages, from the layout and the source's structure, after each compile |
+| `variants`, `app/variants` | other ways to set a document, as the edit each would make; compiled on a thread of their own, so typing doesn't wait |
 | `history` | versions, whole copies under the user's data folder |
 | `recovery` | copies of unsaved text beside a lock the system releases when a run ends |
 | `spell` | words from Typst's parser, checked by `spellbook` on a thread of its own |

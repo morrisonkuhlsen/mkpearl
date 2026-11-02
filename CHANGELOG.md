@@ -38,6 +38,8 @@ Every release of Pearl, newest first, in the spirit of
 - A typography watch in the Problems pane: widows, orphans, headings alone at the end of a page, what
   goes past the margin and figures far from their first mention, marked on the pages. A click goes to
   the passage, and Ignore lasts until the passage changes.
+- Layout variants: the document set in a few other ways, as thumbnails of its own pages with their page
+  counts. Choosing one writes its rules in the source, as one undo step.
 - A splash screen in the colours and the hand-drawn style of its picture.
 - Typing on the pages: a click puts a caret there, also with only the pages on show, and what's typed
   goes into the source.

@@ -5,7 +5,7 @@ use crate::i18n::tx;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
@@ -32,6 +32,9 @@ const SAFE_TEXTURE_SIDE: usize = 2048;
 const MAX_SUGGESTIONS: usize = 200;
 /// Most pages kept rasterised in the cache beyond the current document.
 const CACHE_SLACK: usize = 32;
+/// The pages of a variant kept to look at, and the most pixels each may take.
+const VARIANT_PAGES: usize = 4;
+const THUMBNAIL_SIDES: [f64; 2] = [380.0, 540.0];
 
 pub enum Job {
     Compile {
@@ -65,6 +68,15 @@ pub enum Job {
         request: u64,
         text: String,
     },
+    /// The document set in other ways, each on its own and off this thread, so it's never in the way
+    /// of the compile that follows the typing. A newer request, or `CancelVariants`, ends an older one.
+    Variants {
+        request: u64,
+        text: String,
+        path: Option<PathBuf>,
+        variants: Vec<crate::variants::Variant>,
+    },
+    CancelVariants,
     /// Where a byte offset of the source falls in the pages, for the caret drawn there.
     Caret {
         byte: usize,
@@ -123,6 +135,16 @@ pub struct Comparison {
     pub unseen: usize,
     /// Changes in all.
     pub total: usize,
+}
+
+/// A document as a variant would set it.
+#[derive(Clone)]
+pub struct VariantView {
+    pub pages: usize,
+    /// Its first pages, small.
+    pub thumbnails: Vec<Pixels>,
+    /// It looks just like the document does now: its rules are overruled, or already there.
+    pub same_as_now: bool,
 }
 
 /// An image on a page, in points from its top left, and where its call starts in the source.
@@ -187,6 +209,12 @@ pub enum Event {
     ExampleDone {
         request: u64,
         result: Result<Pixels, String>,
+    },
+    /// One of the answers to [`Job::Variants`], or why that variant doesn't compile.
+    VariantDone {
+        request: u64,
+        index: usize,
+        result: Result<VariantView, String>,
     },
     /// The answer to [`Job::Caret`], in points from the page's top left: `y` is the text's baseline.
     CaretAt {
@@ -258,6 +286,8 @@ struct Worker {
     compare_path: Option<PathBuf>,
     compare_rendered: HashMap<u128, Pixels>,
     probe_path: Option<PathBuf>,
+    /// The request for variants whose answers are still wanted.
+    variants_wanted: Arc<AtomicU64>,
     doc: Option<PagedDocument>,
     rendered: HashMap<u128, Pixels>,
 }
@@ -277,6 +307,7 @@ impl Worker {
             compare_path: None,
             compare_rendered: HashMap::new(),
             probe_path: None,
+            variants_wanted: Arc::new(AtomicU64::new(0)),
             doc: None,
             rendered: HashMap::new(),
         }
@@ -454,6 +485,8 @@ impl Worker {
                 let result = self.example(&text);
                 self.emit(Event::ExampleDone { request, result });
             }
+            Job::Variants { request, text, path, variants } => self.start_variants(request, text, path, variants),
+            Job::CancelVariants => self.variants_wanted.store(0, Ordering::Relaxed),
             Job::ExportPdf(path) => {
                 let result = self.export(&path).map(|()| path);
                 self.emit(Event::Exported(result));
@@ -632,6 +665,46 @@ impl Worker {
             && let Some(range) = world.range(found.span)
         {
             self.emit(Event::DropTarget { block, byte: range.start + usize::from(found.offset), above: found.below < 0.0 });
+        }
+    }
+
+    fn start_variants(&self, request: u64, text: String, path: Option<PathBuf>, variants: Vec<crate::variants::Variant>) {
+        self.variants_wanted.store(request, Ordering::Relaxed);
+        let (wanted, fonts, events, wake) = (Arc::clone(&self.variants_wanted), Arc::clone(&self.fonts), self.events.clone(), Arc::clone(&self.wake));
+        let tell = move |index: usize, result: Result<VariantView, String>| {
+            let _ = events.send(Event::VariantDone { request, index, result });
+            if let Some(ctx) = wake.get() {
+                ctx.request_repaint();
+            }
+        };
+        let told = tell.clone();
+        let count = variants.len();
+        let work = move || {
+            let mut world = None;
+            let mut now: Option<VariantView> = None;
+            for (index, variant) in variants.iter().enumerate() {
+                if wanted.load(Ordering::Relaxed) != request {
+                    return;
+                }
+                let result = compile_variant(&variant.applied_to(&text), &mut world, &fonts, path.as_deref()).map(|mut view| {
+                    match &now {
+                        Some(current) => view.same_as_now = looks_the_same(current, &view),
+                        None => {
+                            if variant.changes_nothing() {
+                                now = Some(view.clone());
+                            }
+                        }
+                    }
+                    view
+                });
+                tell(index, result);
+            }
+        };
+        // Deep documents need the stack the compiler's thread has.
+        if std::thread::Builder::new().name("variants".into()).stack_size(32 * 1024 * 1024).spawn(work).is_err() {
+            for index in 0..count {
+                told(index, Err(tx("the-compiler-failed-on-this-document").to_string()));
+            }
         }
     }
 
@@ -819,6 +892,47 @@ fn marks_in_frame(
             _ => {}
         }
     }
+}
+
+/// Compiles one variant, in a world only these use. A panic loses the world, not the document.
+fn compile_variant(
+    text: &str,
+    slot: &mut Option<DocWorld>,
+    fonts: &Arc<typst_kit::fonts::FontStore>,
+    path: Option<&std::path::Path>,
+) -> Result<VariantView, String> {
+    if slot.is_none() {
+        *slot = DocWorld::new(Arc::clone(fonts), path);
+    }
+    let failed = || tx("the-compiler-failed-on-this-document").to_string();
+    let world = slot.as_mut().ok_or_else(failed)?;
+    world.update(text);
+    let world = &*world;
+    let Ok(view) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<VariantView, String> {
+        let doc =
+            typst::compile::<PagedDocument>(world).output.map_err(|errors| errors.first().map_or_else(String::new, |e| e.message.to_string()))?;
+        let thumbnails = doc.pages().iter().take(VARIANT_PAGES).map(thumbnail).collect();
+        Ok(VariantView { pages: doc.pages().len(), thumbnails, same_as_now: false })
+    })) else {
+        *slot = None;
+        return Err(failed());
+    };
+    view
+}
+
+fn thumbnail(page: &typst_layout::Page) -> Pixels {
+    let size = page.frame.size();
+    let scale = (THUMBNAIL_SIDES[0] / size.x.to_pt().max(1.0)).min(THUMBNAIL_SIDES[1] / size.y.to_pt().max(1.0));
+    let options = RenderOptions { pixel_per_pt: typst::utils::Scalar::new(scale), render_bleed: false };
+    let map = typst_render::render(page, &options);
+    Pixels { size: [map.width() as usize, map.height() as usize], rgba: Arc::new(map.take_demultiplied()) }
+}
+
+/// By the pixels: the same look from a different source has different spans in its frames.
+fn looks_the_same(a: &VariantView, b: &VariantView) -> bool {
+    a.pages == b.pages
+        && a.thumbnails.len() == b.thumbnails.len()
+        && a.thumbnails.iter().zip(&b.thumbnails).all(|(x, y)| x.size == y.size && x.rgba == y.rgba)
 }
 
 /// The images in a frame, with their boxes as they end up on the page.
@@ -1046,6 +1160,96 @@ mod tests {
                 answered += 1;
             }
         }
+    }
+
+    fn variants_of(text: &str, variants: Vec<crate::variants::Variant>) -> Vec<Result<VariantView, String>> {
+        let c = Compiler::start().unwrap();
+        let total = variants.len();
+        c.send(Job::Variants { request: 7, text: text.into(), path: None, variants });
+        let mut answers: Vec<Option<Result<VariantView, String>>> = vec![None; total];
+        while answers.iter().any(Option::is_none) {
+            if let Event::VariantDone { request: 7, index, result } = c.events.recv_timeout(Duration::from_secs(120)).unwrap() {
+                answers[index] = Some(result);
+            }
+        }
+        answers.into_iter().flatten().collect()
+    }
+
+    #[test]
+    fn each_variant_comes_back_with_its_pages() {
+        use crate::variants::PRESETS;
+        let paragraph = "Um texto corrido que ocupa várias linhas nas páginas. ".repeat(6);
+        let text = format!("#set page(paper: \"a4\")\n{}", format!("{paragraph}\n\n").repeat(50));
+        let answers = variants_of(&text, PRESETS.to_vec());
+        let views: Vec<&VariantView> = answers.iter().map(|a| a.as_ref().unwrap()).collect();
+        assert!(views[1].pages < views[0].pages, "compact takes fewer pages");
+        assert!(views[3].pages > views[1].pages, "comfortable takes more than compact");
+        assert!(views.iter().all(|v| !v.thumbnails.is_empty() && v.thumbnails.len() <= VARIANT_PAGES));
+        assert!(
+            views
+                .iter()
+                .flat_map(|v| &v.thumbnails)
+                .all(|t| t.size[0] as f64 <= THUMBNAIL_SIDES[0] + 1.0 && t.size[1] as f64 <= THUMBNAIL_SIDES[1] + 1.0)
+        );
+        assert!(!views[0].same_as_now && views[1..].iter().all(|v| !v.same_as_now));
+    }
+
+    #[test]
+    fn a_variant_that_changes_nothing_on_the_page_says_so() {
+        use crate::variants::PRESETS;
+        // Its own later rule is in a function, so the one the variant adds is overruled.
+        let text = "#let own(body) = { set text(font: \"Libertinus Serif\"); body }\n#show: own\nTexto.\n";
+        let answers = variants_of(text, vec![PRESETS[0], PRESETS[5]]);
+        assert!(answers[1].as_ref().unwrap().same_as_now);
+    }
+
+    fn long_document() -> String {
+        format!("{}\n\n", "Um texto corrido que ocupa várias linhas nas páginas. ".repeat(6)).repeat(1500)
+    }
+
+    #[test]
+    fn the_typing_never_waits_for_the_variants() {
+        let c = Compiler::start().unwrap();
+        c.send(Job::Variants { request: 7, text: long_document(), path: None, variants: crate::variants::PRESETS.to_vec() });
+        c.send(Job::Compile { text: "Pouco texto.".into(), path: None });
+        let mut done = 0;
+        loop {
+            match c.events.recv_timeout(Duration::from_secs(120)).unwrap() {
+                Event::VariantDone { .. } => done += 1,
+                Event::Compiled { .. } => break,
+                _ => {}
+            }
+        }
+        assert!(done < crate::variants::PRESETS.len(), "the compile came after all {done} variants");
+    }
+
+    #[test]
+    fn closing_stops_the_variants_still_to_come() {
+        let c = Compiler::start().unwrap();
+        let started = std::time::Instant::now();
+        c.send(Job::Variants { request: 7, text: long_document(), path: None, variants: crate::variants::PRESETS.to_vec() });
+        while !matches!(c.events.recv_timeout(Duration::from_secs(120)).unwrap(), Event::VariantDone { .. }) {}
+        let one = started.elapsed();
+        c.send(Job::CancelVariants);
+        // Time for several more, if they were still being made. The one under way may still finish.
+        std::thread::sleep(one * 3);
+        let more = c.events.try_iter().filter(|event| matches!(event, Event::VariantDone { .. })).count();
+        assert!(more <= 1, "{more} more came after closing");
+    }
+
+    #[test]
+    fn a_variant_that_fails_leaves_the_others_alone() {
+        use crate::variants::PRESETS;
+        let broken = crate::variants::Variant { margin: Some("((("), ..PRESETS[0] };
+        let answers = variants_of("Texto.\n", vec![PRESETS[0], broken, PRESETS[1]]);
+        assert!(answers[0].is_ok() && answers[2].is_ok());
+        assert!(answers[1].as_ref().err().is_some_and(|e| !e.is_empty()));
+    }
+
+    #[test]
+    fn a_document_that_doesnt_compile_only_says_why() {
+        let answers = variants_of("#nada_disso()\n", crate::variants::PRESETS.to_vec());
+        assert!(answers.iter().all(|a| a.as_ref().err().is_some_and(|e| e.contains("nada_disso"))));
     }
 
     #[test]

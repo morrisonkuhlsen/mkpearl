@@ -84,6 +84,10 @@ fn main() {
             s.mark_on = true;
         });
     }
+    if args.iter().any(|a| a == "variants") {
+        app.set_tab("page-layout");
+        app.open_layout_variants();
+    }
     if args.iter().any(|a| a == "formulas") {
         app.open_formulas();
     }
@@ -134,12 +138,24 @@ fn main() {
         std::thread::sleep(Duration::from_millis(20));
     }
     harness.run_steps(90);
-    if args.iter().any(|a| a == "docs" || a == "formulas" || a == "letterhead" || a.starts_with("lesson=") || a.starts_with("formula=")) {
+    if args
+        .iter()
+        .any(|a| a == "docs" || a == "formulas" || a == "letterhead" || a == "variants" || a.starts_with("lesson=") || a.starts_with("formula="))
+    {
         // The examples run on the compiler's thread.
         for _ in 0..60 {
             harness.step();
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+    if args.iter().any(|a| a == "variants") {
+        let started = Instant::now();
+        while harness.state().layout_variants().is_some_and(|tiles| tiles.iter().any(Option::is_none)) && started.elapsed() < Duration::from_secs(60)
+        {
+            harness.step();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        harness.run_steps(5);
     }
     if args.iter().any(|a| a == "references") {
         // The list is read on a thread of its own.
