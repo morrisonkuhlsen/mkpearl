@@ -36,5 +36,6 @@ Every release of Pearl, newest first, in the spirit of
   another paragraph, and Delete takes it out of the text. Each is one undo step.
 - Margins dragged on the rulers change the `#set page` rule, as one undo step.
 - Copying and pasting with other programs, which didn't reach the system's clipboard.
+- Packages for Linux, Windows and macOS, built by a release workflow.
 - Third-party licences, readable under About.
 - English and Brazilian Portuguese: choose under File, Options; it starts in the system's language.

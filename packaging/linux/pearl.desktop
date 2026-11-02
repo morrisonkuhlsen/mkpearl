@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Pearl
+GenericName=Document Editor
+GenericName[pt_BR]=Editor de documentos
+Comment=Typst documents with live pages, a ribbon and real-time sessions
+Comment[pt_BR]=Documentos em Typst com páginas ao vivo, faixa de opções e sessões em tempo real
+Exec=pearl %f
+Icon=pearl
+Terminal=false
+Categories=Office;Publishing;
+MimeType=text/x-typst;
+StartupWMClass=pearl

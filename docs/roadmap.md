@@ -22,5 +22,5 @@ Pearl's plan and progress log. Each section says what is done and its **Next:** 
 - **Next:** comments (#12); a relay for the internet (#13); images from guests (#16).
 
 ## Getting it to people
-- *Done:* the licences in the program; the gates and CI; the interface in English and Portuguese.
-- **Next:** try what no person has tried (#7); an installer (#8); document text in English (#14).
+- *Done:* the licences in the program; the gates and CI; the interface in English and Portuguese; packages and a release workflow, see `docs/releasing.md`.
+- **Next:** try what no person has tried (#7); document text in English (#14).
