@@ -255,7 +255,7 @@ Clique em qualquer texto da página: o cursor aparece ali, e o que você digita 
 Arraste o limite entre a área cinza e a clara da régua para mudar a margem. Ao soltar, o Pearl atualiza a regra `#set page` no código, e um único Ctrl+Z desfaz tudo.
 ## Sessões e Claude
 ?? pearl sessão colaborar tempo real claude ia link
-Abra uma sessão pela aba Exibir ou pelo ícone de compartilhar, e envie o link: quem entra edita o mesmo documento, de forma criptografada. O painel Claude conversa sobre o documento e pode entrar na sessão como mais uma pessoa, usando a sua chave de API.
+Abra uma sessão pelo ícone de compartilhar, no alto da janela, e envie o link: quem entra edita o mesmo documento, de forma criptografada. O painel Claude conversa sobre o documento e pode entrar na sessão como mais uma pessoa, usando a sua chave de API.
 ## Versões e recuperação
 ?? pearl histórico versão recuperar autosave salvar
 O painel Versões guarda o documento ao salvar: veja o que mudou, olhe as páginas antigas e restaure. Se o programa fechar de repente, o texto não salvo é oferecido quando ele abrir de novo.

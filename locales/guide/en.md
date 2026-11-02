@@ -255,7 +255,7 @@ Click any text on a page: the caret appears there, and what you type goes into t
 Drag the edge between the grey and the light part of the ruler to change a margin. On release, Pearl updates the `#set page` rule in the source, and one Ctrl+Z undoes it all.
 ## Sessions and Claude
 ?? pearl session collaborate real time claude ai link
-Start a session from the View tab or the share icon, and send the link: whoever joins edits the same document, encrypted. The Claude pane talks about the document and can join the session as one more person, with your API key.
+Start a session from the share icon, at the top of the window, and send the link: whoever joins edits the same document, encrypted. The Claude pane talks about the document and can join the session as one more person, with your API key.
 ## Versions and recovery
 ?? pearl history version recover autosave save
 The Versions pane keeps the document as you save: see what changed, look at old pages and restore. If the program closes suddenly, the unsaved text is offered when it opens again.
