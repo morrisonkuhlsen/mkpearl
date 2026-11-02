@@ -50,6 +50,8 @@ Every release of Pearl, newest first, in the spirit of
   back at a click, as one undo step, without restoring the rest.
 - Find and replace (Ctrl+H): one match at a time, seeing each first, or all at once as one undo step.
   The search can match case and whole words.
+- Comments on the text: threads tied to a passage, with replies, resolved and reopened, shared in a session
+  and kept in a file beside the document, outside its text and its PDF.
 - A splash screen in the colours and the hand-drawn style of its picture.
 - Typing on the pages: a click puts a caret there, also with only the pages on show, and what's typed
   goes into the source.

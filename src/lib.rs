@@ -6,6 +6,7 @@ pub mod app;
 pub mod assistant;
 pub mod bib;
 pub mod collab;
+pub mod comments;
 pub mod compare;
 pub mod compiler;
 pub mod doi;

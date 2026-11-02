@@ -31,6 +31,7 @@ use crate::widgets::{field_menu, glyphs, group_begin, group_end, icon_button_mon
 
 mod accessibility;
 mod backstage;
+mod comments;
 mod comparing;
 mod docs;
 mod figures;
@@ -173,6 +174,7 @@ enum Side {
     Versions,
     Claude,
     Docs,
+    Comments,
 }
 
 /// A past version looked at in the Versions pane.
@@ -322,6 +324,7 @@ pub struct App {
     pages: Vec<Page>,
     textures: HashMap<u128, TextureHandle>,
     diags: Vec<Diag>,
+    comments: comments::Comments,
     watch: typography::Watch,
     millis: Option<u128>,
     status: String,
@@ -469,6 +472,7 @@ impl App {
             pages: Vec::new(),
             textures: HashMap::new(),
             diags: Vec::new(),
+            comments: comments::Comments::default(),
             watch: typography::Watch::load(),
             millis: None,
             status: tx("loading-fonts").into(),
@@ -589,10 +593,20 @@ impl App {
 
     /// Opens a side pane by its place on the strip.
     pub fn open_side(&mut self, index: usize) {
-        self.side =
-            [Side::Details, Side::Outline, Side::Files, Side::Symbols, Side::Problems, Side::Claude, Side::Versions, Side::References, Side::Docs]
-                .get(index)
-                .copied();
+        self.side = [
+            Side::Details,
+            Side::Outline,
+            Side::Files,
+            Side::Symbols,
+            Side::Problems,
+            Side::Claude,
+            Side::Versions,
+            Side::References,
+            Side::Docs,
+            Side::Comments,
+        ]
+        .get(index)
+        .copied();
     }
 
     pub fn text(&self) -> &str {
@@ -1228,6 +1242,9 @@ impl App {
         if pressed(Modifiers::COMMAND, Key::F) {
             self.open_find();
         }
+        if pressed(Modifiers::COMMAND | Modifiers::ALT, Key::M) {
+            self.start_comment();
+        }
         if pressed(Modifiers::COMMAND, Key::H) {
             self.open_replace(ctx);
         }
@@ -1364,6 +1381,7 @@ impl App {
             self.status_seen = (self.status.clone(), ctx.input(|i| i.time));
         }
         self.session_receive(&ctx);
+        self.comments_tick();
         self.assistant_receive(&ctx);
         self.show_window(ui);
         self.session_send(&ctx);
@@ -1783,6 +1801,7 @@ impl App {
         for change in changes {
             match change {
                 Change::Text => text_changed = true,
+                Change::Comments => self.comments.pending = Some(session.comment_entries()),
                 Change::File => recompile = true,
                 Change::Joined(name) => self.status = tr!("joined", name = name),
                 Change::Left(name) => self.status = tr!("left", name = name),
@@ -2492,6 +2511,9 @@ impl App {
         if tool(ui, Icon::Find, tx("find-f")).clicked() {
             self.open_find();
         }
+        if tool(ui, Icon::Comment, tx("comment-on-the-selection")).clicked() {
+            self.start_comment();
+        }
         if glyphs(ui, "a→b", tx("replace-h")).clicked() {
             let ctx = ui.ctx().clone();
             self.open_replace(&ctx);
@@ -2845,7 +2867,7 @@ impl App {
         ui.painter().vline(rect.left(), rect.y_range(), Stroke::new(1.0, t.separator));
         let errors = self.diags.iter().filter(|d| d.error).count();
         let mut top = rect.top() + 4.0;
-        let items = [
+        let mut items = vec![
             (Side::Details, Icon::Info, tx("details"), 0),
             (Side::Outline, Icon::SheetList, tx("outline"), 0),
             (Side::Files, Icon::Folder, tx("files"), 0),
@@ -2856,6 +2878,10 @@ impl App {
             (Side::Claude, Icon::Pen, "Claude", 0),
             (Side::Docs, Icon::Note, tx("documentation"), 0),
         ];
+        // Only where it's in use: with ten names the strip no longer fits a usual window, and loses them all.
+        if self.comments_in_use() || self.side == Some(Side::Comments) {
+            items.insert(items.len() - 1, (Side::Comments, Icon::Comment, tx("comments"), self.open_comments()));
+        }
         let font = theme::ui_font(13.0);
         let full_height = |name: &str, badge: usize| {
             26.0 + ui.painter().layout_no_wrap(name.to_string(), font.clone(), t.text).size().x + if badge > 0 { 18.0 } else { 6.0 }
@@ -2910,6 +2936,7 @@ impl App {
             Side::Outline => (Icon::SheetList, tx("outline")),
             Side::Files => (Icon::Folder, tx("files")),
             Side::References => (Icon::Book, tx("references")),
+            Side::Comments => (Icon::Comment, tx("comments")),
             Side::Docs => (Icon::Note, tx("documentation")),
             Side::Symbols => (Icon::Symbol, tx("formulas-and-symbols")),
             Side::Problems => (Icon::Validation, tx("problems")),
@@ -2939,6 +2966,7 @@ impl App {
                 Side::Files => self.pane_files(ui, t),
                 Side::References => self.pane_references(ui, t),
                 Side::Docs => self.pane_docs(ui, t),
+                Side::Comments => self.pane_comments(ui, t),
                 Side::Symbols => self.pane_symbols(ui, t),
                 Side::Versions => self.pane_versions(ui, t),
                 Side::Claude => self.pane_claude(ui, t),
@@ -3522,6 +3550,7 @@ impl App {
         let scroll_target = self.selection(&ctx).0;
         let found = self.find.as_deref().map_or_else(Vec::new, |q| edit::find_all(&self.text, q, self.find_options, MAX_MATCHES_SHOWN));
         let current_match = self.find.as_ref().map(|_| self.selection(&ctx));
+        let commented = self.comments.book.drawn().to_vec();
         let waiting = self.session.as_ref().is_some_and(Session::is_waiting);
         let carets = self.session.as_ref().map_or_else(Vec::new, Session::cursors);
         let spell_active = self.spell_on && self.spell.is_some() && spell::in_known_language(&self.text);
@@ -3620,23 +3649,29 @@ impl App {
                     let caret = output.galley.pos_from_cursor(CCursor::new(scroll_target));
                     scroll_to = Some(caret.translate(output.galley_pos.to_vec2()));
                 }
-                // The search's matches, over the text: the editor shows a selection only with the
-                // focus, and this way all of them can be seen.
-                for (a, b) in &found {
-                    let place = |c: usize| output.galley.pos_from_cursor(CCursor::new(c)).translate(output.galley_pos.to_vec2());
-                    let current = current_match == Some((*a, *b));
-                    let fill = if current { t.accent.gamma_multiply(0.55) } else { t.accent.gamma_multiply(0.22) };
-                    let (from, to) = (place(*a), place(*b));
+                let place = |c: usize| output.galley.pos_from_cursor(CCursor::new(c)).translate(output.galley_pos.to_vec2());
+                let paint_range = |a: usize, b: usize, fill: Color32| {
+                    let (from, to) = (place(a), place(b));
                     if (from.top() - to.top()).abs() < 1.0 {
                         ui.painter().rect_filled(Rect::from_min_max(from.min, to.max), 1.0, fill);
                     } else {
                         // Wrapped across rows: letter by letter, each on its own.
-                        for c in *a..*b {
+                        for c in a..b {
                             let (one, next) = (place(c), place(c + 1));
                             let right = if (one.top() - next.top()).abs() < 1.0 { next.left() } else { one.left() + 8.0 };
                             ui.painter().rect_filled(Rect::from_min_max(one.min, pos2(right, one.bottom())), 1.0, fill);
                         }
                     }
+                };
+                // The passages with open comments, under the search's matches.
+                for (a, b) in &commented {
+                    paint_range(*a, *b, t.warning.gamma_multiply(0.22));
+                }
+                // The search's matches, over the text: the editor shows a selection only with the
+                // focus, and this way all of them can be seen.
+                for (a, b) in &found {
+                    let current = current_match == Some((*a, *b));
+                    paint_range(*a, *b, if current { t.accent.gamma_multiply(0.55) } else { t.accent.gamma_multiply(0.22) });
                 }
             });
             if let Some(rect) = scroll_to {

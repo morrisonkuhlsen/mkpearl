@@ -292,6 +292,9 @@ The Problems pane also points out what keeps a document from reaching everyone: 
 ## Timeline of the writing
 ?? timeline history version slider passage paragraph deleted recover bring back
 In the Versions pane, Timeline of the writing opens a slider over the document's versions, with the pages of each, and the passages it has that the document no longer does. Moving the slider changes nothing. Bring back puts one passage where it was, as one Ctrl+Z, and leaves the rest as it is. A version that can't be read is skipped, with a notice.
+## Comments
+?? comments comment review thread reply resolve session
+Select a passage in the source and press Ctrl+Alt+M, or open the Comments pane, to leave a comment on it. Each passage with an open comment is marked in the source, and a click on the thread goes to it. Others in a session see the comments and can reply. They're kept in a file beside the document, ending in `.comments.json`, so the text and the PDF stay as they are. A thread can be deleted once it's resolved.
 ## Comparing versions on the pages
 ?? pearl compare version difference review before after history
 In the Versions pane, choose a version and click Compare on the pages. The pages from before and now go side by side: green for what came in, red for what went out and blue for what changed place. The Previous and Next buttons go through the changes, and nothing in the document is altered.

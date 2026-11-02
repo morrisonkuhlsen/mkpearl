@@ -3,7 +3,7 @@
 //! file; the session ends when the host leaves. Only the main document is edited together; the
 //! pictures and other files it uses travel to the guests, who get them read-only.
 
-mod doc;
+pub mod doc;
 mod net;
 pub mod wire;
 
@@ -24,6 +24,8 @@ use self::wire::{CursorInfo, Message};
 pub enum Change {
     /// The text changed; it's in [`Session::text`].
     Text,
+    /// The comments changed; they're in [`Session::comment_entries`].
+    Comments,
     /// A file the document uses arrived: compile again.
     File,
     Joined(String),
@@ -201,6 +203,18 @@ impl Session {
         self.link.send(Outgoing::Broadcast(Message::Cursor(info)));
     }
 
+    /// Sets one fact about the comments, for everyone.
+    pub fn set_comment(&mut self, key: &str, value: &str) {
+        if !self.waiting {
+            self.shared.set_comment(key, value);
+        }
+        self.flush();
+    }
+
+    pub fn comment_entries(&self) -> std::collections::BTreeMap<String, String> {
+        self.shared.comment_entries()
+    }
+
     /// Ties the local selection to the text, to survive merging others' changes.
     pub fn pin(&self, byte: usize) -> Option<StickyIndex> {
         self.shared.pin(byte)
@@ -296,6 +310,9 @@ impl Session {
                     self.remotes.remove(&id);
                 }
             }
+        }
+        if self.shared.take_comments_changed() {
+            changes.push(Change::Comments);
         }
         changes
     }
