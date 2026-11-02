@@ -74,6 +74,7 @@ close = Fechar
 close-esc = Fechar (Esc)
 close-the-comparison = Fechar
 close-the-pane = Fechar o painel
+close-the-window = Fechar a janela
 closes-the-document-and-starts-a-blank = Fecha o documento e começa um em branco
 code-block = Bloco de código
 column-vector = Vetor coluna
