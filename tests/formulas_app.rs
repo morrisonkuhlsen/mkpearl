@@ -27,19 +27,19 @@ fn a_formula_is_found_and_goes_into_the_document() {
     );
     h.run_steps(3);
     // Both ways there are named: the Math tab's button, and the strip's item, which opens on them.
-    assert!(h.query_by_label("Fórmula de Bhaskara").is_none());
+    assert!(h.query_by_label("Fórmula quadrática").is_none());
     h.get_by_label("Fórmulas prontas").click();
     h.run_steps(3);
     assert!(h.query_by_label("Estatística descritiva").is_some(), "every subject shows at once");
     h.get_by_label("Álgebra").click();
     h.run_steps(3);
-    assert!(h.query_by_label("Fórmula de Bhaskara").is_some());
+    assert!(h.query_by_label("Fórmula quadrática").is_some());
     h.state_mut().open_side(usize::MAX);
     h.run_steps(3);
-    assert!(h.query_by_label("Fórmula de Bhaskara").is_none());
+    assert!(h.query_by_label("Fórmula quadrática").is_none());
     h.get_by_label("Fórmulas").click();
     h.run_steps(3);
-    assert!(h.query_by_label("Fórmula de Bhaskara").is_some(), "and opens it on the formulas");
+    assert!(h.query_by_label("Fórmula quadrática").is_some(), "and opens it on the formulas");
     // The symbols are one click away, under names people can read.
     h.get_all_by_label("Símbolos").last().unwrap().click();
     h.run_steps(3);

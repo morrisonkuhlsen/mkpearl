@@ -61,9 +61,10 @@ fn parse(text: &str) -> Catalog {
             // The math may hold bars of its own, so only the first two split.
             let mut parts = line.splitn(3, " | ");
             if let (Some(pt), Some(en), Some(math)) = (parts.next(), parts.next(), parts.next()) {
+                let (pt, also) = pt.split_once(" ~ ").unwrap_or((pt, ""));
                 let category = catalog.categories.len().saturating_sub(1);
                 let subject = catalog.categories.last().map_or_else(String::new, |names| names.join(" "));
-                let haystack = fold(&format!("{pt} {en} {subject} {math}"));
+                let haystack = fold(&format!("{pt} {also} {en} {subject} {math}"));
                 catalog.formulas.push(Formula {
                     category,
                     names: [pt.trim().to_string(), en.trim().to_string()],
@@ -91,6 +92,7 @@ mod tests {
         let all = catalog();
         assert!(all.formulas.len() >= 90, "{}", all.formulas.len());
         assert_eq!(all.category_count(), 10);
+        assert!(all.formulas.iter().any(|f| f.names[0] == "Fórmula quadrática"), "the words after the tilde aren't its name");
         let names: HashSet<&String> = all.formulas.iter().map(|f| &f.names[0]).collect();
         assert_eq!(names.len(), all.formulas.len(), "two formulas with one name");
         for formula in &all.formulas {
@@ -104,6 +106,7 @@ mod tests {
         let find = |query: &str| catalog().formulas.iter().filter(|f| f.matches(query)).map(|f| f.names[1].as_str()).collect::<Vec<_>>();
         assert!(find("bhaskara").contains(&"Quadratic formula"));
         assert!(find("quadratic").contains(&"Quadratic formula"));
+        assert!(find("quadratica").contains(&"Quadratic formula"));
         assert!(find("variancia").contains(&"Sample variance"));
         assert!(find("estatistica desvio").contains(&"Sample standard deviation"));
         assert!(find("xyzzy").is_empty());

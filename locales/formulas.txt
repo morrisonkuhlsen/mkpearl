@@ -1,6 +1,6 @@
-# Ready-made formulas: a line starting with a hash names a subject, and the others hold a name in each language and the math, split by bars.
+# Ready-made formulas: a line starting with a hash names a subject, and the others hold a name in each language and the math, split by bars. After a tilde come other words a search should find.
 # Álgebra | Algebra
-Fórmula de Bhaskara | Quadratic formula | x = (-b plus.minus sqrt(b^2 - 4 a c)) / (2 a)
+Fórmula quadrática ~ Bhaskara resolvente | Quadratic formula | x = (-b plus.minus sqrt(b^2 - 4 a c)) / (2 a)
 Discriminante | Discriminant | Delta = b^2 - 4 a c
 Quadrado da soma | Square of a sum | (a + b)^2 = a^2 + 2 a b + b^2
 Quadrado da diferença | Square of a difference | (a - b)^2 = a^2 - 2 a b + b^2
