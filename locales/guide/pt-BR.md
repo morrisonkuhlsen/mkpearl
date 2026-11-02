@@ -265,3 +265,11 @@ F1 abre esta documentação e busca a palavra no cursor. Ctrl+F busca no documen
 ## Figuras nas páginas
 ?? pearl figura imagem redimensionar mover arrastar apagar página
 Clique em uma imagem na página para selecioná-la. Arraste o quadradinho do canto para mudar o tamanho: o Pearl escreve o `width:` no código. Arraste a própria imagem para movê-la até outro parágrafo. A tecla Delete a tira do texto, sem apagar o arquivo, e Esc desfaz a seleção. Cada ação é desfeita com um único Ctrl+Z.
+## Timbrado e marca d'água
+?? timbrado marca d'água rascunho logotipo cabeçalho rodapé papel
+Na aba Layout da Página, o botão Timbrado e marca d'água abre uma janela com prévia ao vivo: nome, endereço, logotipo e rodapé de um lado, e texto ou imagem de fundo do outro. Ao aplicar, o Pearl escreve uma regra `#set page` no início do documento e a reabre com os mesmos valores. Sem o botão, seria assim:
+```example
+#set page(width: 10cm, height: 6cm, background: rotate(-45deg, text(30pt, fill: luma(225), "RASCUNHO")))
+Um texto sobre a marca d'água.
+```
+> Tente: troque "RASCUNHO" por "CÓPIA" e mude o ângulo.

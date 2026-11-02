@@ -30,6 +30,8 @@ Every release of Pearl, newest first, in the spirit of
   probability, inference, finance and physics: with previews and a search, in the Formulas pane and
   through the Math tab, and a click puts one at the caret.
 - Messages in the status bar stay long enough to be read, instead of giving way to the next compile.
+- Letterhead and watermark, from a window with a live preview: name, address, logo and footer, and a
+  background text or image. It's written as a rule in the source, and the window opens on it again.
 - Typing on the pages: a click puts a caret there, also with only the pages on show, and what's typed
   goes into the source.
 - Figures on the pages: a click selects an image, its corner resizes it, dragging it moves its block to

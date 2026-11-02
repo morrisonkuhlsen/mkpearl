@@ -33,6 +33,7 @@ mod backstage;
 mod docs;
 mod figures;
 mod formulas;
+mod letterhead;
 mod references;
 
 /// The tabs, by the ids of their names.
@@ -378,6 +379,7 @@ pub struct App {
     /// The caret has moved in the pages, which should follow it.
     follow_caret: bool,
     figures: figures::Figures,
+    letterhead_dialog: Option<letterhead::LetterheadDialog>,
     formulas: formulas::FormulaPane,
     /// The status bar's last compile time, which anything else may replace at any moment.
     compile_status: String,
@@ -501,6 +503,7 @@ impl App {
             page_typing: false,
             follow_caret: false,
             figures: figures::Figures::default(),
+            letterhead_dialog: None,
             formulas: formulas::FormulaPane::default(),
             // What it says at the start gives way to the first compile.
             compile_status: tx("loading-fonts").to_string(),
@@ -2512,6 +2515,9 @@ impl App {
                 }
             }
         });
+        if labelled(ui, Icon::Paper, tx("letterhead-and-watermark"), tx("letterhead-and-watermark")).clicked() {
+            self.open_letterhead();
+        }
         sep(ui, tx("page-setup"));
         tool_menu(ui, Icon::PageNumber, tx("number-the-pages"), |ui| {
             for (name, format) in [("1", "1"), ("1 / N", "1 / 1"), ("i", "i")] {
@@ -3946,6 +3952,8 @@ impl App {
 
     fn dialogs(&mut self, ctx: &egui::Context) {
         self.session_dialog(ctx);
+        let tokens = Tokens::get(ctx);
+        self.letterhead_window(ctx, &tokens);
         if self.about {
             let mut open = true;
             egui::Window::new(tx("about-pearl"))

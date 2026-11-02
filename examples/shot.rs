@@ -70,6 +70,17 @@ fn main() {
             app.open_side(7);
         }
     }
+    if args.iter().any(|a| a == "letterhead") {
+        app.set_tab("page-layout");
+        app.open_letterhead();
+        app.edit_letterhead(|s| {
+            s.head_on = true;
+            "Empresa Exemplo Ltda.".clone_into(&mut s.name);
+            "Rua das Pérolas, 100".clone_into(&mut s.details);
+            "contato@exemplo.com".clone_into(&mut s.footer);
+            s.mark_on = true;
+        });
+    }
     if args.iter().any(|a| a == "formulas") {
         app.open_formulas();
     }
@@ -120,7 +131,7 @@ fn main() {
         std::thread::sleep(Duration::from_millis(20));
     }
     harness.run_steps(90);
-    if args.iter().any(|a| a == "docs" || a == "formulas" || a.starts_with("lesson=") || a.starts_with("formula=")) {
+    if args.iter().any(|a| a == "docs" || a == "formulas" || a == "letterhead" || a.starts_with("lesson=") || a.starts_with("formula=")) {
         // The examples run on the compiler's thread.
         for _ in 0..60 {
             harness.step();

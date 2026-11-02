@@ -16,6 +16,7 @@ pub mod history;
 pub mod i18n;
 pub mod icons;
 pub mod images;
+pub mod letterhead;
 pub mod licenses;
 pub mod recent;
 pub mod recovery;

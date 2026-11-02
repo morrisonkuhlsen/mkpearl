@@ -770,6 +770,44 @@ mod tests {
     }
 
     #[test]
+    fn letterheads_of_every_kind_compile() {
+        use crate::letterhead::Letterhead;
+        let c = Compiler::start().unwrap();
+        let mut cases = Vec::new();
+        for head_on in [false, true] {
+            for first_page_only in [false, true] {
+                for logo in ["", "x.png"] {
+                    for mark_is_image in [false, true] {
+                        for footer in ["", "Rodapé \"com\" #marcas e *asteriscos*"] {
+                            cases.push(Letterhead {
+                                head_on,
+                                first_page_only,
+                                logo: logo.to_string(),
+                                mark_on: true,
+                                mark_is_image,
+                                footer: footer.to_string(),
+                                name: "Empresa #1 $ _x_".to_string(),
+                                mark_text: "RASCUNHO".to_string(),
+                                ..Letterhead::default()
+                            });
+                        }
+                    }
+                }
+            }
+        }
+        for (i, case) in cases.iter().enumerate() {
+            c.send(Job::Example { request: i as u64, text: case.preview("Texto") });
+        }
+        let mut answered = 0;
+        while answered < cases.len() {
+            if let Event::ExampleDone { request, result } = c.events.recv_timeout(Duration::from_secs(120)).unwrap() {
+                assert!(result.is_ok(), "{:?}\n{:?}", result.err(), cases[request as usize].rule(true));
+                answered += 1;
+            }
+        }
+    }
+
+    #[test]
     fn every_ready_made_formula_compiles() {
         let c = Compiler::start().unwrap();
         let all = &crate::formulas::catalog().formulas;

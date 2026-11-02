@@ -161,7 +161,7 @@ pub fn image_call_at(source: &str, byte: usize) -> Option<ImageCall> {
 }
 
 /// Replaces parts of the text, keeping the selection on the same letters.
-fn replace_keeping(text: &mut String, sel: Sel, mut changes: Vec<(Range<usize>, String)>) -> Sel {
+pub(crate) fn replace_keeping(text: &mut String, sel: Sel, mut changes: Vec<(Range<usize>, String)>) -> Sel {
     changes.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
     let (mut a, mut b) = sel;
     for (range, new) in changes {
