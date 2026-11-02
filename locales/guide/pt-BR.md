@@ -273,6 +273,9 @@ Na aba Layout da Página, o botão Timbrado e marca d'água abre uma janela com 
 Um texto sobre a marca d'água.
 ```
 > Tente: troque "RASCUNHO" por "CÓPIA" e mude o ângulo.
+## Variantes de layout
+?? layout variantes fonte margens entrelinha páginas caber compacto
+Na aba Layout da Página, o botão Variantes de layout mostra o documento diagramado de algumas outras formas, nas próprias páginas, cada uma com seu número de páginas. Nada muda até você escolher uma: o Pearl então escreve as regras dela no código, em um único Ctrl+Z. Uma variante que fica igual ao atual avisa, o que indica que algo no documento se sobrepõe às regras dela.
 ## Vigia de tipografia
 ?? tipografia viúva órfã título margem tabela figura problemas
 O painel Problemas também aponta o que fica ruim nas páginas prontas: a primeira ou a última linha de um parágrafo sozinha em uma página, um título sozinho no fim da página, tabelas e texto além da margem, e figuras a duas ou mais páginas da primeira menção. Com o painel aberto, cada item fica marcado na página, e um clique leva ao trecho. Ignorar cala o aviso até o trecho mudar. Só o texto corrido deste arquivo é lido, e páginas em colunas não são verificadas quanto a viúvas e órfãs.

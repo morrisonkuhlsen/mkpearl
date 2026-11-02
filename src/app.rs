@@ -37,6 +37,7 @@ mod formulas;
 mod letterhead;
 mod references;
 mod typography;
+mod variants;
 
 /// The tabs, by the ids of their names.
 const TABS: [&str; 6] = ["home-2", "insert", "page-layout", "references", "math", "view"];
@@ -385,6 +386,8 @@ pub struct App {
     comparing: Option<comparing::Comparing>,
     compare_requested: bool,
     letterhead_dialog: Option<letterhead::LetterheadDialog>,
+    variants_dialog: Option<variants::VariantsDialog>,
+    variants_asked: u64,
     formulas: formulas::FormulaPane,
     /// The status bar's last compile time, which anything else may replace at any moment.
     compile_status: String,
@@ -512,6 +515,8 @@ impl App {
             comparing: None,
             compare_requested: false,
             letterhead_dialog: None,
+            variants_dialog: None,
+            variants_asked: 0,
             formulas: formulas::FormulaPane::default(),
             // What it says at the start gives way to the first compile.
             compile_status: tx("loading-fonts").to_string(),
@@ -745,6 +750,7 @@ impl App {
                 }
                 Event::Images(images) => self.figures.placed = images,
                 Event::Typography(findings) => self.watch.findings = findings,
+                Event::VariantDone { request, index, result } => self.receive_variant(ctx, request, index, result),
                 Event::Compared { request, result } => self.receive_comparison(ctx, request, result),
                 Event::DropTarget { block, byte, above } => self.finish_move(ctx, block, byte, above),
                 Event::ExampleDone { request, result } => self.docs.receive(ctx, request, result),
@@ -2534,6 +2540,9 @@ impl App {
         if labelled(ui, Icon::Paper, tx("letterhead-and-watermark"), tx("letterhead-and-watermark")).clicked() {
             self.open_letterhead();
         }
+        if labelled(ui, Icon::TextColumns, tx("layout-variants"), tx("see-the-document-set-in-other-ways")).clicked() {
+            self.open_layout_variants();
+        }
         sep(ui, tx("page-setup"));
         tool_menu(ui, Icon::PageNumber, tx("number-the-pages"), |ui| {
             for (name, format) in [("1", "1"), ("1 / N", "1 / 1"), ("i", "i")] {
@@ -3986,6 +3995,7 @@ impl App {
         self.session_dialog(ctx);
         let tokens = Tokens::get(ctx);
         self.letterhead_window(ctx, &tokens);
+        self.variants_window(ctx, &tokens);
         if self.about {
             let mut open = true;
             egui::Window::new(tx("about-pearl"))

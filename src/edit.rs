@@ -90,32 +90,41 @@ pub fn set_rule(text: &mut String, (a, b): Sel, key: &str, line: &str) -> Sel {
 
 /// Sets the page's margins: replaces the value in the document's last `#set page(margin: …)`, whatever
 /// else that rule says and however it's written, or adds a rule at the top when there is none.
-pub fn set_page_margin(text: &mut String, (a, b): Sel, value: &str) -> Sel {
-    let Some(range) = last_margin_value(text) else {
-        let line = format!("#set page(margin: {value})\n");
-        let n = line.chars().count();
-        text.insert_str(0, &line);
-        return (a + n, b + n);
-    };
-    let (start, end) = (char_of(text, range.start), char_of(text, range.end));
-    let new_end = start + value.chars().count();
-    text.replace_range(range, value);
-    let shift = |c: usize| {
-        if c >= end { c - end + new_end } else { c.min(if c > start { new_end } else { c }) }
-    };
-    (shift(a), shift(b))
+pub fn set_page_margin(text: &mut String, sel: Sel, value: &str) -> Sel {
+    let found = last_set_value(text, "page", "margin", true);
+    write_set_value(text, sel, found, "page", "margin", value)
 }
 
-fn last_margin_value(source: &str) -> Option<std::ops::Range<usize>> {
+/// Sets an argument for the whole document: replaces the value in its last rule that gives it, whatever
+/// else that rule says, or adds a rule at the top when none does. A rule inside a passage only speaks
+/// for that passage, and stays as it is.
+pub fn set_argument(text: &mut String, sel: Sel, function: &str, argument: &str, value: &str) -> Sel {
+    let found = last_set_value(text, function, argument, false);
+    write_set_value(text, sel, found, function, argument, value)
+}
+
+fn write_set_value(text: &mut String, sel: Sel, found: Option<Range<usize>>, function: &str, argument: &str, value: &str) -> Sel {
+    let change = match found {
+        Some(range) => (range, value.to_string()),
+        None => (0..0, format!("#set {function}({argument}: {value})\n")),
+    };
+    replace_keeping(text, sel, vec![change])
+}
+
+fn last_set_value(source: &str, function: &str, argument: &str, nested: bool) -> Option<Range<usize>> {
     let root = parse(source);
     let mut pending = vec![LinkedNode::new(&root)];
-    let mut found: Option<std::ops::Range<usize>> = None;
+    let mut found: Option<Range<usize>> = None;
     while let Some(node) = pending.pop() {
-        if node.kind() == SyntaxKind::SetRule && node.children().any(|c| c.kind() == SyntaxKind::Ident && source.get(c.range()) == Some("page")) {
+        let reaches = nested || node.parent().is_some_and(|parent| parent.parent().is_none());
+        if reaches
+            && node.kind() == SyntaxKind::SetRule
+            && node.children().any(|c| c.kind() == SyntaxKind::Ident && source.get(c.range()) == Some(function))
+        {
             let args = node.children().find(|c| c.kind() == SyntaxKind::Args);
             for arg in args.iter().flat_map(LinkedNode::children).filter(|a| a.kind() == SyntaxKind::Named) {
                 let mut parts = arg.children();
-                if parts.next().is_some_and(|name| source.get(name.range()) == Some("margin"))
+                if parts.next().is_some_and(|name| source.get(name.range()) == Some(argument))
                     && let Some(value) = arg.children().rfind(|p| !p.kind().is_trivia() && p.kind() != SyntaxKind::Colon)
                     && found.as_ref().is_none_or(|f| value.offset() > f.start)
                 {
