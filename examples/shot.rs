@@ -66,7 +66,7 @@ fn main() {
         if args.iter().any(|a| a == "versions") {
             app.open_side(6);
         }
-        if args.iter().any(|a| a == "problems") {
+        if args.iter().any(|a| a == "problems" || a == "exporting") {
             app.open_side(4);
         }
         if args.iter().any(|a| a == "references") {
@@ -169,6 +169,13 @@ fn main() {
             harness.step();
             std::thread::sleep(Duration::from_millis(20));
         }
+        harness.run_steps(5);
+    }
+    if args.iter().any(|a| a == "exporting") {
+        // Pointed somewhere harmless: with nothing to warn about, it would export there.
+        let scratch = std::env::temp_dir().join("pearl-shot-export.pdf");
+        harness.state_mut().set_export_target(scratch);
+        harness.state_mut().export_pdf();
         harness.run_steps(5);
     }
     if args.iter().any(|a| a == "references") {

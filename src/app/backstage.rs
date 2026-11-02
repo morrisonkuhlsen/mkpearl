@@ -243,6 +243,9 @@ impl App {
                             if action_row(ui, Icon::Print, tx("export-as-pdf-2"), tx("the-pages-ready-to-print-or-send")).clicked() {
                                 self.export_pdf();
                             }
+                            if action_row(ui, Icon::Print, tx("export-accessible-pdf"), tx("export-accessible-pdf-detail")).clicked() {
+                                self.export_accessible_pdf();
+                            }
                             if action_row(ui, Icon::Save, tx("save-a-copy"), tx("the-typst-source-in-another-file-without")).clicked() {
                                 self.save_copy();
                             }

@@ -19,7 +19,7 @@ use typst::syntax::{LinkedNode, Side, Span, SyntaxKind};
 use typst::utils::{PicoStr, hash128};
 use typst_ide::Jump;
 use typst_layout::PagedDocument;
-use typst_pdf::PdfOptions;
+use typst_pdf::{PdfOptions, PdfStandard, PdfStandards};
 use typst_render::RenderOptions;
 
 use crate::world::{DocWorld, load_fonts};
@@ -91,7 +91,11 @@ pub enum Job {
     Caret {
         byte: usize,
     },
-    ExportPdf(PathBuf),
+    /// `accessible` asks for PDF/UA-1, which is refused when the document doesn't meet it.
+    ExportPdf {
+        path: PathBuf,
+        accessible: bool,
+    },
     /// What the thing at a byte offset is, for the pointer resting on it.
     Hover {
         request: u64,
@@ -155,6 +159,13 @@ pub struct VariantView {
     pub thumbnails: Vec<Pixels>,
     /// It looks just like the document does now: its rules are overruled, or already there.
     pub same_as_now: bool,
+}
+
+/// Why a document isn't an accessible PDF, in Typst's own words, and where.
+#[derive(Clone, Debug)]
+pub struct ExportProblem {
+    pub message: String,
+    pub byte: Option<usize>,
 }
 
 /// What a search for fitting found. With no plan, there's nothing to change: see `ending`.
@@ -266,6 +277,8 @@ pub enum Event {
     /// The files of the project the document read (path from its folder, path on disk).
     Dependencies(Vec<(String, PathBuf)>),
     Exported(Result<PathBuf, String>),
+    /// An accessible PDF wasn't written, because of these. Nothing changed on disk.
+    ExportRefused(Vec<ExportProblem>),
     Failed(String),
 }
 
@@ -519,9 +532,13 @@ impl Worker {
             Job::CancelVariants => self.variants_wanted.store(0, Ordering::Relaxed),
             Job::Fit { request, text, path, target } => self.start_fit(request, text, path, target),
             Job::CancelFit => self.fit_wanted.store(0, Ordering::Relaxed),
-            Job::ExportPdf(path) => {
-                let result = self.export(&path).map(|()| path);
-                self.emit(Event::Exported(result));
+            Job::ExportPdf { path, accessible } => {
+                let event = match self.export(&path, accessible) {
+                    Ok(()) => Event::Exported(Ok(path)),
+                    Err(Refusal::Problems(problems)) => Event::ExportRefused(problems),
+                    Err(Refusal::Failure(why)) => Event::Exported(Err(why)),
+                };
+                self.emit(event);
             }
         }
     }
@@ -804,12 +821,45 @@ impl Worker {
         }
     }
 
-    fn export(&self, path: &std::path::Path) -> Result<(), String> {
-        let doc = self.doc.as_ref().ok_or(tx("the-document-hasnt-compiled-yet"))?;
-        let bytes = typst_pdf::pdf(doc, &PdfOptions::default())
-            .map_err(|errors| errors.iter().map(|e| e.message.to_string()).collect::<Vec<_>>().join("; "))?;
-        std::fs::write(path, bytes).map_err(|e| e.to_string())
+    fn export(&self, path: &std::path::Path, accessible: bool) -> Result<(), Refusal> {
+        let doc = self.doc.as_ref().ok_or_else(|| Refusal::Failure(tx("the-document-hasnt-compiled-yet").to_string()))?;
+        let standards = if accessible {
+            PdfStandards::new(&[PdfStandard::Ua_1]).map_err(|e| Refusal::Failure(e.message().to_string()))?
+        } else {
+            PdfStandards::default()
+        };
+        let bytes = typst_pdf::pdf(doc, &PdfOptions { standards, ..PdfOptions::default() }).map_err(|errors| {
+            if accessible {
+                let world = self.world.as_ref();
+                let main = world.map(typst::World::main);
+                let problems = errors.iter().map(|e| {
+                    let byte = world.filter(|_| e.span.id() == main && main.is_some()).and_then(|w| w.range(e.span)).map(|range| range.start);
+                    ExportProblem { message: e.message.to_string(), byte }
+                });
+                Refusal::Problems(problems.collect())
+            } else {
+                Refusal::Failure(errors.iter().map(|e| e.message.to_string()).collect::<Vec<_>>().join("; "))
+            }
+        })?;
+        write_whole(path, &bytes).map_err(|e| Refusal::Failure(e.to_string()))
     }
+}
+
+enum Refusal {
+    Problems(Vec<ExportProblem>),
+    Failure(String),
+}
+
+/// Writes a file whole or not at all: a failure halfway leaves what was there before.
+fn write_whole(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut name = path.file_name().map(std::ffi::OsStr::to_os_string).unwrap_or_default();
+    name.push(".pearl-part");
+    let part = path.with_file_name(name);
+    let written = std::fs::write(&part, bytes).and_then(|()| std::fs::rename(&part, path));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&part);
+    }
+    written
 }
 
 /// The text closest to a point.
@@ -1449,6 +1499,67 @@ mod tests {
                 return;
             }
         }
+    }
+
+    /// Compiles a document and exports it, with the answer that comes back.
+    fn exported(text: &str, path: &std::path::Path, accessible: bool) -> Event {
+        let c = Compiler::start().unwrap();
+        c.send(Job::Compile { text: text.into(), path: None });
+        c.send(Job::ExportPdf { path: path.to_path_buf(), accessible });
+        loop {
+            let event = c.events.recv_timeout(Duration::from_secs(120)).unwrap();
+            if matches!(event, Event::Exported(_) | Event::ExportRefused(_)) {
+                return event;
+            }
+        }
+    }
+
+    fn export_folder(name: &str) -> PathBuf {
+        let folder = std::env::temp_dir().join(format!("pearl-export-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        folder
+    }
+
+    #[test]
+    fn an_accessible_pdf_is_written_when_the_document_meets_it() {
+        let folder = export_folder("ua");
+        let path = folder.join("doc.pdf");
+        let text = "#set document(title: [Um título])\n#set text(lang: \"pt\")\n= Um título\nTexto.\n";
+        assert!(matches!(exported(text, &path, true), Event::Exported(Ok(_))));
+        assert!(std::fs::read(&path).unwrap().starts_with(b"%PDF"));
+        assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 1, "nothing but the PDF is left");
+        std::fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn an_accessible_pdf_refused_says_why_and_leaves_the_disk_alone() {
+        let folder = export_folder("refused");
+        let path = folder.join("doc.pdf");
+        // No title: refused, and no file left behind.
+        let text = "Texto.\n";
+        let Event::ExportRefused(problems) = exported(text, &path, true) else { panic!("it wasn't refused") };
+        assert!(problems.iter().any(|p| p.message.contains("title")), "{problems:?}");
+        assert!(!path.exists());
+        assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 0);
+
+        // A PDF already there stays as it was.
+        std::fs::write(&path, b"antes").unwrap();
+        assert!(matches!(exported(text, &path, true), Event::ExportRefused(_)));
+        assert_eq!(std::fs::read(&path).unwrap(), b"antes");
+
+        // The same document exports as a common PDF.
+        assert!(matches!(exported(text, &path, false), Event::Exported(Ok(_))));
+        assert!(std::fs::read(&path).unwrap().starts_with(b"%PDF"));
+        std::fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn a_pdf_that_cant_be_written_says_so_and_leaves_no_part() {
+        let folder = export_folder("unwritable");
+        let path = folder.join("nada").join("doc.pdf");
+        assert!(matches!(exported("Texto.\n", &path, false), Event::Exported(Err(_))));
+        assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 0);
+        std::fs::remove_dir_all(folder).unwrap();
     }
 
     #[test]

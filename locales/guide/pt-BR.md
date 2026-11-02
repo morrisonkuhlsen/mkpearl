@@ -282,6 +282,13 @@ Na aba Layout da Página, Caber em páginas procura os menores ajustes para o do
 ## Vigia de tipografia
 ?? tipografia viúva órfã título margem tabela figura problemas
 O painel Problemas também aponta o que fica ruim nas páginas prontas: a primeira ou a última linha de um parágrafo sozinha em uma página, um título sozinho no fim da página, tabelas e texto além da margem, e figuras a duas ou mais páginas da primeira menção. Com o painel aberto, cada item fica marcado na página, e um clique leva ao trecho. Ignorar cala o aviso até o trecho mudar. Só o texto corrido deste arquivo é lido, e páginas em colunas não são verificadas quanto a viúvas e órfãs.
+## Acessibilidade
+?? acessibilidade texto alternativo leitor de tela contraste título pdf/ua exportar
+O painel Problemas também aponta o que impede o documento de chegar a todos: imagens sem texto alternativo, níveis de título pulados e texto fraco demais para o fundo. Ao exportar, o Pearl avisa antes, e o aviso pode ser desligado, mas nunca impede a exportação. Exportar PDF acessível pede o PDF/UA-1: se o documento não atender, nada é gravado, e o Pearl diz o que falta.
+```example
+#image(bytes("<svg xmlns='http://www.w3.org/2000/svg' width='40' height='20'><rect width='40' height='20' fill='teal'/></svg>"), alt: "Um retângulo verde-azulado", width: 2cm)
+```
+> Tente: tire o `alt:`, em um documento seu, e abra o painel Problemas.
 ## Comparar versões nas páginas
 ?? pearl comparar versão diferença revisão antes depois histórico
 No painel Versões, escolha uma versão e clique em Comparar nas páginas. As páginas de antes e de agora ficam lado a lado: verde para o que entrou, vermelho para o que saiu e azul para o que mudou de lugar. Os botões Anterior e Próxima percorrem as mudanças, e nada no documento é alterado.

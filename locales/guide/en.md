@@ -282,6 +282,13 @@ In the Page Layout tab, Fit in pages looks for the smallest changes that bring t
 ## Typography watch
 ?? typography widow orphan heading margin table figure problems
 The Problems pane also points out what reads badly on the finished pages: a paragraph's first or last line alone on a page, a heading alone at the end of a page, tables and text past the margin, and figures two or more pages from their first mention. With the pane open, each is marked on the page, and a click goes to its passage. Ignore keeps one quiet until that passage changes. It reads only this file's running text, and pages in columns aren't checked for widows and orphans.
+## Accessibility
+?? accessibility alt text screen reader contrast heading pdf/ua export
+The Problems pane also points out what keeps a document from reaching everyone: images with no alternative text, skipped heading levels, and text too faint for its background. Exporting warns about them first, and the warning can be turned off, but it never stops an export. Export accessible PDF asks for PDF/UA-1: if the document doesn't meet it, nothing is written, and Pearl says what's missing.
+```example
+#image(bytes("<svg xmlns='http://www.w3.org/2000/svg' width='40' height='20'><rect width='40' height='20' fill='teal'/></svg>"), alt: "A teal rectangle", width: 2cm)
+```
+> Try: take out the `alt:`, in a document of your own, and open the Problems pane.
 ## Comparing versions on the pages
 ?? pearl compare version difference review before after history
 In the Versions pane, choose a version and click Compare on the pages. The pages from before and now go side by side: green for what came in, red for what went out and blue for what changed place. The Previous and Next buttons go through the changes, and nothing in the document is altered.

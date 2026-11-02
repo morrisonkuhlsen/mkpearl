@@ -11,7 +11,7 @@ Pearl's plan and progress log. Each section says what is done and its **Next:** 
   removing figures on the pages.
 - *Done:* ready-made formulas, with previews and a search.
 - *Done:* letterhead and watermark, with a live preview and the opacity of a picture.
-- *Done:* the typography watch (#27); layout variants (#25); fitting in a number of pages (#26).
+- *Done:* the typography watch (#27); layout variants (#25); fitting in a number of pages (#26); the accessibility check and PDF/UA-1 export (#30).
 - *Done:* the Documentation pane: lessons in both languages with live examples, a search, and a
   reference of every function from Typst itself.
 - Known: #4, #5, #15.

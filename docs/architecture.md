@@ -16,7 +16,8 @@ One crate, by the owner's decision: nothing needs the split yet, and it would to
 | `formulas`, `app/formulas` | the ready-made formulas, from `locales/formulas.txt`, previewed by the compiler's examples |
 | `letterhead`, `app/letterhead` | the settings, the rule they become and the block that holds them in the source |
 | `compare`, `app/comparing` | what changed between two versions, word by word, and where it falls on their pages |
-| `typography`, `app/typography` | what reads badly on the finished pages, from the layout and the source's structure, after each compile |
+| `typography`, `app/typography` | what reads badly on the finished pages, from the layout and the source's structure, after each compile; `accessibility` adds what keeps a document from reaching everyone |
+| `app/accessibility` | the warning before exporting, and why an accessible PDF was refused |
 | `variants`, `app/variants` | other ways to set a document, as the edit each would make; compiled on a thread of their own, so typing doesn't wait |
 | `fit`, `app/fit` | the smallest layout changes that reach a number of pages: the ladder and the search, compiled on a thread of their own |
 | `history` | versions, whole copies under the user's data folder |

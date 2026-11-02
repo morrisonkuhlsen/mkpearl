@@ -17,6 +17,8 @@ use typst_layout::PagedDocument;
 
 use crate::tr;
 
+mod accessibility;
+
 /// How far past the margin counts, in points: punctuation hangs a little into it on purpose.
 const MARGIN_TOLERANCE: f64 = 4.0;
 /// Pages between a figure and its first mention that count as far.
@@ -49,6 +51,24 @@ pub enum Kind {
     FarFigure {
         mention: usize,
     },
+    NoAltText,
+    /// `from` is zero when it's the document's first heading.
+    SkippedHeading {
+        from: usize,
+        to: usize,
+    },
+    /// In tenths, as they're shown.
+    LowContrast {
+        tenths: u32,
+        least_tenths: u32,
+    },
+}
+
+impl Kind {
+    /// Whether this keeps the document from reaching everyone, rather than reading badly.
+    pub fn is_accessibility(&self) -> bool {
+        matches!(self, Self::NoAltText | Self::SkippedHeading { .. } | Self::LowContrast { .. })
+    }
 }
 
 /// Something to look at, on a page, in points from its top left.
@@ -75,6 +95,16 @@ impl Finding {
             Kind::StrandedHeading => tr!("typography-stranded-heading", page = page),
             Kind::PastMargin { mm } => tr!("typography-past-margin", page = page, mm = mm as usize),
             Kind::FarFigure { mention } => tr!("typography-far-figure", page = page, mention = mention + 1),
+            Kind::NoAltText => tr!("access-no-alt-text", page = page),
+            Kind::SkippedHeading { from: 0, to } => tr!("access-first-heading", page = page, to = to),
+            Kind::SkippedHeading { from, to } => tr!("access-skipped-heading", page = page, from = from, to = to),
+            Kind::LowContrast { tenths, least_tenths } => {
+                let shown = |tenths: u32| {
+                    let text = format!("{:.1}", f64::from(tenths) / 10.0);
+                    if crate::i18n::current() == crate::i18n::Lang::PtBr { text.replace('.', ",") } else { text }
+                };
+                tr!("access-low-contrast", page = page, ratio = shown(tenths), least = shown(least_tenths))
+            }
         }
     }
 }
@@ -510,6 +540,7 @@ pub fn analyse(doc: &PagedDocument, source: &Source, margins: &[Option<[f32; 4]>
     widows_and_orphans(&lines_of(&items, doc.pages().len()), &reader, &mut found);
     stranded_headings(doc, &items, &reader, &mut found);
     far_figures(doc, &items, &reader, &mut found);
+    accessibility::find(doc, &items, &reader, &mut found);
     found.sort_by(|a, b| a.page.cmp(&b.page).then(a.y.total_cmp(&b.y)));
     found.truncate(MAX_FINDINGS);
     found
@@ -523,14 +554,14 @@ mod tests {
     const WORDS: &str = "Um texto corrido que ocupa várias linhas para que a página tenha o que quebrar em algum lugar. ";
 
     /// All that's found in this text, with the page's margins as `margin` points on each side.
-    fn found(text: &str, margin: f32) -> Vec<Finding> {
+    pub(super) fn found(text: &str, margin: f32) -> Vec<Finding> {
         let mut world = DocWorld::new(load_fonts(), None).unwrap();
         world.update(text);
         let doc = typst::compile::<PagedDocument>(&world).output.unwrap_or_else(|e| panic!("{e:?}"));
         analyse(&doc, world.source(), &vec![Some([margin; 4]); doc.pages().len()])
     }
 
-    fn kinds(text: &str, margin: f32) -> Vec<Kind> {
+    pub(super) fn kinds(text: &str, margin: f32) -> Vec<Kind> {
         found(text, margin).into_iter().map(|f| f.kind).collect()
     }
 
