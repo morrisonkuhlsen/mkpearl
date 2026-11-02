@@ -16,7 +16,7 @@ Pearl's plan and progress log. Each section says what is done and its **Next:** 
 - Known: #4, #5, #15.
 
 ## Keeping the work
-- *Done:* autosave; version history; recovery after a crash.
+- *Done:* autosave; version history; comparing versions on the pages; recovery after a crash.
 
 ## Working together
 - *Done:* direct sessions (yrs, Noise); Claude as a person in the session.

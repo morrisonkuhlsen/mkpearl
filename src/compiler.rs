@@ -48,6 +48,11 @@ pub enum Job {
     Locate {
         byte: usize,
     },
+    /// The old version's pages and what differs from the document on both sides.
+    Compare {
+        old: String,
+        request: u64,
+    },
     /// Where a block of the source, at `block`, would go if dropped here on a page.
     Drop {
         page: usize,
@@ -97,6 +102,29 @@ pub struct Pixels {
     pub rgba: Arc<Vec<u8>>,
 }
 
+/// Something changed, on a page, in points from its top left.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Mark {
+    pub page: usize,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub kind: crate::compare::Kind,
+}
+
+/// Two versions on their pages.
+#[derive(Clone)]
+pub struct Comparison {
+    pub old_pages: Vec<Page>,
+    pub old_marks: Vec<Mark>,
+    pub new_marks: Vec<Mark>,
+    /// Changes in the source that show on neither page's own text, such as a rule.
+    pub unseen: usize,
+    /// Changes in all.
+    pub total: usize,
+}
+
 /// An image on a page, in points from its top left, and where its call starts in the source.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlacedImage {
@@ -139,6 +167,11 @@ pub enum Event {
         page: usize,
         y_pt: f32,
         x_pt: f32,
+    },
+    /// The answer to [`Job::Compare`].
+    Compared {
+        request: u64,
+        result: Result<Comparison, String>,
     },
     /// The images on the pages, with what the source says about them.
     Images(Vec<PlacedImage>),
@@ -219,6 +252,9 @@ struct Worker {
     path: Option<PathBuf>,
     probe_world: Option<DocWorld>,
     example_world: Option<DocWorld>,
+    compare_world: Option<DocWorld>,
+    compare_path: Option<PathBuf>,
+    compare_rendered: HashMap<u128, Pixels>,
     probe_path: Option<PathBuf>,
     doc: Option<PagedDocument>,
     rendered: HashMap<u128, Pixels>,
@@ -235,6 +271,9 @@ impl Worker {
             path: None,
             probe_world: None,
             example_world: None,
+            compare_world: None,
+            compare_path: None,
+            compare_rendered: HashMap::new(),
             probe_path: None,
             doc: None,
             rendered: HashMap::new(),
@@ -401,6 +440,10 @@ impl Worker {
             Job::Click { page, x, y } => self.click(page, x, y),
             Job::Locate { byte } => self.locate(byte),
             Job::Drop { page, x, y, block } => self.drop_target(page, x, y, block),
+            Job::Compare { old, request } => {
+                let result = self.compare(&old);
+                self.emit(Event::Compared { request, result });
+            }
             Job::Example { request, text } => {
                 let result = self.example(&text);
                 self.emit(Event::ExampleDone { request, result });
@@ -511,6 +554,48 @@ impl Worker {
         if let Some(p) = typst_ide::jump_from_cursor(doc, world.source(), byte).first() {
             self.emit(Event::JumpToPage { page: p.page.get() - 1, y_pt: p.point.y.to_pt() as f32, x_pt: p.point.x.to_pt() as f32 });
         }
+    }
+
+    /// The old version in a world of its own, so the document's stays as it is.
+    fn compare(&mut self, old: &str) -> Result<Comparison, String> {
+        let failed = || tx("the-versions-could-not-be-compared").to_string();
+        if self.compare_world.is_none() || self.compare_path != self.path {
+            self.compare_world = DocWorld::new(Arc::clone(&self.fonts), self.path.as_deref());
+            self.compare_path.clone_from(&self.path);
+        }
+        let world = self.compare_world.as_mut().ok_or_else(failed)?;
+        world.update(old);
+        let world = &*world;
+        let Ok(warned) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| typst::compile::<PagedDocument>(world))) else {
+            self.compare_world = None;
+            return Err(failed());
+        };
+        let old_doc = warned.output.map_err(|errors| errors.first().map_or_else(failed, |e| e.message.to_string()))?;
+        let (Some(new_world), Some(new_doc)) = (&self.world, &self.doc) else { return Err(failed()) };
+        let found = crate::compare::changes(old, new_world.source().text());
+        let total = found.old.len() + found.new.len();
+        let (old_marks, old_seen) = marks_of(&old_doc, world, &found.old);
+        let (new_marks, new_seen) = marks_of(new_doc, new_world, &found.new);
+        let unseen = total.saturating_sub(old_seen + new_seen);
+        let limit = self.max_side.load(Ordering::Relaxed);
+        let mut old_pages = Vec::with_capacity(old_doc.pages().len());
+        for page in old_doc.pages() {
+            let size = page.frame.size();
+            let scale = page_scale(size.x.to_pt(), size.y.to_pt(), limit);
+            let hash = hash128(&(&page.frame, &page.fill, scale.to_bits()));
+            let pixels = self
+                .compare_rendered
+                .entry(hash)
+                .or_insert_with(|| {
+                    let options = RenderOptions { pixel_per_pt: typst::utils::Scalar::new(scale), render_bleed: false };
+                    let map = typst_render::render(page, &options);
+                    Pixels { size: [map.width() as usize, map.height() as usize], rgba: Arc::new(map.take_demultiplied()) }
+                })
+                .clone();
+            old_pages.push(Page { hash, width_pt: size.x.to_pt() as f32, height_pt: size.y.to_pt() as f32, margins: None, pixels });
+        }
+        self.compare_rendered.retain(|hash, _| old_pages.iter().any(|page| page.hash == *hash));
+        Ok(Comparison { old_pages, old_marks, new_marks, unseen, total })
     }
 
     /// The images of the document's own source, for selecting and dragging on the pages.
@@ -627,6 +712,102 @@ fn nearest_glyph(frame: &Frame, ts: Transform, to: Point, wanted: &dyn Fn(Span) 
                         }
                     }
                     x += advance;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The marks of a document's changed stretches, and how many stretches showed in it.
+fn marks_of(doc: &PagedDocument, world: &DocWorld, stretches: &[(std::ops::Range<usize>, crate::compare::Kind)]) -> (Vec<Mark>, usize) {
+    let main = typst::World::main(world);
+    let mut starts = HashMap::new();
+    let mut start_of = |span: Span| -> Option<usize> {
+        if span.id() != Some(main) {
+            return None;
+        }
+        *starts.entry(span).or_insert_with(|| world.range(span).map(|range| range.start))
+    };
+    let mut marks = Vec::new();
+    let mut seen = vec![false; stretches.len()];
+    for (index, page) in doc.pages().iter().enumerate() {
+        marks_in_frame(&page.frame, Transform::identity(), index, stretches, &mut start_of, &mut seen, &mut marks);
+    }
+    (marks, seen.iter().filter(|shown| **shown).count())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn marks_in_frame(
+    frame: &Frame,
+    ts: Transform,
+    page: usize,
+    stretches: &[(std::ops::Range<usize>, crate::compare::Kind)],
+    start_of: &mut dyn FnMut(Span) -> Option<usize>,
+    seen: &mut [bool],
+    marks: &mut Vec<Mark>,
+) {
+    use crate::compare::kind_at;
+    for (pos, item) in frame.items() {
+        match item {
+            FrameItem::Group(group) => {
+                let inner = ts.pre_concat(Transform::translate(pos.x, pos.y)).pre_concat(group.transform);
+                marks_in_frame(&group.frame, inner, page, stretches, start_of, seen, marks);
+            }
+            FrameItem::Text(text) => {
+                let mut x = Abs::zero();
+                let mut open: Option<(usize, Abs, Abs)> = None;
+                let close = |open: &mut Option<(usize, Abs, Abs)>, marks: &mut Vec<Mark>| {
+                    if let Some((stretch, from, to)) = open.take()
+                        && let Some((_, kind)) = stretches.get(stretch)
+                    {
+                        let a = Point::new(pos.x + from, pos.y - text.size * 0.8).transform(ts);
+                        let b = Point::new(pos.x + to, pos.y + text.size * 0.25).transform(ts);
+                        marks.push(Mark {
+                            page,
+                            x: a.x.to_pt() as f32,
+                            y: a.y.to_pt() as f32,
+                            width: (b.x - a.x).to_pt() as f32,
+                            height: (b.y - a.y).to_pt() as f32,
+                            kind: *kind,
+                        });
+                    }
+                };
+                for glyph in &text.glyphs {
+                    let advance = glyph.x_advance.at(text.size);
+                    let (span, offset) = glyph.span;
+                    let found = start_of(span).and_then(|start| kind_at(stretches, start + usize::from(offset)));
+                    match (found, &mut open) {
+                        (Some(stretch), Some((current, _, to))) if *current == stretch => *to = x + advance,
+                        (Some(stretch), _) => {
+                            close(&mut open, marks);
+                            open = Some((stretch, x, x + advance));
+                            if let Some(shown) = seen.get_mut(stretch) {
+                                *shown = true;
+                            }
+                        }
+                        (None, _) => close(&mut open, marks),
+                    }
+                    x += advance;
+                }
+                close(&mut open, marks);
+            }
+            FrameItem::Image(_, size, span) => {
+                if let Some(stretch) = start_of(*span).and_then(|start| kind_at(stretches, start))
+                    && let Some((_, kind)) = stretches.get(stretch)
+                {
+                    let a = pos.transform(ts);
+                    marks.push(Mark {
+                        page,
+                        x: a.x.to_pt() as f32,
+                        y: a.y.to_pt() as f32,
+                        width: size.x.to_pt() as f32,
+                        height: size.y.to_pt() as f32,
+                        kind: *kind,
+                    });
+                    if let Some(shown) = seen.get_mut(stretch) {
+                        *shown = true;
+                    }
                 }
             }
             _ => {}
@@ -765,6 +946,60 @@ mod tests {
                 let pixels = result.unwrap_or_else(|e| panic!("{title}: {e}\n{text}"));
                 assert!(pixels.size[0] > 100 && pixels.size[1] > 10);
                 answered += 1;
+            }
+        }
+    }
+
+    fn compared(old: &str, new: &str) -> Comparison {
+        let c = Compiler::start().unwrap();
+        c.send(Job::Compile { text: new.into(), path: None });
+        c.send(Job::Compare { old: old.into(), request: 9 });
+        loop {
+            if let Event::Compared { request, result } = c.events.recv_timeout(Duration::from_secs(120)).unwrap() {
+                assert_eq!(request, 9);
+                return result.unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn what_changed_is_marked_on_the_pages_of_both_versions() {
+        use crate::compare::Kind;
+        let found = compared("Um gato dorme aqui.\n", "Um gato branco dorme aqui.\n");
+        assert_eq!(found.old_marks, []);
+        assert_eq!(found.new_marks.len(), 1);
+        let mark = found.new_marks[0];
+        assert_eq!(mark.kind, Kind::Added);
+        assert!(mark.width > 15.0 && mark.width < 60.0 && mark.height > 8.0 && mark.x > 60.0, "{mark:?}");
+
+        let found = compared("Um gato branco dorme.\n", "Um gato dorme.\n");
+        assert_eq!((found.old_marks.len(), found.new_marks.len()), (1, 0));
+        assert_eq!(found.old_marks[0].kind, Kind::Removed);
+        assert_eq!(found.old_pages.len(), 1);
+    }
+
+    #[test]
+    fn what_moved_is_marked_as_moved_and_a_rule_as_unseen() {
+        use crate::compare::Kind;
+        let moved = "Este parágrafo só mudou de lugar.";
+        let found = compared(&format!("{moved}\n\nOutro.\n"), &format!("Outro.\n\n{moved}\n"));
+        assert!(!found.new_marks.is_empty() && found.new_marks.iter().all(|m| m.kind == Kind::Moved), "{:?}", found.new_marks);
+        assert!(found.old_marks.iter().all(|m| m.kind == Kind::Moved));
+
+        let found = compared("#set text(size: 11pt)\nTexto\n", "#set text(size: 14pt)\nTexto\n");
+        assert_eq!(found.new_marks, []);
+        assert_eq!((found.total, found.unseen), (2, 2));
+    }
+
+    #[test]
+    fn an_old_version_that_fails_says_why_and_the_document_stays() {
+        let c = Compiler::start().unwrap();
+        c.send(Job::Compile { text: "Bom\n".into(), path: None });
+        c.send(Job::Compare { old: "#nao_existe()".into(), request: 1 });
+        loop {
+            if let Event::Compared { result, .. } = c.events.recv_timeout(Duration::from_secs(120)).unwrap() {
+                assert!(result.err().unwrap().contains("nao_existe"));
+                break;
             }
         }
     }

@@ -273,3 +273,6 @@ In the Page Layout tab, the Letterhead and watermark button opens a window with 
 Some text over the watermark.
 ```
 > Try: change "DRAFT" to "COPY" and change the angle.
+## Comparing versions on the pages
+?? pearl compare version difference review before after history
+In the Versions pane, choose a version and click Compare on the pages. The pages from before and now go side by side: green for what came in, red for what went out and blue for what changed place. The Previous and Next buttons go through the changes, and nothing in the document is altered.

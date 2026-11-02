@@ -273,3 +273,6 @@ Na aba Layout da Página, o botão Timbrado e marca d'água abre uma janela com 
 Um texto sobre a marca d'água.
 ```
 > Tente: troque "RASCUNHO" por "CÓPIA" e mude o ângulo.
+## Comparar versões nas páginas
+?? pearl comparar versão diferença revisão antes depois histórico
+No painel Versões, escolha uma versão e clique em Comparar nas páginas. As páginas de antes e de agora ficam lado a lado: verde para o que entrou, vermelho para o que saiu e azul para o que mudou de lugar. Os botões Anterior e Próxima percorrem as mudanças, e nada no documento é alterado.

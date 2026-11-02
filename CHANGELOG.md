@@ -32,6 +32,8 @@ Every release of Pearl, newest first, in the spirit of
 - Messages in the status bar stay long enough to be read, instead of giving way to the next compile.
 - Letterhead and watermark, from a window with a live preview: name, address, logo and footer, and a
   background text or image. It's written as a rule in the source, and the window opens on it again.
+- Comparing versions on the pages: before and now side by side, with what came in, went out or changed
+  place marked on the finished pages.
 - Typing on the pages: a click puts a caret there, also with only the pages on show, and what's typed
   goes into the source.
 - Figures on the pages: a click selects an image, its corner resizes it, dragging it moves its block to

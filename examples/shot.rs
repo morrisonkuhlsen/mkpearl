@@ -188,6 +188,14 @@ fn main() {
         harness.input_mut().hovered_files.push(egui::HoveredFile { path: Some("foto.png".into()), mime: "image/png".to_string() });
         harness.step();
     }
+    if let Some(old) = args.iter().find_map(|a| a.strip_prefix("compare=")) {
+        let old = std::fs::read_to_string(old).expect("the old version");
+        harness.state_mut().compare_with_text(&old);
+        for _ in 0..80 {
+            harness.step();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
     if args.iter().any(|a| a == "versions") {
         harness.state_mut().view_version(1);
         harness.state_mut().preview_version(true);

@@ -30,6 +30,7 @@ use crate::theme::{self, ThemeChoice, Tokens};
 use crate::widgets::{field_menu, glyphs, group_begin, group_end, icon_button_mono, labelled, sep, toggle, tool, tool_menu};
 
 mod backstage;
+mod comparing;
 mod docs;
 mod figures;
 mod formulas;
@@ -379,6 +380,8 @@ pub struct App {
     /// The caret has moved in the pages, which should follow it.
     follow_caret: bool,
     figures: figures::Figures,
+    comparing: Option<comparing::Comparing>,
+    compare_requested: bool,
     letterhead_dialog: Option<letterhead::LetterheadDialog>,
     formulas: formulas::FormulaPane,
     /// The status bar's last compile time, which anything else may replace at any moment.
@@ -503,6 +506,8 @@ impl App {
             page_typing: false,
             follow_caret: false,
             figures: figures::Figures::default(),
+            comparing: None,
+            compare_requested: false,
             letterhead_dialog: None,
             formulas: formulas::FormulaPane::default(),
             // What it says at the start gives way to the first compile.
@@ -736,6 +741,7 @@ impl App {
                     self.page_typing = true;
                 }
                 Event::Images(images) => self.figures.placed = images,
+                Event::Compared { request, result } => self.receive_comparison(ctx, request, result),
                 Event::DropTarget { block, byte, above } => self.finish_move(ctx, block, byte, above),
                 Event::ExampleDone { request, result } => self.docs.receive(ctx, request, result),
                 Event::CaretAt { byte, page, x, y, size } => {
@@ -1421,6 +1427,9 @@ impl App {
                         action = 2;
                     }
                 });
+                if ui.add_enabled(!same, egui::Button::new(tx("compare-on-the-pages"))).clicked() {
+                    self.compare_requested = true;
+                }
                 if same {
                     ui.colored_label(t.text_dim, tx("same-as-the-current-document"));
                 } else {
@@ -1450,6 +1459,9 @@ impl App {
         }
         if let Some(on) = self.pending_version_action.take() {
             self.preview_version(on);
+        }
+        if std::mem::take(&mut self.compare_requested) {
+            self.compare_viewed();
         }
         if std::mem::take(&mut self.restore_requested) {
             self.restore_version(&ctx);
@@ -3628,6 +3640,10 @@ impl App {
     }
 
     fn preview(&mut self, ui: &mut Ui, t: &Tokens) {
+        if self.comparing.is_some() {
+            self.compare_view(ui, t);
+            return;
+        }
         if self.previewing
             && let Some(viewed) = &self.viewed
         {
