@@ -267,7 +267,7 @@ F1 opens this documentation and searches for the word at the caret. Ctrl+F searc
 Click an image on a page to select it. Drag the little square at its corner to change its size: Pearl writes the `width:` in the source. Drag the image itself to move it to another paragraph. The Delete key takes it out of the text without deleting the file, and Esc clears the selection. One Ctrl+Z undoes each action.
 ## Letterhead and watermark
 ?? letterhead watermark draft logo header footer paper
-In the Page Layout tab, the Letterhead and watermark button opens a window with a live preview: name, address, logo and footer on one side, and a background text or image on the other. On applying, Pearl writes a `#set page` rule at the start of the document, and opens on the same values next time. Without the button, it looks like this:
+In the Page Layout tab, the Letterhead and watermark button opens a window with a live preview: name, address, logo and footer on one side, and a background text or image on the other, the image with its opacity. On applying, Pearl writes a `#set page` rule at the start of the document, and opens on the same values next time. Without the button, it looks like this:
 ```example
 #set page(width: 10cm, height: 6cm, background: rotate(-45deg, text(30pt, fill: luma(225), "DRAFT")))
 Some text over the watermark.

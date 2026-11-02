@@ -90,6 +90,23 @@ fn a_letterhead_and_a_watermark_are_applied_changed_and_removed() {
     h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
     until(&mut h, "the undo", |a| a.text() == applied);
 
+    // A picture as the watermark, faded: the document compiles with it, whatever else it has.
+    h.state_mut().open_letterhead();
+    h.run_steps(3);
+    h.state_mut().edit_letterhead(|s| {
+        s.mark_is_image = true;
+        s.mark_image = away.join("logo.png").to_string_lossy().into_owned();
+        s.mark_opacity = 30.0;
+    });
+    h.run_steps(2);
+    assert!(h.query_all_by_label("Opacidade").count() > 0, "the slider shows for a picture");
+    h.get_by_label("Aplicar").click();
+    h.run_steps(3);
+    assert!(h.state().text().contains("paper.transparentize(30%)"), "{}", h.state().text());
+    until(&mut h, "the faded picture on the page", |a| a.placed_images().len() == 2 && a.error_count() == 0);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    until(&mut h, "the undo of the picture", |a| a.text() == applied);
+
     // Remover leaves the document as it began.
     h.state_mut().open_letterhead();
     h.run_steps(3);

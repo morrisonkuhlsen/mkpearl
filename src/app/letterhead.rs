@@ -9,7 +9,7 @@ use super::docs::hash_of;
 use crate::compiler::Job;
 use crate::i18n::tx;
 use crate::images;
-use crate::letterhead::{self, ANGLES, Letterhead, SHADES, SIZES};
+use crate::letterhead::{self, ANGLES, Letterhead, OPACITIES, SHADES, SIZES};
 use crate::recent;
 use crate::theme::Tokens;
 
@@ -129,7 +129,7 @@ impl App {
             });
             if s.mark_is_image {
                 picture(ui, tx("image"), &mut s.mark_image);
-                ui.colored_label(ui.visuals().weak_text_color(), tx("use-an-image-that-is-already-pale"));
+                ui.add(egui::Slider::new(&mut s.mark_opacity, OPACITIES).text(tx("opacity")).suffix(" %"));
             } else {
                 field(ui, tx("text"), &mut s.mark_text);
                 ui.add(egui::Slider::new(&mut s.mark_size, SIZES).text(tx("size")).suffix(" pt"));

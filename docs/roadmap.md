@@ -10,7 +10,7 @@ Pearl's plan and progress log. Each section says what is done and its **Next:** 
   typing on the pages, dragging the margins on the rulers, and selecting, resizing, moving and
   removing figures on the pages.
 - *Done:* ready-made formulas, with previews and a search.
-- *Done:* letterhead and watermark, with a live preview.
+- *Done:* letterhead and watermark, with a live preview and the opacity of a picture.
 - *Done:* the Documentation pane: lessons in both languages with live examples, a search, and a
   reference of every function from Typst itself.
 - Known: #4, #5, #15.
