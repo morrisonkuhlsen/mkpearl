@@ -175,6 +175,8 @@ pub enum Event {
     },
     /// The images on the pages, with what the source says about them.
     Images(Vec<PlacedImage>),
+    /// What the typography watch found on the pages.
+    Typography(Vec<crate::typography::Finding>),
     /// The answer to [`Job::Drop`]: the byte of the text nearest the drop, and whether it was above it.
     DropTarget {
         block: std::ops::Range<usize>,
@@ -405,6 +407,10 @@ impl Worker {
             && let Some(doc) = &self.doc
         {
             self.emit(Event::Images(self.placed_images(doc)));
+            if let (Some(world), Some(pages)) = (&self.world, &pages) {
+                let margins: Vec<_> = pages.iter().map(|page| page.margins).collect();
+                self.emit(Event::Typography(crate::typography::analyse(doc, world.source(), &margins)));
+            }
         }
         self.emit(Event::Compiled { pages, diags, millis: started.elapsed().as_millis() });
     }

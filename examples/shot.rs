@@ -66,6 +66,9 @@ fn main() {
         if args.iter().any(|a| a == "versions") {
             app.open_side(6);
         }
+        if args.iter().any(|a| a == "problems") {
+            app.open_side(4);
+        }
         if args.iter().any(|a| a == "references") {
             app.open_side(7);
         }

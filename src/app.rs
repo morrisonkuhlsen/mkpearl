@@ -36,6 +36,7 @@ mod figures;
 mod formulas;
 mod letterhead;
 mod references;
+mod typography;
 
 /// The tabs, by the ids of their names.
 const TABS: [&str; 6] = ["home-2", "insert", "page-layout", "references", "math", "view"];
@@ -317,6 +318,7 @@ pub struct App {
     pages: Vec<Page>,
     textures: HashMap<u128, TextureHandle>,
     diags: Vec<Diag>,
+    watch: typography::Watch,
     millis: Option<u128>,
     status: String,
     setup: bool,
@@ -454,6 +456,7 @@ impl App {
             pages: Vec::new(),
             textures: HashMap::new(),
             diags: Vec::new(),
+            watch: typography::Watch::load(),
             millis: None,
             status: tx("loading-fonts").into(),
             setup: false,
@@ -741,6 +744,7 @@ impl App {
                     self.page_typing = true;
                 }
                 Event::Images(images) => self.figures.placed = images,
+                Event::Typography(findings) => self.watch.findings = findings,
                 Event::Compared { request, result } => self.receive_comparison(ctx, request, result),
                 Event::DropTarget { block, byte, above } => self.finish_move(ctx, block, byte, above),
                 Event::ExampleDone { request, result } => self.docs.receive(ctx, request, result),
@@ -2770,7 +2774,7 @@ impl App {
             (Side::Files, Icon::Folder, tx("files"), 0),
             (Side::References, Icon::Book, tx("references"), 0),
             (Side::Symbols, Icon::Symbol, tx("formulas"), 0),
-            (Side::Problems, Icon::Validation, tx("problems"), errors),
+            (Side::Problems, Icon::Validation, tx("problems"), if errors > 0 { errors } else { self.watch.visible().count() }),
             (Side::Versions, Icon::Clock, tx("versions"), 0),
             (Side::Claude, Icon::Pen, "Claude", 0),
             (Side::Docs, Icon::Note, tx("documentation"), 0),
@@ -2806,7 +2810,13 @@ impl App {
             }
             if badge > 0 {
                 let place = if compact { pos2(slot.right() - 7.0, slot.top() + 6.0) } else { pos2(x, slot.bottom() - 9.0) };
-                ui.painter().text(place, egui::Align2::CENTER_CENTER, badge.to_string(), theme::ui_font(12.0), t.danger);
+                ui.painter().text(
+                    place,
+                    egui::Align2::CENTER_CENTER,
+                    badge.to_string(),
+                    theme::ui_font(12.0),
+                    if errors > 0 { t.danger } else { t.text_dim },
+                );
             }
             if resp.on_hover_text(name).clicked() {
                 self.side = if on { None } else { Some(side) };
@@ -2856,11 +2866,12 @@ impl App {
                 Side::Versions => self.pane_versions(ui, t),
                 Side::Claude => self.pane_claude(ui, t),
                 Side::Problems => {
-                    if self.diags.is_empty() {
+                    if self.diags.is_empty() && self.watch.findings.is_empty() {
                         ui.colored_label(t.text_dim, tx("no-problems-in-this-document"));
                     } else if let Some(byte) = self.problems_list(ui) {
                         self.jump_to(byte);
                     }
+                    self.typography_pane(ui);
                 }
             });
         });
@@ -3712,6 +3723,8 @@ impl App {
         let mut placed = Vec::with_capacity(self.pages.len());
         let mut figure_action = None;
         let figures_on = !self.previewing;
+        // A past version's pages aren't what the watch read.
+        let watching = !self.previewing && self.side == Some(Side::Problems);
         let mut pages_ui = ui.new_child(egui::UiBuilder::new().max_rect(pages_area));
         let scrolled = egui::ScrollArea::both().id_salt("pages-scroll").auto_shrink([false, false]).show(&mut pages_ui, |ui| {
             ui.add_space(PAD);
@@ -3733,6 +3746,9 @@ impl App {
                     {
                         let at = (p - rect.min) / zoom;
                         click = Some((i, at.x, at.y));
+                    }
+                    if watching {
+                        self.watch.on_page(ui, i, rect, zoom, t);
                     }
                     if figures_on && let Some(action) = figures::on_page(ui, &self.figures, i, rect, zoom, page.width_pt, t) {
                         figure_action = Some(action);
