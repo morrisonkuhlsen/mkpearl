@@ -898,7 +898,7 @@ enum Refusal {
 }
 
 /// Writes a file whole or not at all: a failure halfway leaves what was there before.
-fn write_whole(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_whole(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut name = path.file_name().map(std::ffi::OsStr::to_os_string).unwrap_or_default();
     name.push(".pearl-part");
     let part = path.with_file_name(name);

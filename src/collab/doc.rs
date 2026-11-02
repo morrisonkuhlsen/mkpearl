@@ -2,17 +2,20 @@
 //! bytes of UTF-8, as the document's `String` has them.
 
 use crate::i18n::tx;
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use yrs::undo::{Options as UndoOptions, UndoManager};
 use yrs::updates::decoder::Decode;
 use yrs::updates::encoder::Encode;
 use yrs::{
-    Assoc, Doc, GetString, IndexedSequence, Origin, ReadTxn, StateVector, StickyIndex, Text, TextRef, Transact, TransactionMut, Update, UpdateEvent,
+    Any, Assoc, Doc, GetString, IndexedSequence, Map, MapRef, Origin, Out, ReadTxn, StateVector, StickyIndex, Text, TextRef, Transact,
+    TransactionMut, Update, UpdateEvent,
 };
 
 const LOCAL: &str = "local";
 const REMOTE: &str = "remote";
+const COMMENTS: &str = "comments";
 
 /// The smallest edit turning `old` into `new`: a byte range of `old` and what replaces it, on
 /// character boundaries of both.
@@ -33,6 +36,10 @@ pub fn diff<'a>(old: &str, new: &'a str) -> (usize, usize, &'a str) {
 pub struct SharedText {
     doc: Doc,
     text: TextRef,
+    /// The comments, as flat entries: see `comments`. Each person's undo is only of the text.
+    comments: MapRef,
+    /// What arrived last changed the comments.
+    comments_changed: bool,
     /// The text as of the last sync, to tell what the editor changed.
     known: String,
     undo: UndoManager<()>,
@@ -44,6 +51,7 @@ impl SharedText {
     pub fn new(initial: &str) -> Result<SharedText, String> {
         let doc = Doc::new();
         let text = doc.get_or_insert_text("source");
+        let comments = doc.get_or_insert_map("comments");
         if !initial.is_empty() {
             // Before anything observes it: this isn't an edit to undo, and it reaches guests in
             // the Welcome message.
@@ -62,7 +70,7 @@ impl SharedText {
         let mut undo = UndoManager::with_options(UndoOptions::default());
         undo.expand_scope(&doc, &text);
         undo.include_origin(LOCAL);
-        Ok(SharedText { doc, text, known: initial.to_string(), undo, outbox })
+        Ok(SharedText { doc, text, comments, comments_changed: false, known: initial.to_string(), undo, outbox })
     }
 
     pub fn text(&self) -> &str {
@@ -95,13 +103,40 @@ impl SharedText {
     /// Merges a change from elsewhere; a malformed one is refused. True when the text changed.
     pub fn apply_remote(&mut self, update: &[u8]) -> Result<bool, String> {
         let decoded = Update::decode_v1(update).map_err(|e| e.to_string())?;
+        let comments_before = self.comment_entries();
         // The library's checks are for well-meant peers: a corrupt update must not bring down an
         // editor holding unsaved text.
         let applied = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.doc.transact_mut_with(REMOTE).apply_update(decoded)));
         applied.map_err(|_| tx("invalid-update").to_string())?.map_err(|e| e.to_string())?;
+        self.comments_changed |= comments_before != self.comment_entries();
         let before = std::mem::take(&mut self.known);
         self.refresh();
         Ok(before != self.known)
+    }
+
+    /// Sets one fact about the comments, for everyone in the session.
+    pub fn set_comment(&mut self, key: &str, value: &str) {
+        self.comments.insert(&mut self.doc.transact_mut_with(COMMENTS), key.to_string(), value.to_string());
+    }
+
+    /// The facts about the comments. Anything a peer sent that isn't a short string doesn't count.
+    pub fn comment_entries(&self) -> BTreeMap<String, String> {
+        let txn = self.doc.transact();
+        let mut entries = BTreeMap::new();
+        for (key, value) in self.comments.iter(&txn).take(crate::comments::MAX_ENTRIES) {
+            if let Out::Any(Any::String(text)) = value
+                && key.len() <= 80
+                && text.len() <= crate::comments::MAX_ENTRY
+            {
+                entries.insert(key.to_string(), text.to_string());
+            }
+        }
+        entries
+    }
+
+    /// Whether the comments changed since the last time this was asked.
+    pub fn take_comments_changed(&mut self) -> bool {
+        std::mem::take(&mut self.comments_changed)
     }
 
     /// The whole state, for someone joining.
@@ -180,6 +215,36 @@ mod tests {
         ] {
             assert_eq!(apply(old, diff(old, new)), new, "{old} -> {new}");
         }
+    }
+
+    #[test]
+    fn comments_reach_the_others_and_merge_and_aren_t_undone() {
+        let (mut a, mut b) = pair("texto");
+        a.apply_local("texto novo");
+        sync(&mut a, &mut b);
+        a.set_comment("m/ab/01", "de A");
+        b.set_comment("m/ab/02", "de B");
+        sync(&mut a, &mut b);
+        sync(&mut b, &mut a);
+        assert_eq!(a.comment_entries(), b.comment_entries());
+        assert_eq!(a.comment_entries().len(), 2);
+        assert!(a.take_comments_changed() && b.take_comments_changed());
+        assert!(!a.take_comments_changed(), "asked once");
+        assert!(a.undo());
+        assert_eq!(a.text(), "texto", "the undo is of the text");
+        assert_eq!(a.comment_entries().len(), 2);
+    }
+
+    #[test]
+    fn someone_joining_gets_the_comments_and_a_peers_junk_doesnt_count() {
+        let mut a = SharedText::new("texto").unwrap();
+        a.set_comment("t/ab", "cabeçalho");
+        a.set_comment("grande", &"x".repeat(crate::comments::MAX_ENTRY + 1));
+        a.comments.insert(&mut a.doc.transact_mut_with(LOCAL), "numero".to_string(), 5_i64);
+        let mut b = SharedText::new("").unwrap();
+        b.apply_remote(&a.state()).unwrap();
+        assert_eq!(b.comment_entries().keys().map(String::as_str).collect::<Vec<_>>(), ["t/ab"]);
+        assert!(b.take_comments_changed());
     }
 
     #[test]
