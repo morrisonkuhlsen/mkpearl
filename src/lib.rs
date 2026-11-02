@@ -10,6 +10,7 @@ pub mod compare;
 pub mod compiler;
 pub mod doi;
 pub mod edit;
+pub mod fit;
 pub mod formulas;
 pub mod guide;
 pub mod highlight;

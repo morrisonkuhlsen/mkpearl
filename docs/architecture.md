@@ -18,6 +18,7 @@ One crate, by the owner's decision: nothing needs the split yet, and it would to
 | `compare`, `app/comparing` | what changed between two versions, word by word, and where it falls on their pages |
 | `typography`, `app/typography` | what reads badly on the finished pages, from the layout and the source's structure, after each compile |
 | `variants`, `app/variants` | other ways to set a document, as the edit each would make; compiled on a thread of their own, so typing doesn't wait |
+| `fit`, `app/fit` | the smallest layout changes that reach a number of pages: the ladder and the search, compiled on a thread of their own |
 | `history` | versions, whole copies under the user's data folder |
 | `recovery` | copies of unsaved text beside a lock the system releases when a run ends |
 | `spell` | words from Typst's parser, checked by `spellbook` on a thread of its own |

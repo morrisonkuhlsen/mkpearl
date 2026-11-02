@@ -35,6 +35,8 @@ const CACHE_SLACK: usize = 32;
 /// The pages of a variant kept to look at, and the most pixels each may take.
 const VARIANT_PAGES: usize = 4;
 const THUMBNAIL_SIDES: [f64; 2] = [380.0, 540.0];
+/// A search for fitting stops here with the best it has.
+const FIT_TIME_LIMIT: std::time::Duration = std::time::Duration::from_secs(60);
 
 pub enum Job {
     Compile {
@@ -77,6 +79,14 @@ pub enum Job {
         variants: Vec<crate::variants::Variant>,
     },
     CancelVariants,
+    /// Looks for the smallest changes that fit the document in `target` pages, off this thread as well.
+    Fit {
+        request: u64,
+        text: String,
+        path: Option<PathBuf>,
+        target: usize,
+    },
+    CancelFit,
     /// Where a byte offset of the source falls in the pages, for the caret drawn there.
     Caret {
         byte: usize,
@@ -147,6 +157,19 @@ pub struct VariantView {
     pub same_as_now: bool,
 }
 
+/// What a search for fitting found. With no plan, there's nothing to change: see `ending`.
+#[derive(Clone)]
+pub struct FitAnswer {
+    pub ending: crate::fit::Ending,
+    pub plan: Option<crate::fit::Plan>,
+    pub now: Option<crate::fit::Current>,
+    pub pages_before: usize,
+    pub pages_after: usize,
+    /// The first and last pages, small.
+    pub before: Vec<Pixels>,
+    pub after: Vec<Pixels>,
+}
+
 /// An image on a page, in points from its top left, and where its call starts in the source.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlacedImage {
@@ -215,6 +238,11 @@ pub enum Event {
         request: u64,
         index: usize,
         result: Result<VariantView, String>,
+    },
+    /// The answer to [`Job::Fit`], unless it was cancelled, or why the document can't be measured.
+    FitDone {
+        request: u64,
+        result: Result<FitAnswer, String>,
     },
     /// The answer to [`Job::Caret`], in points from the page's top left: `y` is the text's baseline.
     CaretAt {
@@ -288,6 +316,7 @@ struct Worker {
     probe_path: Option<PathBuf>,
     /// The request for variants whose answers are still wanted.
     variants_wanted: Arc<AtomicU64>,
+    fit_wanted: Arc<AtomicU64>,
     doc: Option<PagedDocument>,
     rendered: HashMap<u128, Pixels>,
 }
@@ -308,6 +337,7 @@ impl Worker {
             compare_rendered: HashMap::new(),
             probe_path: None,
             variants_wanted: Arc::new(AtomicU64::new(0)),
+            fit_wanted: Arc::new(AtomicU64::new(0)),
             doc: None,
             rendered: HashMap::new(),
         }
@@ -487,6 +517,8 @@ impl Worker {
             }
             Job::Variants { request, text, path, variants } => self.start_variants(request, text, path, variants),
             Job::CancelVariants => self.variants_wanted.store(0, Ordering::Relaxed),
+            Job::Fit { request, text, path, target } => self.start_fit(request, text, path, target),
+            Job::CancelFit => self.fit_wanted.store(0, Ordering::Relaxed),
             Job::ExportPdf(path) => {
                 let result = self.export(&path).map(|()| path);
                 self.emit(Event::Exported(result));
@@ -708,6 +740,28 @@ impl Worker {
         }
     }
 
+    fn start_fit(&self, request: u64, text: String, path: Option<PathBuf>, target: usize) {
+        self.fit_wanted.store(request, Ordering::Relaxed);
+        let (wanted, fonts, events, wake) = (Arc::clone(&self.fit_wanted), Arc::clone(&self.fonts), self.events.clone(), Arc::clone(&self.wake));
+        let tell = move |result: Result<FitAnswer, String>| {
+            let _ = events.send(Event::FitDone { request, result });
+            if let Some(ctx) = wake.get() {
+                ctx.request_repaint();
+            }
+        };
+        let told = tell.clone();
+        let work = move || {
+            let still_wanted = || wanted.load(Ordering::Relaxed) == request;
+            let result = fit_document(&text, target, &fonts, path.as_deref(), FIT_TIME_LIMIT, &still_wanted);
+            if still_wanted() {
+                tell(result);
+            }
+        };
+        if std::thread::Builder::new().name("fit".into()).stack_size(32 * 1024 * 1024).spawn(work).is_err() {
+            told(Err(tx("the-compiler-failed-on-this-document").to_string()));
+        }
+    }
+
     /// An example, in a world of its own so the document's stays as it is, on a page the width of the pane.
     fn example(&mut self, text: &str) -> Result<Pixels, String> {
         const PAGE: &str = "#set page(width: 260pt, height: auto, margin: 8pt)\n";
@@ -894,13 +948,15 @@ fn marks_in_frame(
     }
 }
 
-/// Compiles one variant, in a world only these use. A panic loses the world, not the document.
-fn compile_variant(
+/// Compiles a text in a world only this thread uses, and reads the result. A panic loses the world, not
+/// the document.
+fn with_document<T>(
     text: &str,
     slot: &mut Option<DocWorld>,
     fonts: &Arc<typst_kit::fonts::FontStore>,
     path: Option<&std::path::Path>,
-) -> Result<VariantView, String> {
+    read: impl FnOnce(&PagedDocument) -> T,
+) -> Result<T, String> {
     if slot.is_none() {
         *slot = DocWorld::new(Arc::clone(fonts), path);
     }
@@ -908,16 +964,102 @@ fn compile_variant(
     let world = slot.as_mut().ok_or_else(failed)?;
     world.update(text);
     let world = &*world;
-    let Ok(view) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<VariantView, String> {
+    let Ok(answer) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<T, String> {
         let doc =
             typst::compile::<PagedDocument>(world).output.map_err(|errors| errors.first().map_or_else(String::new, |e| e.message.to_string()))?;
-        let thumbnails = doc.pages().iter().take(VARIANT_PAGES).map(thumbnail).collect();
-        Ok(VariantView { pages: doc.pages().len(), thumbnails, same_as_now: false })
+        Ok(read(&doc))
     })) else {
         *slot = None;
         return Err(failed());
     };
-    view
+    answer
+}
+
+fn compile_variant(
+    text: &str,
+    slot: &mut Option<DocWorld>,
+    fonts: &Arc<typst_kit::fonts::FontStore>,
+    path: Option<&std::path::Path>,
+) -> Result<VariantView, String> {
+    with_document(text, slot, fonts, path, |doc| {
+        let thumbnails = doc.pages().iter().take(VARIANT_PAGES).map(thumbnail).collect();
+        VariantView { pages: doc.pages().len(), thumbnails, same_as_now: false }
+    })
+}
+
+/// The first and last pages of a document, and how many it has.
+fn ends_of(doc: &PagedDocument) -> (usize, Vec<Pixels>) {
+    let pages = doc.pages();
+    let ends = if pages.len() > 1 { [pages.first(), pages.last()] } else { [pages.first(), None] };
+    (pages.len(), ends.into_iter().flatten().map(thumbnail).collect())
+}
+
+/// Measures what a document has: its type size, spacing and, if they can be asked for, its margins.
+fn measure_for_fit(
+    text: &str,
+    slot: &mut Option<DocWorld>,
+    fonts: &Arc<typst_kit::fonts::FontStore>,
+    path: Option<&std::path::Path>,
+) -> Option<crate::fit::Current> {
+    let numbers = |doc: &PagedDocument, name: &str| -> Option<Vec<f64>> {
+        let label = Label::new(PicoStr::intern(name))?;
+        let found = doc.introspector().query_label(label).ok()?;
+        let Value::Array(numbers) = found.to_packed::<MetadataElem>()?.value.clone() else { return None };
+        Some(numbers.into_iter().filter_map(|n| n.cast::<f64>().ok()).collect())
+    };
+    let report = with_document(&format!("{text}{FIT_PROBE}"), slot, fonts, path, |doc| numbers(doc, "pearl-fit")).ok()??;
+    let &[size, leading, spacing] = report.as_slice() else { return None };
+    let margins = with_document(&format!("{text}{MARGIN_PROBE}"), slot, fonts, path, |doc| {
+        let page = doc.pages().last()?.frame.size();
+        margins_from(&numbers(doc, "pearl-margins")?, page.x.to_pt(), page.y.to_pt())
+    })
+    .ok()
+    .flatten();
+    crate::fit::Current::measured(size, leading, spacing, margins)
+}
+
+/// The search for fitting a document, with all it compiles. `still_wanted` going false ends it early.
+fn fit_document(
+    text: &str,
+    target: usize,
+    fonts: &Arc<typst_kit::fonts::FontStore>,
+    path: Option<&std::path::Path>,
+    limit: std::time::Duration,
+    still_wanted: &dyn Fn() -> bool,
+) -> Result<FitAnswer, String> {
+    use crate::fit::{Ending, Plan, ladder, search};
+    let started = Instant::now();
+    let mut world = None;
+    let (pages_before, before) = with_document(text, &mut world, fonts, path, ends_of)?;
+    let answer = |ending, plan: Option<Plan>, now, pages_after, after| FitAnswer {
+        ending,
+        plan,
+        now,
+        pages_before,
+        pages_after,
+        before: before.clone(),
+        after,
+    };
+    if pages_before <= target {
+        return Ok(answer(Ending::Reached, None, None, pages_before, Vec::new()));
+    }
+    let Some(now) = measure_for_fit(text, &mut world, fonts, path) else {
+        return Ok(answer(Ending::OutOfReach, None, None, pages_before, Vec::new()));
+    };
+    let plans = ladder(&now);
+    let found = search(
+        plans.len(),
+        target,
+        |place| {
+            let plan = plans.get(place).copied().unwrap_or_default();
+            with_document(&plan.applied_to(text), &mut world, fonts, path, |doc| doc.pages().len())
+        },
+        || still_wanted() && started.elapsed() < limit,
+    )?;
+    let Some((place, _)) = found.plan else { return Ok(answer(found.ending, None, Some(now), pages_before, Vec::new())) };
+    let plan = plans.get(place).copied().unwrap_or_default();
+    let (pages_after, after) = with_document(&plan.applied_to(text), &mut world, fonts, path, ends_of)?;
+    Ok(answer(found.ending, Some(plan), Some(now), pages_after, after))
 }
 
 fn thumbnail(page: &typst_layout::Page) -> Pixels {
@@ -1008,6 +1150,10 @@ fn kind_name(kind: &typst_ide::CompletionKind) -> &'static str {
 /// returns, and what it places on them says nothing reliable about them, so it is asked. `page()`
 /// inherits the document's settings; one column makes the area's width the whole width.
 const MARGIN_PROBE: &str = "\n#page(columns: 1)[#layout(size => context [#metadata((here().position().x / 1pt, here().position().y / 1pt, size.width / 1pt, size.height / 1pt)) <pearl-margins>])]\n";
+
+/// What's set at the end of a document, in points. It takes no room, so the pages stay as they are.
+const FIT_PROBE: &str =
+    "\n#context [#metadata((text.size.to-absolute() / 1pt, par.leading.to-absolute() / 1pt, par.spacing.to-absolute() / 1pt)) <pearl-fit>]\n";
 
 /// A page's left, right, top and bottom margins from what the probe reported, if they make sense:
 /// a page of automatic height has no bottom to measure from, for one.
@@ -1235,6 +1381,80 @@ mod tests {
         std::thread::sleep(one * 3);
         let more = c.events.try_iter().filter(|event| matches!(event, Event::VariantDone { .. })).count();
         assert!(more <= 1, "{more} more came after closing");
+    }
+
+    fn fitted(text: &str, target: usize, limit: Duration) -> FitAnswer {
+        fit_document(text, target, &load_fonts(), None, limit, &|| true).unwrap()
+    }
+
+    fn pages_of(text: &str) -> usize {
+        compile(text).0.unwrap().len()
+    }
+
+    #[test]
+    fn a_document_is_fitted_with_as_little_change_as_it_takes() {
+        use crate::fit::Ending;
+        let paragraph = "Um texto corrido que ocupa várias linhas nas páginas. ".repeat(6);
+        let text = format!("#set text(lang: \"pt\", size: 11pt)\n{}", format!("{paragraph}\n\n").repeat(30));
+        let pages = pages_of(&text);
+        assert!(pages >= 3, "{pages}");
+
+        let answer = fitted(&text, pages - 1, FIT_TIME_LIMIT);
+        assert_eq!(answer.ending, Ending::Reached);
+        let plan = answer.plan.unwrap();
+        let done = plan.applied_to(&text);
+        assert_eq!(answer.pages_after, pages_of(&done), "what's promised is what the document gets");
+        assert!(answer.pages_after < pages);
+        assert!(done.ends_with(&format!("{paragraph}\n\n")), "the words stay");
+        assert_eq!(answer.before.len(), 2, "first and last pages");
+        let now = answer.now.unwrap();
+        assert_eq!((now.size, (now.leading * 100.0).round(), (now.spacing * 10.0).round()), (11.0, 65.0, 12.0), "{now:?}");
+        assert!(now.margins.is_some_and(|m| (m[0] - 2.5).abs() < 0.05), "{now:?}");
+    }
+
+    #[test]
+    fn a_target_out_of_reach_says_how_close_it_got() {
+        use crate::fit::Ending;
+        let text = format!("{}\n\n", "Um texto corrido que ocupa várias linhas nas páginas. ".repeat(6)).repeat(60);
+        let answer = fitted(&text, 1, FIT_TIME_LIMIT);
+        assert_eq!(answer.ending, Ending::OutOfReach);
+        assert!(answer.plan.is_some());
+        assert!(answer.pages_after > 1 && answer.pages_after < answer.pages_before, "{} of {}", answer.pages_after, answer.pages_before);
+    }
+
+    #[test]
+    fn what_already_fits_is_left_alone() {
+        let answer = fitted("Pouco texto.\n", 3, FIT_TIME_LIMIT);
+        assert!(answer.plan.is_none());
+        assert_eq!(answer.pages_before, 1);
+    }
+
+    #[test]
+    fn a_search_out_of_time_says_so() {
+        let text = format!("{}\n\n", "Texto corrido em muitas linhas. ".repeat(9)).repeat(40);
+        let answer = fitted(&text, 1, Duration::ZERO);
+        assert_eq!(answer.ending, crate::fit::Ending::Stopped);
+        assert!(answer.plan.is_none());
+    }
+
+    #[test]
+    fn a_cancelled_search_never_answers() {
+        let c = Compiler::start().unwrap();
+        c.send(Job::Fit { request: 7, text: long_document(), path: None, target: 1 });
+        c.send(Job::CancelFit);
+        c.send(Job::Fit { request: 8, text: "Pouco texto.".into(), path: None, target: 1 });
+        loop {
+            if let Event::FitDone { request, .. } = c.events.recv_timeout(Duration::from_secs(120)).unwrap() {
+                assert_eq!(request, 8, "the cancelled one came back");
+                return;
+            }
+        }
+    }
+
+    #[test]
+    fn a_broken_document_only_says_why() {
+        let result = fit_document("#nada_disso()\n", 1, &load_fonts(), None, FIT_TIME_LIMIT, &|| true);
+        assert!(result.err().is_some_and(|e| e.contains("nada_disso")));
     }
 
     #[test]
