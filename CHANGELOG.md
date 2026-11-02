@@ -31,7 +31,8 @@ Every release of Pearl, newest first, in the spirit of
   through the Math tab, and a click puts one at the caret.
 - Messages in the status bar stay long enough to be read, instead of giving way to the next compile.
 - Letterhead and watermark, from a window with a live preview: name, address, logo and footer, and a
-  background text or image. It's written as a rule in the source, and the window opens on it again.
+  background text or image, with the image's opacity. It's written as a rule in the source, and the
+  window opens on it again.
 - Comparing versions on the pages: before and now side by side, with what came in, went out or changed
   place marked on the finished pages.
 - A splash screen in the colours and the hand-drawn style of its picture.

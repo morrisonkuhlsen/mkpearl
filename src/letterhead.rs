@@ -13,6 +13,7 @@ const END: &str = "// pearl:end";
 pub const SHADES: std::ops::RangeInclusive<f32> = 150.0..=245.0;
 pub const SIZES: std::ops::RangeInclusive<f32> = 20.0..=140.0;
 pub const ANGLES: std::ops::RangeInclusive<f32> = -90.0..=90.0;
+pub const OPACITIES: std::ops::RangeInclusive<f32> = 5.0..=100.0;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Letterhead {
@@ -29,6 +30,8 @@ pub struct Letterhead {
     pub mark_angle: f32,
     pub mark_size: f32,
     pub mark_shade: f32,
+    /// How much of a picture shows through, in percent.
+    pub mark_opacity: f32,
 }
 
 impl Default for Letterhead {
@@ -47,6 +50,7 @@ impl Default for Letterhead {
             mark_angle: -45.0,
             mark_size: 70.0,
             mark_shade: 225.0,
+            mark_opacity: 25.0,
         }
     }
 }
@@ -73,6 +77,24 @@ impl Letterhead {
         if preview { placeholder.to_string() } else { format!("image({}, {real})", quoted(path)) }
     }
 
+    /// The picture of a watermark at its opacity. Typst has no opacity for images, so a veil of the
+    /// paper's own colour goes over it, which comes to the same on a plain page and works for every format.
+    fn faded_mark(&self, preview: bool) -> String {
+        let opacity = self.mark_opacity.round();
+        if preview {
+            return format!("rect(width: 60%, height: 30%, fill: luma(120).transparentize({}%))", 100.0 - opacity);
+        }
+        let path = quoted(&self.mark_image);
+        if opacity >= *OPACITIES.end() {
+            return format!("image({path}, width: 70%)");
+        }
+        format!(
+            "layout(size => {{ let pic = image({path}, width: 0.7 * size.width); let paper = if type(page.fill) == color {{ page.fill }} else {{ white }}; \
+             let drawn = measure(pic); box(width: drawn.width, height: drawn.height, {{ place(pic); \
+             place(rect(width: 100%, height: 100%, fill: paper.transparentize({opacity}%))) }}) }})"
+        )
+    }
+
     /// The rule, or nothing when nothing's on. With `preview`, grey boxes stand in for pictures, which
     /// a preview can't read.
     pub fn rule(&self, preview: bool) -> Option<String> {
@@ -95,7 +117,7 @@ impl Letterhead {
         }
         if self.mark_on {
             let mark = if self.mark_is_image {
-                Self::picture(&self.mark_image, "rect(width: 60%, height: 30%, fill: luma(225))", "width: 70%", preview)
+                self.faded_mark(preview)
             } else {
                 format!("text({}pt, fill: luma({}), {})", self.mark_size.round(), self.mark_shade.round(), quoted(&self.mark_text))
             };
@@ -114,7 +136,7 @@ impl Letterhead {
             "head_on": self.head_on, "name": self.name, "details": self.details, "footer": self.footer, "logo": self.logo,
             "first_page_only": self.first_page_only, "mark_on": self.mark_on, "mark_is_image": self.mark_is_image,
             "mark_text": self.mark_text, "mark_image": self.mark_image, "mark_angle": self.mark_angle,
-            "mark_size": self.mark_size, "mark_shade": self.mark_shade,
+            "mark_size": self.mark_size, "mark_shade": self.mark_shade, "mark_opacity": self.mark_opacity,
         })
     }
 
@@ -140,6 +162,8 @@ impl Letterhead {
             mark_angle: number("mark_angle", base.mark_angle, ANGLES),
             mark_size: number("mark_size", base.mark_size, SIZES),
             mark_shade: number("mark_shade", base.mark_shade, SHADES),
+            // A document from before there was a choice keeps the picture as strong as it was.
+            mark_opacity: number("mark_opacity", *OPACITIES.end(), OPACITIES),
         }
     }
 }
@@ -197,6 +221,28 @@ mod tests {
         assert!(rule.contains("rotate(-45deg, text(70pt, fill: luma(225), \"RASCUNHO\"))"), "{rule}");
         assert!(full().rule(true).unwrap().contains("rect("), "a preview reads no files");
         assert_eq!(Letterhead::default().rule(false), None);
+    }
+
+    #[test]
+    fn a_picture_fades_by_its_opacity() {
+        let mark = Letterhead { mark_on: true, mark_is_image: true, mark_image: "images/selo.png".to_string(), ..Letterhead::default() };
+        let rule = mark.rule(false).unwrap();
+        assert!(rule.contains("image(\"images/selo.png\", width: 0.7 * size.width)"), "{rule}");
+        assert!(rule.contains("paper.transparentize(25%)"), "{rule}");
+
+        let whole = Letterhead { mark_opacity: 100.0, ..mark.clone() }.rule(false).unwrap();
+        assert!(whole.contains("image(\"images/selo.png\", width: 70%)") && !whole.contains("transparentize"), "{whole}");
+
+        assert!(mark.rule(true).unwrap().contains("luma(120).transparentize(75%)"), "the preview follows it");
+    }
+
+    #[test]
+    fn the_opacity_is_kept_and_hostile_or_missing_values_are_survived() {
+        let mark = Letterhead { mark_opacity: 40.0, ..Letterhead::default() };
+        assert_eq!(Letterhead::from_json(&mark.to_json()).mark_opacity, 40.0);
+        assert_eq!(Letterhead::from_json(&json!({})).mark_opacity, 100.0, "older documents stay as they were");
+        assert_eq!(Letterhead::from_json(&json!({"mark_opacity": -1e30})).mark_opacity, *OPACITIES.start());
+        assert_eq!(Letterhead::from_json(&json!({"mark_opacity": "x"})).mark_opacity, 100.0);
     }
 
     #[test]
