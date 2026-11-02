@@ -261,7 +261,7 @@ Abra uma sessão pelo ícone de compartilhar, no alto da janela, e envie o link:
 O painel Versões guarda o documento ao salvar: veja o que mudou, olhe as páginas antigas e restaure. Se o programa fechar de repente, o texto não salvo é oferecido quando ele abrir de novo.
 ## Atalhos
 ?? pearl atalhos teclado f1 ajuda
-F1 abre esta documentação e busca a palavra no cursor. Ctrl+F busca no documento, Ctrl+S salva, Ctrl+E exporta o PDF, Ctrl+Espaço pede sugestões, e Ctrl+B e Ctrl+I aplicam negrito e itálico.
+F1 abre esta documentação e busca a palavra no cursor. Ctrl+F busca no documento, Ctrl+H localiza e substitui, Ctrl+S salva, Ctrl+E exporta o PDF, Ctrl+Espaço pede sugestões, e Ctrl+B e Ctrl+I aplicam negrito e itálico.
 ## Figuras nas páginas
 ?? pearl figura imagem redimensionar mover arrastar apagar página
 Clique em uma imagem na página para selecioná-la. Arraste o quadradinho do canto para mudar o tamanho: o Pearl escreve o `width:` no código. Arraste a própria imagem para movê-la até outro parágrafo. A tecla Delete a tira do texto, sem apagar o arquivo, e Esc desfaz a seleção. Cada ação é desfeita com um único Ctrl+Z.

@@ -341,6 +341,9 @@ pub struct App {
     ribbon_collapsed: bool,
     find: Option<String>,
     find_focus: bool,
+    /// What replaces a match, while the search offers it.
+    replacing: Option<String>,
+    replace_focus: bool,
     about: bool,
     spell: Option<Speller>,
     spell_on: bool,
@@ -484,6 +487,8 @@ impl App {
             ribbon_collapsed: false,
             find: None,
             find_focus: false,
+            replacing: None,
+            replace_focus: false,
             about: false,
             spell: Some(Speller::start()),
             spell_on: crate::recent::read_setting(SPELL_FILE).is_none_or(|v| v.trim() != "off"),
@@ -1220,6 +1225,9 @@ impl App {
         }
         if pressed(Modifiers::COMMAND, Key::F) {
             self.open_find();
+        }
+        if pressed(Modifiers::COMMAND, Key::H) {
+            self.open_replace(ctx);
         }
         if pressed(Modifiers::COMMAND, Key::J) {
             self.locate(ctx);
@@ -2482,6 +2490,10 @@ impl App {
         if tool(ui, Icon::Find, tx("find-f")).clicked() {
             self.open_find();
         }
+        if glyphs(ui, "a→b", tx("replace-h")).clicked() {
+            let ctx = ui.ctx().clone();
+            self.open_replace(&ctx);
+        }
         if tool(ui, Icon::Print, tx("export-pdf-e")).clicked() {
             self.export_pdf();
         }
@@ -3069,6 +3081,57 @@ impl App {
             self.find = Some(String::new());
         }
         self.find_focus = true;
+    }
+
+    /// Opens the search with its replacing part, on the text selected when there's a line of it.
+    pub fn open_replace(&mut self, ctx: &egui::Context) {
+        let selected = edit::selected(&self.text, self.selection(ctx)).to_string();
+        let query = self.find.get_or_insert_default();
+        if !selected.is_empty() && !selected.contains('\n') {
+            query.clone_from(&selected);
+        }
+        let has_query = !query.is_empty();
+        self.replacing.get_or_insert_default();
+        self.find_focus = !has_query;
+        self.replace_focus = has_query;
+    }
+
+    /// Replaces the selected match and goes to the next, or goes to a match first if none is selected, so
+    /// that nothing changes unseen.
+    fn replace_current(&mut self, ctx: &egui::Context, query: &str, with: &str) {
+        let selection = self.selection(ctx);
+        if edit::find(&self.text, query, selection.0, false) != Some(selection) {
+            if let Some(found) = edit::find(&self.text, query, selection.0, false) {
+                self.set_selection(ctx, found);
+                self.scroll_caret = true;
+            }
+            return;
+        }
+        let end = selection.0 + with.chars().count();
+        self.replacing_edit(ctx, |text, sel| edit::replace_matches(text, sel, &[selection], with));
+        if let Some(found) = edit::find(&self.text, query, end, false) {
+            self.set_selection(ctx, found);
+        } else {
+            self.set_selection(ctx, (end, end));
+        }
+    }
+
+    /// Replaces all the matches, as one undo step, and says how many.
+    fn replace_every(&mut self, ctx: &egui::Context, query: &str, with: &str) {
+        let matches = edit::find_all(&self.text, query, usize::MAX);
+        if !matches.is_empty() {
+            self.replacing_edit(ctx, |text, sel| edit::replace_matches(text, sel, &matches, with));
+        }
+        self.status = tr!("replaced-count", n = matches.len());
+        self.status_seen = (self.status.clone(), ctx.input(|i| i.time));
+    }
+
+    /// An edit from the search's fields, where the keyboard stays: in the document, Enter would type.
+    fn replacing_edit(&mut self, ctx: &egui::Context, f: impl FnOnce(&mut String, Sel) -> Sel) {
+        let page_typing = self.page_typing;
+        self.edit(ctx, f);
+        self.want_focus = false;
+        self.page_typing = page_typing;
     }
 
     fn find_step(&mut self, ctx: &egui::Context, backwards: bool) {
@@ -4097,6 +4160,7 @@ impl App {
         if let Some(mut query) = self.find.take() {
             let mut keep = true;
             let (mut next, mut previous, mut edited) = (false, false, false);
+            let (mut replace_one, mut replace_all) = (false, false);
             let matches = edit::find_all(&self.text, &query, MAX_MATCHES_SHOWN);
             let selection = self.selection(ctx);
             let place = matches.iter().position(|m| *m == selection);
@@ -4136,12 +4200,37 @@ impl App {
                         );
                         previous |= icon_button_mono(ui, Icon::ChevronUp, t.text_dim, tx("previous-shiftenter"), vec2(24.0, 22.0)).clicked();
                         next |= icon_button_mono(ui, Icon::Chevron, t.text_dim, tx("next-enter"), vec2(24.0, 22.0)).clicked();
+                        if ui.selectable_label(self.replacing.is_some(), tx("replace")).on_hover_text(tx("replace-h")).clicked() {
+                            self.replacing = if self.replacing.is_some() { None } else { Some(String::new()) };
+                            self.replace_focus = self.replacing.is_some();
+                        }
                         if icon_button_mono(ui, Icon::Close, t.text_dim, tx("close-esc"), vec2(24.0, 22.0)).clicked() {
                             keep = false;
                         }
                     });
+                    if let Some(with) = &mut self.replacing {
+                        ui.horizontal(|ui| {
+                            let field = ui.add(egui::TextEdit::singleline(with).desired_width(200.0).hint_text(tx("replace-with")));
+                            if std::mem::take(&mut self.replace_focus) {
+                                field.request_focus();
+                            }
+                            if field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                                replace_one = true;
+                                field.request_focus();
+                            }
+                            let some = !matches.is_empty();
+                            replace_one |= ui.add_enabled(some, egui::Button::new(tx("replace"))).clicked();
+                            replace_all = ui.add_enabled(some, egui::Button::new(tx("replace-all"))).clicked();
+                        });
+                    }
                 },
             );
+            let with = self.replacing.clone().unwrap_or_default();
+            if replace_all {
+                self.replace_every(ctx, &query, &with);
+            } else if replace_one {
+                self.replace_current(ctx, &query, &with);
+            }
             self.find = keep.then_some(query);
             if edited {
                 // As it's typed, from where the current match or the caret begins.
@@ -4150,6 +4239,7 @@ impl App {
                 self.find_step(ctx, previous);
             }
             if !keep {
+                self.replacing = None;
                 self.want_focus = true;
             }
         }

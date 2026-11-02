@@ -48,6 +48,7 @@ Every release of Pearl, newest first, in the spirit of
 - A PDF is written whole or not at all: a failed export leaves what was there before.
 - A timeline of the writing: a slider over the versions with their pages, and one deleted passage brought
   back at a click, as one undo step, without restoring the rest.
+- Find and replace (Ctrl+H): one match at a time, seeing each first, or all at once as one undo step.
 - A splash screen in the colours and the hand-drawn style of its picture.
 - Typing on the pages: a click puts a caret there, also with only the pages on show, and what's typed
   goes into the source.
