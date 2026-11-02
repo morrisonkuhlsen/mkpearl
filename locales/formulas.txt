@@ -1,0 +1,109 @@
+# Ready-made formulas: a line starting with a hash names a subject, and the others hold a name in each language and the math, split by bars.
+# Álgebra | Algebra
+Fórmula de Bhaskara | Quadratic formula | x = (-b plus.minus sqrt(b^2 - 4 a c)) / (2 a)
+Discriminante | Discriminant | Delta = b^2 - 4 a c
+Quadrado da soma | Square of a sum | (a + b)^2 = a^2 + 2 a b + b^2
+Quadrado da diferença | Square of a difference | (a - b)^2 = a^2 - 2 a b + b^2
+Diferença de quadrados | Difference of squares | a^2 - b^2 = (a + b)(a - b)
+Cubo da soma | Cube of a sum | (a + b)^3 = a^3 + 3 a^2 b + 3 a b^2 + b^3
+Binômio de Newton | Binomial theorem | (a + b)^n = sum_(k=0)^n binom(n, k) a^(n-k) b^k
+Coeficiente binomial | Binomial coefficient | binom(n, k) = (n!) / (k! (n - k)!)
+Propriedades de potência | Rules of exponents | a^m a^n = a^(m+n), quad (a^m)^n = a^(m n)
+Logaritmo do produto | Logarithm of a product | log_b (x y) = log_b x + log_b y
+Mudança de base | Change of base | log_b x = (log_c x) / (log_c b)
+Soma de PA | Arithmetic series | S_n = (n (a_1 + a_n)) / 2
+Termo geral de PA | Arithmetic sequence | a_n = a_1 + (n - 1) r
+Termo geral de PG | Geometric sequence | a_n = a_1 q^(n-1)
+Soma de PG | Geometric series | S_n = (a_1 (q^n - 1)) / (q - 1)
+Sistema de equações | System of equations | cases(a x + b y = e, c x + d y = f)
+Função por partes | Piecewise function | f(x) = cases(x^2 & "se " x >= 0, -x & "se " x < 0)
+# Trigonometria | Trigonometry
+Identidade fundamental | Pythagorean identity | sin^2 theta + cos^2 theta = 1
+Tangente | Tangent | tan theta = (sin theta) / (cos theta)
+Seno da soma | Sine of a sum | sin(a + b) = sin a cos b + cos a sin b
+Cosseno da soma | Cosine of a sum | cos(a + b) = cos a cos b - sin a sin b
+Arco duplo | Double angle | sin(2 theta) = 2 sin theta cos theta
+Lei dos senos | Law of sines | a / (sin A) = b / (sin B) = c / (sin C)
+Lei dos cossenos | Law of cosines | c^2 = a^2 + b^2 - 2 a b cos C
+Fórmula de Euler | Euler's formula | e^(i theta) = cos theta + i sin theta
+# Geometria | Geometry
+Teorema de Pitágoras | Pythagorean theorem | a^2 + b^2 = c^2
+Área do círculo | Area of a circle | A = pi r^2
+Área do triângulo | Area of a triangle | A = (b h) / 2
+Fórmula de Heron | Heron's formula | A = sqrt(s (s - a) (s - b) (s - c))
+Volume da esfera | Volume of a sphere | V = 4 / 3 pi r^3
+Volume do cilindro | Volume of a cylinder | V = pi r^2 h
+Distância entre pontos | Distance between points | d = sqrt((x_2 - x_1)^2 + (y_2 - y_1)^2)
+Equação da reta | Equation of a line | y - y_0 = m (x - x_0)
+Equação da circunferência | Equation of a circle | (x - a)^2 + (y - b)^2 = r^2
+# Cálculo | Calculus
+Definição de derivada | Definition of the derivative | f'(x) = lim_(h -> 0) (f(x + h) - f(x)) / h
+Regra da potência | Power rule | dif / (dif x) x^n = n x^(n-1)
+Regra do produto | Product rule | (f g)' = f' g + f g'
+Regra do quociente | Quotient rule | (f / g)' = (f' g - f g') / g^2
+Regra da cadeia | Chain rule | (f compose g)'(x) = f'(g(x)) g'(x)
+Teorema fundamental | Fundamental theorem | integral_a^b f(x) dif x = F(b) - F(a)
+Integral por partes | Integration by parts | integral u dif v = u v - integral v dif u
+Integral de potência | Integral of a power | integral x^n dif x = x^(n+1) / (n + 1) + C
+Limite fundamental | Fundamental limit | lim_(x -> 0) (sin x) / x = 1
+Número de Euler | Euler's number | e = lim_(n -> infinity) (1 + 1 / n)^n
+Série de Taylor | Taylor series | f(x) = sum_(n=0)^infinity (f^((n))(a)) / (n!) (x - a)^n
+Integral dupla | Double integral | integral.double_D f(x, y) dif x dif y
+Derivada parcial | Partial derivative | (partial f) / (partial x)
+Gradiente | Gradient | nabla f = ((partial f) / (partial x), (partial f) / (partial y), (partial f) / (partial z))
+# Álgebra linear | Linear algebra
+Matriz 2 por 2 | 2 by 2 matrix | A = mat(a, b; c, d)
+Matriz 3 por 3 | 3 by 3 matrix | A = mat(a_11, a_12, a_13; a_21, a_22, a_23; a_31, a_32, a_33)
+Determinante 2 por 2 | 2 by 2 determinant | det mat(a, b; c, d) = a d - b c
+Inversa 2 por 2 | 2 by 2 inverse | A^(-1) = 1 / (a d - b c) mat(d, -b; -c, a)
+Produto escalar | Dot product | arrow(u) dot.op arrow(v) = sum_(i=1)^n u_i v_i
+Norma de vetor | Vector norm | norm(arrow(v)) = sqrt(sum_(i=1)^n v_i^2)
+Autovalores | Eigenvalues | A arrow(v) = lambda arrow(v)
+Polinômio característico | Characteristic polynomial | det(A - lambda I) = 0
+Sistema na forma matricial | System in matrix form | A arrow(x) = arrow(b)
+Vetor coluna | Column vector | arrow(v) = vec(v_1, v_2, v_3)
+# Estatística descritiva | Descriptive statistics
+Média amostral | Sample mean | overline(x) = 1 / n sum_(i=1)^n x_i
+Média ponderada | Weighted mean | overline(x)_w = (sum_(i=1)^n w_i x_i) / (sum_(i=1)^n w_i)
+Variância amostral | Sample variance | s^2 = 1 / (n - 1) sum_(i=1)^n (x_i - overline(x))^2
+Desvio padrão amostral | Sample standard deviation | s = sqrt(1 / (n - 1) sum_(i=1)^n (x_i - overline(x))^2)
+Variância populacional | Population variance | sigma^2 = 1 / N sum_(i=1)^N (x_i - mu)^2
+Coeficiente de variação | Coefficient of variation | "CV" = s / overline(x) times 100%
+Escore z | z-score | z = (x - mu) / sigma
+Correlação de Pearson | Pearson correlation | r = (sum_(i=1)^n (x_i - overline(x))(y_i - overline(y))) / sqrt(sum_(i=1)^n (x_i - overline(x))^2 sum_(i=1)^n (y_i - overline(y))^2)
+Covariância amostral | Sample covariance | "cov"(x, y) = 1 / (n - 1) sum_(i=1)^n (x_i - overline(x))(y_i - overline(y))
+# Probabilidade | Probability
+Probabilidade condicional | Conditional probability | P(A | B) = (P(A inter B)) / (P(B))
+Teorema de Bayes | Bayes' theorem | P(A | B) = (P(B | A) P(A)) / (P(B))
+União de eventos | Union of events | P(A union B) = P(A) + P(B) - P(A inter B)
+Probabilidade total | Total probability | P(B) = sum_i P(B | A_i) P(A_i)
+Esperança | Expected value | E[X] = sum_i x_i P(X = x_i)
+Variância | Variance | "Var"(X) = E[X^2] - (E[X])^2
+Distribuição binomial | Binomial distribution | P(X = k) = binom(n, k) p^k (1 - p)^(n-k)
+Distribuição de Poisson | Poisson distribution | P(X = k) = (lambda^k e^(-lambda)) / (k!)
+Distribuição normal | Normal distribution | f(x) = 1 / (sigma sqrt(2 pi)) e^(-(x - mu)^2 / (2 sigma^2))
+Distribuição exponencial | Exponential distribution | f(x) = lambda e^(-lambda x), quad x >= 0
+# Inferência estatística | Statistical inference
+Erro padrão da média | Standard error of the mean | "EP" = s / sqrt(n)
+Intervalo de confiança da média | Confidence interval for a mean | overline(x) plus.minus t_(alpha\/2, n-1) s / sqrt(n)
+Teste t de uma amostra | One-sample t test | t = (overline(x) - mu_0) / (s \/ sqrt(n))
+Teste t de duas amostras (Welch) | Two-sample t test (Welch) | t = (overline(x)_1 - overline(x)_2) / sqrt(s_1^2 / n_1 + s_2^2 / n_2)
+Teste z de proporção | z test for a proportion | z = (hat(p) - p_0) / sqrt(p_0 (1 - p_0) \/ n)
+Qui-quadrado | Chi-squared | chi^2 = sum_i (O_i - E_i)^2 / E_i
+Estatística F da ANOVA | ANOVA F statistic | F = ("QM"_"entre") / ("QM"_"dentro")
+Regressão linear simples | Simple linear regression | y_i = beta_0 + beta_1 x_i + epsilon_i
+Inclinação por mínimos quadrados | Least squares slope | hat(beta)_1 = (sum_(i=1)^n (x_i - overline(x))(y_i - overline(y))) / (sum_(i=1)^n (x_i - overline(x))^2)
+Coeficiente de determinação | Coefficient of determination | R^2 = 1 - (sum_i (y_i - hat(y)_i)^2) / (sum_i (y_i - overline(y))^2)
+Hipóteses | Hypotheses | H_0: mu = mu_0 quad "vs." quad H_1: mu != mu_0
+# Finanças | Finance
+Juros simples | Simple interest | J = C i t
+Juros compostos | Compound interest | M = C (1 + i)^t
+Valor presente | Present value | "VP" = "VF" / (1 + i)^t
+Valor presente líquido | Net present value | "VPL" = sum_(t=0)^n "FC"_t / (1 + i)^t
+# Física | Physics
+Segunda lei de Newton | Newton's second law | arrow(F) = m arrow(a)
+Energia cinética | Kinetic energy | E_c = 1 / 2 m v^2
+Massa e energia | Mass and energy | E = m c^2
+Lei de Ohm | Ohm's law | V = R I
+Gravitação universal | Universal gravitation | F = G (m_1 m_2) / r^2
+Gases ideais | Ideal gas law | P V = n R T

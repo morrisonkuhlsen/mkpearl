@@ -138,7 +138,7 @@ A claim.#footnote[The explanation goes here.]
 # Math
 ## Formulas
 ?? math formula equation dollar inline block
-Put the formula between `$`. With no spaces at the ends it stays in the line; with spaces it becomes a centred block.
+Put the formula between `$`. With no spaces at the ends it stays in the line; with spaces it becomes a centred block. The Symbols pane has over 90 ready-made formulas of algebra, calculus, statistics and other fields, and their button is in the Math tab.
 ```example
 The area is $A = pi r^2$ in this case.
 

@@ -23,7 +23,7 @@ const READ_FILE: &str = "guide.txt";
 /// How long after a keystroke an edited example runs.
 const SETTLE: f64 = 0.25;
 /// Results kept for examples, before the oldest set goes.
-const MAX_RENDERS: usize = 64;
+const MAX_RENDERS: usize = 256;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 enum Page {
@@ -43,8 +43,8 @@ pub(super) struct Docs {
     /// What's been done to each example on show, by page and place.
     edited: HashMap<(Page, usize), String>,
     edited_at: f64,
-    renders: HashMap<u64, Result<(TextureHandle, [usize; 2]), String>>,
-    asked: HashSet<u64>,
+    pub(super) renders: HashMap<u64, Result<(TextureHandle, [usize; 2]), String>>,
+    pub(super) asked: HashSet<u64>,
     /// Lessons read, by number.
     read: HashSet<usize>,
     scroll_to_top: bool,
@@ -91,7 +91,7 @@ impl Docs {
     }
 }
 
-fn hash_of(text: &str) -> u64 {
+pub(super) fn hash_of(text: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     text.hash(&mut hasher);
     hasher.finish()

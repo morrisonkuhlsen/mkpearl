@@ -9,6 +9,7 @@ pub mod collab;
 pub mod compiler;
 pub mod doi;
 pub mod edit;
+pub mod formulas;
 pub mod guide;
 pub mod highlight;
 pub mod history;

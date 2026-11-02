@@ -70,6 +70,13 @@ fn main() {
             app.open_side(7);
         }
     }
+    if args.iter().any(|a| a == "formulas") {
+        app.open_formulas();
+    }
+    if let Some(query) = args.iter().find_map(|a| a.strip_prefix("formula=")) {
+        app.open_formulas();
+        app.search_formulas(query);
+    }
     if let Some(lesson) = args.iter().find_map(|a| a.strip_prefix("lesson=")) {
         app.open_side(8);
         app.open_lesson(lesson.parse().expect("a lesson's number"));
@@ -113,7 +120,7 @@ fn main() {
         std::thread::sleep(Duration::from_millis(20));
     }
     harness.run_steps(90);
-    if args.iter().any(|a| a == "docs" || a.starts_with("lesson=")) {
+    if args.iter().any(|a| a == "docs" || a == "formulas" || a.starts_with("lesson=") || a.starts_with("formula=")) {
         // The examples run on the compiler's thread.
         for _ in 0..60 {
             harness.step();

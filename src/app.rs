@@ -32,6 +32,7 @@ use crate::widgets::{field_menu, glyphs, group_begin, group_end, icon_button_mon
 mod backstage;
 mod docs;
 mod figures;
+mod formulas;
 mod references;
 
 /// The tabs, by the ids of their names.
@@ -59,6 +60,8 @@ const LIST_NUMBERED: &str = "numbered-list";
 const LIST_TERMS: &str = "term-list";
 const RAIL_WIDTH: f32 = 44.0;
 const SIDE_WIDTH: f32 = 320.0;
+/// How long a message in the status bar is safe from the next compile's time.
+const NOTICE_SECONDS: f64 = 5.0;
 const SIDE_STRIP: f32 = 30.0;
 const TITLE_BAR_H: f32 = 38.0;
 const TITLE_CONTROL_H: f32 = 26.0;
@@ -375,6 +378,11 @@ pub struct App {
     /// The caret has moved in the pages, which should follow it.
     follow_caret: bool,
     figures: figures::Figures,
+    formulas: formulas::FormulaPane,
+    /// The status bar's last compile time, which anything else may replace at any moment.
+    compile_status: String,
+    /// The status as of the last frame, and since when, to give a message time to be read.
+    status_seen: (String, f64),
     /// Where the pages are on screen, for the tests' pointer.
     page_rects: Vec<Rect>,
     /// The Files pane's listing, read when the pane opens or on Refresh.
@@ -493,6 +501,10 @@ impl App {
             page_typing: false,
             follow_caret: false,
             figures: figures::Figures::default(),
+            formulas: formulas::FormulaPane::default(),
+            // What it says at the start gives way to the first compile.
+            compile_status: tx("loading-fonts").to_string(),
+            status_seen: (String::new(), 0.0),
             page_rects: Vec::new(),
             files: Vec::new(),
             backstage: None,
@@ -706,7 +718,12 @@ impl App {
                     }
                     self.millis = Some(millis);
                     self.compiles += 1;
-                    self.status = tr!("compiled-in", ms = millis.to_string());
+                    // A message stays long enough to be read: compiles come right after most edits.
+                    let now = ctx.input(|i| i.time);
+                    if self.status == self.compile_status || self.status.is_empty() || now - self.status_seen.1 >= NOTICE_SECONDS {
+                        self.status = tr!("compiled-in", ms = millis.to_string());
+                        self.compile_status.clone_from(&self.status);
+                    }
                     self.diags = diags;
                 }
                 Event::JumpToSource { byte } => {
@@ -1278,6 +1295,9 @@ impl App {
 
     pub fn show(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
+        if self.status != self.status_seen.0 {
+            self.status_seen = (self.status.clone(), ctx.input(|i| i.time));
+        }
         self.session_receive(&ctx);
         self.assistant_receive(&ctx);
         self.show_window(ui);
@@ -2572,6 +2592,9 @@ impl App {
 
     fn tab_math(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
+        if tool(ui, Icon::Fx, tx("ready-made-formulas")).clicked() {
+            self.open_formulas();
+        }
         if tool(ui, Icon::Fx, tx("block-equation")).clicked() {
             self.insert(&ctx, EQ_BLOCK);
         }
@@ -2923,6 +2946,10 @@ impl App {
 
     fn pane_symbols(&mut self, ui: &mut Ui, t: &Tokens) {
         let ctx = ui.ctx().clone();
+        if self.formulas_tabs(ui) {
+            self.pane_formulas(ui, t);
+            return;
+        }
         for (group, symbols) in SYMBOL_GROUPS {
             ui.colored_label(t.text_dim, *group);
             ui.horizontal_wrapped(|ui| {

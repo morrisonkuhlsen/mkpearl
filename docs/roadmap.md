@@ -9,6 +9,7 @@ Pearl's plan and progress log. Each section says what is done and its **Next:** 
   images by pasting and dragging; a References pane, with DOIs and a check of the citations;
   typing on the pages, dragging the margins on the rulers, and selecting, resizing, moving and
   removing figures on the pages.
+- *Done:* ready-made formulas, with previews and a search.
 - *Done:* the Documentation pane: lessons in both languages with live examples, a search, and a
   reference of every function from Typst itself.
 - Known: #4, #5, #15.

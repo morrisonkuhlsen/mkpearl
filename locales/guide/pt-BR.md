@@ -138,7 +138,7 @@ Uma afirmação.#footnote[A explicação fica aqui.]
 # Matemática
 ## Fórmulas
 ?? matemática fórmula equação math cifrão inline bloco
-Coloque a fórmula entre `$`. Sem espaços nas pontas, ela fica na linha; com espaços, vira um bloco centralizado.
+Coloque a fórmula entre `$`. Sem espaços nas pontas, ela fica na linha; com espaços, vira um bloco centralizado. O painel Símbolos traz mais de 90 fórmulas prontas de álgebra, cálculo, estatística e outras áreas, e o botão delas fica na aba Matemática.
 ```example
 A área é $A = pi r^2$ neste caso.
 

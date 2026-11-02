@@ -47,13 +47,19 @@ fn a_reference_is_imported_found_and_cited() {
 
     let mut app = App::new(Some(file)).unwrap();
     app.open_side(7);
-    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).with_max_steps(u64::MAX).with_accessibility_check(false).build_ui_state(
-        |ui, app: &mut App| {
-            ui.ctx().set_missing_glyph_policy(egui::epaint::text::MissingGlyphPolicy::Tofu);
-            app.show(ui);
-        },
-        app,
-    );
+    // A slow clock: the status message is meant to outlast the compile, by the window's time.
+    let mut h = Harness::builder()
+        .with_step_dt(0.001)
+        .with_size(egui::vec2(1400.0, 900.0))
+        .with_max_steps(u64::MAX)
+        .with_accessibility_check(false)
+        .build_ui_state(
+            |ui, app: &mut App| {
+                ui.ctx().set_missing_glyph_policy(egui::epaint::text::MissingGlyphPolicy::Tofu);
+                app.show(ui);
+            },
+            app,
+        );
     until(&mut h, "the empty pane", |h| h.query_by_label_contains("Não há arquivos .bib").is_some());
 
     let ctx = h.ctx.clone();
@@ -77,6 +83,7 @@ fn a_reference_is_imported_found_and_cited() {
     assert!(h.state().text().contains("#bibliography(\"fontes.bib\")"), "{:?}", h.state().text());
     assert!(h.state().status().contains("Bibliografia adicionada"), "{}", h.state().status());
     settled(&mut h, "after the first citation");
+    assert!(h.state().status().contains("Bibliografia adicionada"), "the compile that follows leaves the message: {}", h.state().status());
 
     // Another citation adds no second bibliography.
     h.state_mut().search_references("knuth");

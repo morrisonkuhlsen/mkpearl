@@ -770,6 +770,23 @@ mod tests {
     }
 
     #[test]
+    fn every_ready_made_formula_compiles() {
+        let c = Compiler::start().unwrap();
+        let all = &crate::formulas::catalog().formulas;
+        for (i, formula) in all.iter().enumerate() {
+            c.send(Job::Example { request: i as u64, text: formula.code() });
+        }
+        let mut answered = 0;
+        while answered < all.len() {
+            if let Event::ExampleDone { request, result } = c.events.recv_timeout(Duration::from_secs(120)).unwrap() {
+                let formula = &all[request as usize];
+                assert!(result.is_ok(), "{}: {:?}\n{}", formula.name(), result.err(), formula.code());
+                answered += 1;
+            }
+        }
+    }
+
+    #[test]
     fn a_broken_example_says_why_and_leaves_the_document_alone() {
         let c = Compiler::start().unwrap();
         c.send(Job::Compile { text: "Documento".into(), path: None });
