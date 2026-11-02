@@ -38,6 +38,7 @@ mod fit;
 mod formulas;
 mod letterhead;
 mod references;
+mod timeline;
 mod typography;
 mod variants;
 
@@ -386,6 +387,7 @@ pub struct App {
     follow_caret: bool,
     figures: figures::Figures,
     comparing: Option<comparing::Comparing>,
+    timeline: Option<timeline::Timeline>,
     compare_requested: bool,
     letterhead_dialog: Option<letterhead::LetterheadDialog>,
     variants_dialog: Option<variants::VariantsDialog>,
@@ -517,6 +519,7 @@ impl App {
             follow_caret: false,
             figures: figures::Figures::default(),
             comparing: None,
+            timeline: None,
             compare_requested: false,
             letterhead_dialog: None,
             variants_dialog: None,
@@ -758,6 +761,7 @@ impl App {
                 Event::Typography(findings) => self.watch.findings = findings,
                 Event::VariantDone { request, index, result } => self.receive_variant(ctx, request, index, result),
                 Event::FitDone { request, result } => self.receive_fit(ctx, request, result),
+                Event::TimelineDone { request, stamp, result } => self.receive_timeline(ctx, request, stamp, result),
                 Event::Compared { request, result } => self.receive_comparison(ctx, request, result),
                 Event::DropTarget { block, byte, above } => self.finish_move(ctx, block, byte, above),
                 Event::ExampleDone { request, result } => self.docs.receive(ctx, request, result),
@@ -1395,6 +1399,10 @@ impl App {
 
     /// Shows the viewed version in the pages, or goes back to the document.
     pub fn preview_version(&mut self, on: bool) {
+        if on {
+            // Two views of the past at once would only confuse: the pages show this one.
+            self.timeline = None;
+        }
         self.previewing = on && self.viewed.is_some();
         self.compile();
     }
@@ -1431,6 +1439,9 @@ impl App {
         {
             viewed.changes = history::line_changes(&viewed.text, &self.text);
             viewed.compared_with = egui::epaint::util::hash(&self.text);
+        }
+        if !self.versions.is_empty() && ui.button(tx("timeline-of-the-writing")).clicked() {
+            self.open_timeline();
         }
         let now = history::now_ms();
         let mut chosen = None;
@@ -3703,6 +3714,10 @@ impl App {
     }
 
     fn preview(&mut self, ui: &mut Ui, t: &Tokens) {
+        if self.timeline.is_some() {
+            self.timeline_view(ui, t);
+            return;
+        }
         if self.comparing.is_some() {
             self.compare_view(ui, t);
             return;

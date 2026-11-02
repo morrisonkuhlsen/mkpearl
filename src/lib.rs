@@ -28,6 +28,7 @@ pub mod spell;
 pub mod splash;
 pub mod templates;
 pub mod theme;
+pub mod timeline;
 pub mod typing;
 pub mod typography;
 pub mod variants;

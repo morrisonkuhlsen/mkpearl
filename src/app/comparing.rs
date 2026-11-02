@@ -65,6 +65,7 @@ impl App {
         if self.layout == Layout::Source {
             self.layout = Layout::Both;
         }
+        self.timeline = None;
         self.comparing =
             Some(Comparing { old_text, when, asked: None, result: None, textures: HashMap::new(), current: None, scroll_to_current: false });
     }

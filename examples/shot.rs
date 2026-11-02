@@ -171,6 +171,16 @@ fn main() {
         }
         harness.run_steps(5);
     }
+    if let Some(index) = args.iter().find_map(|a| a.strip_prefix("timeline=")) {
+        harness.state_mut().open_timeline();
+        harness.state_mut().move_timeline(index.parse().expect("a version's place"));
+        let started = Instant::now();
+        while harness.state().timeline_passages().is_none() && started.elapsed() < Duration::from_secs(60) {
+            harness.step();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        harness.run_steps(5);
+    }
     if args.iter().any(|a| a == "exporting") {
         // Pointed somewhere harmless: with nothing to warn about, it would export there.
         let scratch = std::env::temp_dir().join("pearl-shot-export.pdf");

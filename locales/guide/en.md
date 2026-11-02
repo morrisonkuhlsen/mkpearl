@@ -289,6 +289,9 @@ The Problems pane also points out what keeps a document from reaching everyone: 
 #image(bytes("<svg xmlns='http://www.w3.org/2000/svg' width='40' height='20'><rect width='40' height='20' fill='teal'/></svg>"), alt: "A teal rectangle", width: 2cm)
 ```
 > Try: take out the `alt:`, in a document of your own, and open the Problems pane.
+## Timeline of the writing
+?? timeline history version slider passage paragraph deleted recover bring back
+In the Versions pane, Timeline of the writing opens a slider over the document's versions, with the pages of each, and the passages it has that the document no longer does. Moving the slider changes nothing. Bring back puts one passage where it was, as one Ctrl+Z, and leaves the rest as it is. A version that can't be read is skipped, with a notice.
 ## Comparing versions on the pages
 ?? pearl compare version difference review before after history
 In the Versions pane, choose a version and click Compare on the pages. The pages from before and now go side by side: green for what came in, red for what went out and blue for what changed place. The Previous and Next buttons go through the changes, and nothing in the document is altered.
