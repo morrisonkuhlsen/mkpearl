@@ -138,7 +138,7 @@ A claim.#footnote[The explanation goes here.]
 # Math
 ## Formulas
 ?? math formula equation dollar inline block
-Put the formula between `$`. With no spaces at the ends it stays in the line; with spaces it becomes a centred block. The Symbols pane has over 90 ready-made formulas of algebra, calculus, statistics and other fields, and their button is in the Math tab.
+Put the formula between `$`. With no spaces at the ends it stays in the line; with spaces it becomes a centred block. The Formulas pane, in the strip on the right, has over 90 ready-made formulas of algebra, calculus, statistics and other fields, and the Ready-made formulas button is in the Math tab.
 ```example
 The area is $A = pi r^2$ in this case.
 
@@ -147,7 +147,7 @@ $ E = m c^2 $
 > Try: write $a^2 + b^2 = c^2$ as a block.
 ## Fractions, roots and symbols
 ?? fraction root sum integral greek symbols subscript superscript
-A slash makes a fraction. Symbols have full names, such as `alpha` and `sum`. See them all in the Symbols pane.
+A slash makes a fraction. Symbols have full names, such as `alpha` and `sum`. See them all in the Formulas pane, under Symbols.
 ```example
 $ x = (-b plus.minus sqrt(b^2 - 4 a c)) / (2 a) $
 

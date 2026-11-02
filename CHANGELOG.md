@@ -27,7 +27,7 @@ Every release of Pearl, newest first, in the spirit of
   a reference of every Typst function, and F1 for the word at the caret. Where the strip's names
   don't fit, its icons stand alone.
 - Over 90 ready-made formulas of algebra, trigonometry, geometry, calculus, linear algebra, statistics,
-  probability, inference, finance and physics: with previews and a search, in the Symbols pane and
+  probability, inference, finance and physics: with previews and a search, in the Formulas pane and
   through the Math tab, and a click puts one at the caret.
 - Messages in the status bar stay long enough to be read, instead of giving way to the next compile.
 - Typing on the pages: a click puts a caret there, also with only the pages on show, and what's typed

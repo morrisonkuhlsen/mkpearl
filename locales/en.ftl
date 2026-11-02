@@ -115,6 +115,7 @@ fix-the-errors-before-exporting-the-pdf = Fix the errors before exporting: the P
 font = Font
 fonts = fonts
 formulas = Formulas
+formulas-and-symbols = Formulas and symbols
 found-online = Found online
 fraction = Fraction
 function = function

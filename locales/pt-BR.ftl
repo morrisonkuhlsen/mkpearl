@@ -115,6 +115,7 @@ fix-the-errors-before-exporting-the-pdf = Corrija os erros antes de exportar: o 
 font = Fonte
 fonts = fontes
 formulas = Fórmulas
+formulas-and-symbols = Fórmulas e símbolos
 found-online = Encontrada na internet
 fraction = Fração
 function = função

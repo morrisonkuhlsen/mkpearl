@@ -2592,9 +2592,10 @@ impl App {
 
     fn tab_math(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
-        if tool(ui, Icon::Fx, tx("ready-made-formulas")).clicked() {
+        if labelled(ui, Icon::Function, tx("ready-made-formulas"), tx("ready-made-formulas")).clicked() {
             self.open_formulas();
         }
+        sep(ui, tx("formulas"));
         if tool(ui, Icon::Fx, tx("block-equation")).clicked() {
             self.insert(&ctx, EQ_BLOCK);
         }
@@ -2750,7 +2751,7 @@ impl App {
             (Side::Outline, Icon::SheetList, tx("outline"), 0),
             (Side::Files, Icon::Folder, tx("files"), 0),
             (Side::References, Icon::Book, tx("references"), 0),
-            (Side::Symbols, Icon::Symbol, tx("symbols"), 0),
+            (Side::Symbols, Icon::Symbol, tx("formulas"), 0),
             (Side::Problems, Icon::Validation, tx("problems"), errors),
             (Side::Versions, Icon::Clock, tx("versions"), 0),
             (Side::Claude, Icon::Pen, "Claude", 0),
@@ -2805,7 +2806,7 @@ impl App {
             Side::Files => (Icon::Folder, tx("files")),
             Side::References => (Icon::Book, tx("references")),
             Side::Docs => (Icon::Note, tx("documentation")),
-            Side::Symbols => (Icon::Symbol, tx("symbols")),
+            Side::Symbols => (Icon::Symbol, tx("formulas-and-symbols")),
             Side::Problems => (Icon::Validation, tx("problems")),
             Side::Versions => (Icon::Clock, tx("versions")),
             Side::Claude => (Icon::Pen, "Claude"),
@@ -2951,7 +2952,7 @@ impl App {
             return;
         }
         for (group, symbols) in SYMBOL_GROUPS {
-            ui.colored_label(t.text_dim, *group);
+            ui.colored_label(t.text_dim, tx(group));
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(1.0, 1.0);
                 for (glyph, code) in *symbols {

@@ -138,7 +138,7 @@ Uma afirmação.#footnote[A explicação fica aqui.]
 # Matemática
 ## Fórmulas
 ?? matemática fórmula equação math cifrão inline bloco
-Coloque a fórmula entre `$`. Sem espaços nas pontas, ela fica na linha; com espaços, vira um bloco centralizado. O painel Símbolos traz mais de 90 fórmulas prontas de álgebra, cálculo, estatística e outras áreas, e o botão delas fica na aba Matemática.
+Coloque a fórmula entre `$`. Sem espaços nas pontas, ela fica na linha; com espaços, vira um bloco centralizado. O painel Fórmulas, na barra à direita, traz mais de 90 fórmulas prontas de álgebra, cálculo, estatística e outras áreas, e o botão Fórmulas prontas fica na aba Matemática.
 ```example
 A área é $A = pi r^2$ neste caso.
 
@@ -147,7 +147,7 @@ $ E = m c^2 $
 > Tente: escreva $a^2 + b^2 = c^2$ em bloco.
 ## Frações, raízes e símbolos
 ?? fração raiz somatório integral letras gregas símbolos índice expoente
-Uma barra cria fração. Símbolos têm nomes por extenso, como `alpha` e `sum`. Veja a lista completa no painel Símbolos.
+Uma barra cria fração. Símbolos têm nomes por extenso, como `alpha` e `sum`. Veja a lista completa no painel Fórmulas, em Símbolos.
 ```example
 $ x = (-b plus.minus sqrt(b^2 - 4 a c)) / (2 a) $
 

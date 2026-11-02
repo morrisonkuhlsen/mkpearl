@@ -13,11 +13,16 @@ use crate::theme::Tokens;
 /// The room kept for a preview not yet made, so that scrolling doesn't jump.
 const PREVIEW_ROOM: f32 = 36.0;
 
-#[derive(Default)]
 pub(super) struct FormulaPane {
     /// On show instead of the symbols.
     on: bool,
     search: String,
+}
+
+impl Default for FormulaPane {
+    fn default() -> Self {
+        Self { on: true, search: String::new() }
+    }
 }
 
 impl App {
@@ -51,14 +56,11 @@ impl App {
         let mut chosen = None;
         if self.formulas.search.trim().is_empty() {
             for category in 0..all.category_count() {
-                CollapsingHeader::new(RichText::new(all.category(category)).strong())
-                    .id_salt(("formulas", category))
-                    .default_open(category == 0)
-                    .show(ui, |ui| {
-                        for formula in all.formulas.iter().filter(|f| f.category == category) {
-                            chosen = self.formula_row(ui, t, formula).or(chosen.take());
-                        }
-                    });
+                CollapsingHeader::new(RichText::new(all.category(category)).strong()).id_salt(("formulas", category)).show(ui, |ui| {
+                    for formula in all.formulas.iter().filter(|f| f.category == category) {
+                        chosen = self.formula_row(ui, t, formula).or(chosen.take());
+                    }
+                });
             }
         } else {
             let query = self.formulas.search.clone();

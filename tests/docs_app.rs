@@ -76,7 +76,7 @@ fn lessons_are_found_tried_and_brought_into_the_document() {
     // A search finds lessons without accents, and functions.
     h.state_mut().search_docs("matematica");
     h.run_steps(3);
-    assert!(h.query_by_label("Fórmulas").is_some());
+    assert!(h.query_all_by_label("Fórmulas").count() >= 2, "the lesson, and the strip's item");
     h.state_mut().search_docs("xyzzyqqq");
     h.run_steps(3);
     assert!(h.query_by_label_contains("Nada encontrado").is_some());
