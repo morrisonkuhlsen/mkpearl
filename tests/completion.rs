@@ -412,3 +412,40 @@ fn with_no_match_the_buttons_do_nothing() {
     assert_eq!(h.state().text(), "nada aqui");
     assert!(!h.state().is_dirty());
 }
+
+#[test]
+fn the_search_can_match_case_and_whole_words_and_replacing_follows_it() {
+    let text = "Ana e banana e ana.";
+    let mut h = replacing(text, "ana");
+    h.event(Event::Text("Bia".to_string()));
+    press_keys(&mut h);
+
+    // Control+H with a search under way leaves its query alone, whatever case its match is in.
+    let ctx = h.ctx.clone();
+    h.state_mut().open_replace(&ctx);
+    press_keys(&mut h);
+    assert_eq!(h.state().selected_range(&ctx), (0, 3));
+
+    // Only the word, so banana stays, and the match on show moves to one that counts.
+    h.get_by_label("ab|").click();
+    press_keys(&mut h);
+    assert_eq!(h.state().selected_range(&ctx), (0, 3));
+
+    // With its case as well, only the last.
+    h.get_by_label("Aa").click();
+    press_keys(&mut h);
+    assert_eq!(h.state().selected_range(&ctx), (15, 18));
+    h.get_by_label("Substituir tudo").click();
+    press_keys(&mut h);
+    assert_eq!(h.state().text(), "Ana e banana e Bia.");
+    assert!(h.state().status().contains('1'), "{}", h.state().status());
+
+    // Turned off, all that's left of it goes: the parts of words too.
+    h.get_by_label("ab|").click();
+    press_keys(&mut h);
+    h.get_by_label("Aa").click();
+    press_keys(&mut h);
+    h.get_by_label("Substituir tudo").click();
+    press_keys(&mut h);
+    assert_eq!(h.state().text(), "Bia e bBiana e Bia.");
+}
