@@ -16,8 +16,10 @@ const LAYOUT_HEIGHT: f32 = 400.0;
 /// Seconds it stays.
 const HOLD: f64 = 5.0;
 pub(crate) const INK: Color32 = Color32::from_rgb(0x14, 0x16, 0x1C);
-const ON_INK: Color32 = Color32::WHITE;
-const ON_INK_SOFT: Color32 = Color32::from_rgb(0xB8, 0xB8, 0xB8);
+/// The sky of the picture, which the words share.
+const SKY: Color32 = Color32::from_rgb(0x9A, 0xE1, 0xFC);
+const ON_SKY: Color32 = INK;
+const ON_SKY_SOFT: Color32 = Color32::from_rgb(0x1F, 0x3B, 0x4A);
 /// The picture beside the words; square.
 const PICTURE: &[u8] = include_bytes!("../assets/splash.png");
 /// Pearl's colour: nacre.
@@ -92,13 +94,22 @@ fn load_wordmark(ctx: &egui::Context) -> Option<TextureHandle> {
     Some(ctx.load_texture("splash-wordmark", image, TextureOptions::LINEAR))
 }
 
+/// The hand-drawn family, or the plain one for as long as it isn't loaded: new fonts take a frame to
+/// arrive, and asking for one that hasn't would end the program.
+fn drawn_family(ctx: &egui::Context) -> egui::FontFamily {
+    let family = egui::FontFamily::Name(crate::theme::CARTOON.into());
+    if ctx.fonts(|fonts| fonts.families().contains(&family)) { family } else { egui::FontFamily::Proportional }
+}
+
 fn paint(painter: &Painter, rect: Rect, progress: f32, picture: Option<&TextureHandle>, wordmark: Option<&TextureHandle>) {
     let k = rect.height() / LAYOUT_HEIGHT;
+    let family = drawn_family(painter.ctx());
+    let drawn = |size: f32| FontId::new(size, family.clone());
     // The square picture at the right, whole; the words take what is left.
     let split = rect.right() - rect.height();
     let words = Rect::from_min_max(rect.min, pos2(split, rect.bottom()));
     let art = Rect::from_min_max(pos2(split, rect.top()), rect.max);
-    painter.rect_filled(rect, 0.0, INK);
+    painter.rect_filled(rect, 0.0, SKY);
     if let Some(texture) = picture {
         painter.image(texture.id(), art, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
     }
@@ -106,37 +117,39 @@ fn paint(painter: &Painter, rect: Rect, progress: f32, picture: Option<&TextureH
     let left = words.left() + 36.0 * k;
     let width = words.width() - 72.0 * k;
     pearl(painter, pos2(left + 23.0 * k, words.top() + 75.0 * k), 21.0 * k);
-    painter.text(pos2(left + 58.0 * k, words.top() + 75.0 * k), Align2::LEFT_CENTER, NAME, FontId::proportional(34.0 * k), ON_INK);
-    painter.text(pos2(left, words.top() + 128.0 * k), Align2::LEFT_CENTER, MOTTO, FontId::proportional(15.0 * k), ON_INK_SOFT);
-    let tagline = painter.layout(tx(TAGLINE).to_string(), FontId::proportional(12.5 * k), ON_INK_SOFT, width);
+    painter.text(pos2(left + 58.0 * k, words.top() + 75.0 * k), Align2::LEFT_CENTER, NAME, drawn(42.0 * k), ON_SKY);
+    painter.text(pos2(left, words.top() + 128.0 * k), Align2::LEFT_CENTER, MOTTO, drawn(19.0 * k), ON_SKY_SOFT);
+    let tagline = painter.layout(tx(TAGLINE).to_string(), drawn(15.5 * k), ON_SKY_SOFT, width);
     let below = words.top() + 152.0 * k + tagline.size().y;
-    painter.galley(pos2(left, words.top() + 152.0 * k), tagline, ON_INK_SOFT);
+    painter.galley(pos2(left, words.top() + 152.0 * k), tagline, ON_SKY_SOFT);
     painter.text(
         pos2(left, below + 10.0 * k),
         Align2::LEFT_TOP,
         tr!("splash-version", version = env!("CARGO_PKG_VERSION")),
-        FontId::proportional(12.5 * k),
-        ON_INK_SOFT,
+        drawn(15.5 * k),
+        ON_SKY_SOFT,
     );
 
     // The parts loading, over the progress bar.
     let bar = Rect::from_min_size(pos2(left, words.bottom() - 96.0 * k), vec2(width, 3.0 * k));
     let shown = ((progress * COMPONENTS.len() as f32) as usize).min(COMPONENTS.len() - 1);
     let status = COMPONENTS.get(shown).map_or_else(String::new, |c| tr!("splash-loading", what = tx(c)));
-    painter.text(bar.left_top() - vec2(0.0, 10.0 * k), Align2::LEFT_BOTTOM, status, FontId::proportional(12.0 * k), ON_INK_SOFT);
-    painter.rect_filled(bar, 0.0, Color32::from_white_alpha(28));
-    painter.rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * progress, bar.height())), 0.0, BRAND);
+    painter.text(bar.left_top() - vec2(0.0, 10.0 * k), Align2::LEFT_BOTTOM, status, drawn(15.0 * k), ON_SKY_SOFT);
+    painter.rect_filled(bar, 1.0, Color32::from_black_alpha(36));
+    painter.rect_filled(Rect::from_min_size(bar.min, vec2(bar.width() * progress, bar.height())), 1.0, INK);
 
     // The house at the foot: "powered by" and its wordmark after it.
     if let Some(texture) = wordmark {
         let foot = words.bottom() - 28.0 * k;
-        let by = painter.layout_no_wrap(tx(POWERED_BY).to_string(), FontId::proportional(11.0 * k), ON_INK_SOFT);
+        let by = painter.layout_no_wrap(tx(POWERED_BY).to_string(), drawn(14.0 * k), ON_SKY_SOFT);
         let logo_width = 104.0 * k;
         let size = vec2(logo_width, logo_width * texture.size_vec2().y / texture.size_vec2().x.max(1.0));
         let by_width = by.size().x;
-        painter.galley(pos2(left, foot - size.y / 2.0 - by.size().y / 2.0), by, ON_INK_SOFT);
+        painter.galley(pos2(left, foot - size.y / 2.0 - by.size().y / 2.0), by, ON_SKY_SOFT);
         let uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
-        painter.image(texture.id(), Rect::from_min_size(pos2(left + by_width + 8.0 * k, foot - size.y), size), uv, ON_INK);
+        let logo = Rect::from_min_size(pos2(left + by_width + 8.0 * k, foot - size.y), size);
+        // The file is all white on nothing, so it takes the ink of the words on the sky.
+        painter.image(texture.id(), logo, uv, ON_SKY);
     }
 }
 

@@ -34,6 +34,7 @@ fn it_carries_what_the_licences_ask_for() {
         "epaint_default_fonts 0.37.0 (fonts/UFL.txt)",
         "Fonts in Pearl's interface: Inter",
         "Fonts in Pearl's interface: JetBrains Mono",
+        "Fonts in Pearl's interface: Patrick Hand",
         "Apache License 2.0, standard text",
     ] {
         assert!(text.contains(needed), "{needed}");

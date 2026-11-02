@@ -84,6 +84,8 @@ pub fn generate(project: &Path) -> String {
     out += &read(&project.join("assets/fonts/OFL-Inter.txt"));
     out += &rule("Fonts in Pearl's interface: JetBrains Mono (SIL Open Font License 1.1)");
     out += &read(&project.join("assets/fonts/OFL-JetBrainsMono.txt"));
+    out += &rule("Fonts in Pearl's interface: Patrick Hand (SIL Open Font License 1.1)");
+    out += &read(&project.join("assets/fonts/OFL-PatrickHand.txt"));
 
     out += &rule("The VERO dictionary: its notes");
     out += &read(&project.join("assets/dict/pt_BR/README_pt_BR.txt"));

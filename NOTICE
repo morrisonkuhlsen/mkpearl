@@ -22,7 +22,7 @@ Typesetting is done by Typst (https://github.com/typst/typst), Apache-2.0. The f
 in the Documentation pane is the documentation Typst carries inside itself. Pearl is not made or
 endorsed by the Typst project.
 
-Fonts in the interface (SIL Open Font License 1.1): Inter and JetBrains Mono; see assets/fonts/OFL-*.txt.
+Fonts in the interface (SIL Open Font License 1.1): Inter, JetBrains Mono and Patrick Hand; see assets/fonts/OFL-*.txt.
 
 Fonts inside the program through Typst and the interface toolkit, unmodified: DejaVu Sans Mono, Foxit,
 Libertinus Serif, New Computer Modern, Hack, Noto Emoji, Ubuntu and others, each under its own terms.
