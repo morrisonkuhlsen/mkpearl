@@ -31,7 +31,7 @@ use crate::widgets::{field_menu, glyphs, group_begin, group_end, icon_button_mon
 
 mod accessibility;
 mod backstage;
-mod comments;
+pub mod comments;
 mod comparing;
 mod docs;
 mod figures;
@@ -782,6 +782,8 @@ impl App {
                 Event::Typography(findings) => self.watch.findings = findings,
                 Event::VariantDone { request, index, result } => self.receive_variant(ctx, request, index, result),
                 Event::FitDone { request, result } => self.receive_fit(ctx, request, result),
+                Event::ReviewPicked { request, result } => self.receive_pick(request, result),
+                Event::Places(places) => self.receive_places(places),
                 Event::TimelineDone { request, stamp, result } => self.receive_timeline(ctx, request, stamp, result),
                 Event::Compared { request, result } => self.receive_comparison(ctx, request, result),
                 Event::DropTarget { block, byte, above } => self.finish_move(ctx, block, byte, above),
@@ -2514,6 +2516,21 @@ impl App {
         if tool(ui, Icon::Comment, tx("comment-on-the-selection")).clicked() {
             self.start_comment();
         }
+        let reviewing = self.review_tool();
+        if toggle(ui, Icon::Pen, tx("review"), tx("review-on-the-pages"), reviewing.is_some()).clicked() {
+            self.set_review_tool(if reviewing.is_some() { None } else { Some(comments::ReviewTool::Strike) });
+        }
+        if reviewing.is_some() {
+            for (tool, name) in [
+                (comments::ReviewTool::Strike, tx("strike-out")),
+                (comments::ReviewTool::Highlight, tx("highlight-mark")),
+                (comments::ReviewTool::Note, tx("note")),
+            ] {
+                if ui.selectable_label(reviewing == Some(tool), name).clicked() {
+                    self.set_review_tool(Some(tool));
+                }
+            }
+        }
         if glyphs(ui, "a→b", tx("replace-h")).clicked() {
             let ctx = ui.ctx().clone();
             self.open_replace(&ctx);
@@ -3891,7 +3908,10 @@ impl App {
         let mut click = None;
         let mut placed = Vec::with_capacity(self.pages.len());
         let mut figure_action = None;
-        let figures_on = !self.previewing;
+        let reviewing = !self.previewing && self.comments.tool.is_some();
+        let mut review_pick = None;
+        self.ask_for_places();
+        let figures_on = !self.previewing && !reviewing;
         // A past version's pages aren't what the watch read.
         let watching = !self.previewing && self.side == Some(Side::Problems);
         let mut pages_ui = ui.new_child(egui::UiBuilder::new().max_rect(pages_area));
@@ -3901,7 +3921,7 @@ impl App {
             ui.vertical_centered(|ui| {
                 for (i, page) in self.pages.iter().enumerate() {
                     let size = vec2(page.width_pt, page.height_pt) * zoom;
-                    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+                    let (rect, resp) = ui.allocate_exact_size(size, if reviewing { Sense::click_and_drag() } else { Sense::click() });
                     placed.push(rect);
                     if !ui.is_rect_visible(rect.expand(200.0)) && !scroll_page.is_some_and(|(p, _)| p == i) {
                         continue;
@@ -3910,11 +3930,33 @@ impl App {
                     if let Some(tex) = self.textures.get(&page.hash) {
                         ui.painter().image(tex.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
                     }
+                    self.comments_on_page(ui, i, rect, zoom, t);
                     if resp.clicked()
                         && let Some(p) = resp.interact_pointer_pos()
                     {
                         let at = (p - rect.min) / zoom;
-                        click = Some((i, at.x, at.y));
+                        if reviewing {
+                            review_pick = Some((i, at, at));
+                        } else {
+                            click = Some((i, at.x, at.y));
+                        }
+                    }
+                    if reviewing {
+                        if resp.drag_started()
+                            && let Some(p) = resp.interact_pointer_pos()
+                        {
+                            self.comments.drag_from = Some((i, ((p - rect.min) / zoom).to_pos2()));
+                        }
+                        if let (Some((from_page, from)), Some(p)) =
+                            (self.comments.drag_from.filter(|(page, _)| *page == i), resp.interact_pointer_pos())
+                        {
+                            // What the drag has covered so far.
+                            let shown = Rect::from_two_pos(rect.min + from.to_vec2() * zoom, p);
+                            ui.painter().rect_filled(shown, 1.0, t.accent.gamma_multiply(0.15));
+                            if resp.drag_stopped() {
+                                review_pick = Some((from_page, from.to_vec2(), (p - rect.min) / zoom));
+                            }
+                        }
                     }
                     if watching {
                         self.watch.on_page(ui, i, rect, zoom, t);
@@ -3964,6 +4006,10 @@ impl App {
         }
         self.page_rects = placed;
         self.figures_after_pages(ui.ctx(), figure_action);
+        if let Some((page, from, to)) = review_pick {
+            self.comments.drag_from = None;
+            self.pick_on_page(page, [f64::from(from.x), f64::from(from.y)], [f64::from(to.x), f64::from(to.y)]);
+        }
         // A past version's pages don't correspond to the source on show.
         if let Some((page, x, y)) = click.filter(|_| !self.previewing) {
             self.compiler.send(Job::Click { page, x: f64::from(x), y: f64::from(y) });

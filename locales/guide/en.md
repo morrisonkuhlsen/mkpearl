@@ -295,6 +295,9 @@ In the Versions pane, Timeline of the writing opens a slider over the document's
 ## Comments
 ?? comments comment review thread reply resolve session
 Select a passage in the source and press Ctrl+Alt+M, or open the Comments pane, to leave a comment on it. Each passage with an open comment is marked in the source, and a click on the thread goes to it. Others in a session see the comments and can reply. They're kept in a file beside the document, ending in `.comments.json`, so the text and the PDF stay as they are. A thread can be deleted once it's resolved.
+## Reviewing on the pages
+?? review mark strike highlight note suggestion accept decline pages
+In the Home tab, Review turns the pages into something to mark up: choose Strike out, Highlight or Note, and drag over the words or click one. A struck passage can say what replaces it. Each mark becomes a suggestion in the Comments pane: Accept writes it in the source, as one Ctrl+Z, and Decline leaves the source alone. If the text under a mark has changed since, it can no longer be applied, and says so. Words that come from the document's code, such as numbers and references, can't be marked.
 ## Comparing versions on the pages
 ?? pearl compare version difference review before after history
 In the Versions pane, choose a version and click Compare on the pages. The pages from before and now go side by side: green for what came in, red for what went out and blue for what changed place. The Previous and Next buttons go through the changes, and nothing in the document is altered.

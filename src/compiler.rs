@@ -60,6 +60,17 @@ pub enum Job {
         old: String,
         request: u64,
     },
+    /// What's between two points of a page, as a range of the source, for a review mark.
+    ReviewPick {
+        request: u64,
+        page: usize,
+        from: [f64; 2],
+        to: [f64; 2],
+    },
+    /// Where these ranges of the source fall on the pages.
+    Places {
+        ranges: Vec<std::ops::Range<usize>>,
+    },
     /// Where a block of the source, at `block`, would go if dropped here on a page.
     Drop {
         page: usize,
@@ -158,6 +169,26 @@ pub struct Comparison {
     pub unseen: usize,
     /// Changes in all.
     pub total: usize,
+}
+
+/// Why a review mark can't be made where it was asked for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PickRefusal {
+    /// There's no text there.
+    Nothing,
+    /// The words there come out of the document's code, or elsewhere, with no text of their own to change.
+    Generated,
+}
+
+/// A stretch of a range of the source on a page, in points from its top left.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PagePlace {
+    pub index: usize,
+    pub page: usize,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
 }
 
 /// A document as a variant would set it.
@@ -277,6 +308,13 @@ pub enum Event {
         stamp: u64,
         result: Option<TimelineView>,
     },
+    /// The answer to [`Job::ReviewPick`].
+    ReviewPicked {
+        request: u64,
+        result: Result<std::ops::Range<usize>, PickRefusal>,
+    },
+    /// The answer to [`Job::Places`], with `index` the range's place in what was asked.
+    Places(Vec<PagePlace>),
     /// The answer to [`Job::Caret`], in points from the page's top left: `y` is the text's baseline.
     CaretAt {
         byte: usize,
@@ -541,6 +579,14 @@ impl Worker {
             Job::Compile { .. } | Job::Complete { .. } | Job::Hover { .. } | Job::Caret { .. } => {}
             Job::Click { page, x, y } => self.click(page, x, y),
             Job::Locate { byte } => self.locate(byte),
+            Job::ReviewPick { request, page, from, to } => {
+                let result = self.review_pick(page, from, to);
+                self.emit(Event::ReviewPicked { request, result });
+            }
+            Job::Places { ranges } => {
+                let places = self.places(&ranges);
+                self.emit(Event::Places(places));
+            }
             Job::Drop { page, x, y, block } => self.drop_target(page, x, y, block),
             Job::Compare { old, request } => {
                 let result = self.compare(&old);
@@ -724,6 +770,59 @@ impl Worker {
                 Some(PlacedImage { page, x: x as f32, y: y as f32, width: width as f32, height: height as f32, byte: world.range(span)?.start })
             })
             .collect()
+    }
+
+    /// The source between two points of a page, out to whole words. Only what's written as text in this
+    /// document can be marked: anything else says so, rather than guess at where it came from.
+    fn review_pick(&self, page: usize, from: [f64; 2], to: [f64; 2]) -> Result<std::ops::Range<usize>, PickRefusal> {
+        /// How far from a letter a point may be, by `nearest_glyph`'s measure.
+        const REACH: f64 = 80.0;
+        let (Some(world), Some(doc)) = (&self.world, &self.doc) else { return Err(PickRefusal::Nothing) };
+        let page = doc.pages().get(page).ok_or(PickRefusal::Nothing)?;
+        let source = world.source();
+        let byte_at = |[x, y]: [f64; 2]| -> Result<usize, PickRefusal> {
+            let mut nearest: Option<Nearest> = None;
+            nearest_glyph(&page.frame, Transform::identity(), Point::new(Abs::pt(x), Abs::pt(y)), &|_| true, &mut nearest);
+            let found = nearest.filter(|n| n.distance <= REACH).ok_or(PickRefusal::Nothing)?;
+            let node = source.find(found.span).ok_or(PickRefusal::Generated)?;
+            if !matches!(
+                node.kind(),
+                SyntaxKind::Text | SyntaxKind::SmartQuote | SyntaxKind::Escape | SyntaxKind::Shorthand | SyntaxKind::MathText | SyntaxKind::MathIdent
+            ) {
+                return Err(PickRefusal::Generated);
+            }
+            Ok(node.offset() + usize::from(found.offset))
+        };
+        let (a, b) = (byte_at(from)?, byte_at(to)?);
+        let text = source.text();
+        let word = |letter: char| letter.is_alphanumeric() || letter == '_';
+        let (low, high) = (a.min(b), a.max(b));
+        let start = text
+            .get(..low)
+            .map_or(low, |before| before.rfind(|c| !word(c)).map_or(0, |at| at + before[at..].chars().next().map_or(1, char::len_utf8)));
+        let after = text.get(high..).ok_or(PickRefusal::Generated)?;
+        // On a letter that's no part of a word, as a stop, its own width is the end.
+        let own = after.chars().next().map_or(0, char::len_utf8);
+        let end = high + after.find(|c| !word(c)).map_or(after.len(), |at| at.max(own));
+        (start < end && text.get(start..end).is_some()).then_some(start..end).ok_or(PickRefusal::Nothing)
+    }
+
+    /// Where ranges of the source are on the pages.
+    fn places(&self, ranges: &[std::ops::Range<usize>]) -> Vec<PagePlace> {
+        let (Some(world), Some(doc)) = (&self.world, &self.doc) else { return Vec::new() };
+        let main = typst::World::main(world);
+        let mut starts = HashMap::new();
+        let mut start_of = |span: Span| -> Option<usize> {
+            if span.id() != Some(main) {
+                return None;
+            }
+            *starts.entry(span).or_insert_with(|| world.range(span).map(|range| range.start))
+        };
+        let mut found = Vec::new();
+        for (index, page) in doc.pages().iter().enumerate() {
+            places_in_frame(&page.frame, Transform::identity(), index, ranges, &mut start_of, &mut found);
+        }
+        found
     }
 
     fn drop_target(&self, page: usize, x: f64, y: f64, block: std::ops::Range<usize>) {
@@ -1037,6 +1136,57 @@ fn marks_in_frame(
                     });
                     if let Some(shown) = seen.get_mut(stretch) {
                         *shown = true;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Where ranges fall in a frame, one stretch for each run of text in each.
+fn places_in_frame(
+    frame: &Frame,
+    ts: Transform,
+    page: usize,
+    ranges: &[std::ops::Range<usize>],
+    start_of: &mut dyn FnMut(Span) -> Option<usize>,
+    found: &mut Vec<PagePlace>,
+) {
+    for (pos, item) in frame.items() {
+        match item {
+            FrameItem::Group(group) => {
+                let inner = ts.pre_concat(Transform::translate(pos.x, pos.y)).pre_concat(group.transform);
+                places_in_frame(&group.frame, inner, page, ranges, start_of, found);
+            }
+            FrameItem::Text(text) => {
+                let mut runs: Vec<Option<(Abs, Abs)>> = vec![None; ranges.len()];
+                let mut x = Abs::zero();
+                for glyph in &text.glyphs {
+                    let advance = glyph.x_advance.at(text.size);
+                    if let Some(byte) = start_of(glyph.span.0).map(|start| start + usize::from(glyph.span.1)) {
+                        for (index, range) in ranges.iter().enumerate() {
+                            if range.contains(&byte)
+                                && let Some(run) = runs.get_mut(index)
+                            {
+                                *run = Some(run.map_or((x, x + advance), |(from, _)| (from, x + advance)));
+                            }
+                        }
+                    }
+                    x += advance;
+                }
+                for (index, run) in runs.iter().enumerate() {
+                    if let Some((from, to)) = run {
+                        let a = Point::new(pos.x + *from, pos.y - text.size * 0.8).transform(ts);
+                        let b = Point::new(pos.x + *to, pos.y + text.size * 0.25).transform(ts);
+                        found.push(PagePlace {
+                            index,
+                            page,
+                            x: a.x.to_pt() as f32,
+                            y: a.y.to_pt() as f32,
+                            width: (b.x - a.x).to_pt() as f32,
+                            height: (b.y - a.y).to_pt() as f32,
+                        });
                     }
                 }
             }
@@ -1889,6 +2039,87 @@ mod tests {
     fn a_broken_document_still_completes() {
         let (_, found) = suggestions("#nao_existe(\n#ali", false);
         assert!(found.iter().any(|s| s.label == "align"), "{found:?}");
+    }
+
+    /// Compiles a text and answers a job.
+    fn answered<T>(text: &str, jobs: Vec<Job>, mut pick: impl FnMut(Event) -> Option<T>) -> T {
+        let c = Compiler::start().unwrap();
+        c.send(Job::Compile { text: text.into(), path: None });
+        for job in jobs {
+            c.send(job);
+        }
+        loop {
+            if let Some(answer) = pick(c.events.recv_timeout(Duration::from_secs(120)).unwrap()) {
+                return answer;
+            }
+        }
+    }
+
+    fn places_of_range(text: &str, part: &str) -> Vec<PagePlace> {
+        let at = text.find(part).unwrap();
+        answered(text, vec![Job::Places { ranges: std::iter::once(at..at + part.len()).collect() }], |event| {
+            if let Event::Places(places) = event { Some(places) } else { None }
+        })
+    }
+
+    fn picked(text: &str, from: [f64; 2], to: [f64; 2]) -> Result<std::ops::Range<usize>, PickRefusal> {
+        let job = Job::ReviewPick { request: 1, page: 0, from, to };
+        answered(text, vec![job], |event| if let Event::ReviewPicked { result, .. } = event { Some(result) } else { None })
+    }
+
+    fn middle(place: &PagePlace) -> [f64; 2] {
+        [f64::from(place.x + place.width / 2.0), f64::from(place.y + place.height / 2.0)]
+    }
+
+    const REVIEWED: &str = "= Um título\nUma palavra errada, aqui mesmo.\n";
+
+    #[test]
+    fn a_point_on_a_word_marks_the_whole_word() {
+        let place = places_of_range(REVIEWED, "errada")[0];
+        let range = picked(REVIEWED, middle(&place), middle(&place)).unwrap();
+        assert_eq!(REVIEWED.get(range), Some("errada"));
+    }
+
+    #[test]
+    fn a_drag_marks_what_is_between_either_way() {
+        let (a, b) = (places_of_range(REVIEWED, "palavra")[0], places_of_range(REVIEWED, "aqui")[0]);
+        for (from, to) in [(middle(&a), middle(&b)), (middle(&b), middle(&a))] {
+            let range = picked(REVIEWED, from, to).unwrap();
+            assert_eq!(REVIEWED.get(range), Some("palavra errada, aqui"));
+        }
+    }
+
+    #[test]
+    fn words_with_accents_stay_whole() {
+        let text = "Uma ação correção aqui.\n";
+        let place = places_of_range(text, "correção")[0];
+        let range = picked(text, middle(&place), middle(&place)).unwrap();
+        assert_eq!(text.get(range), Some("correção"));
+    }
+
+    #[test]
+    fn what_the_document_generates_cant_be_marked_and_says_so() {
+        // The number of a heading, a call's words, and a reference come from no text of their own.
+        let lorem = "#set page(margin: 40pt)\n#lorem(30)\n";
+        assert_eq!(picked(lorem, [120.0, 45.0], [120.0, 45.0]), Err(PickRefusal::Generated));
+        let numbered = "#set page(margin: 40pt)\n#set heading(numbering: \"1.\")\n= Título\n";
+        assert_eq!(picked(numbered, [42.0, 48.0], [42.0, 48.0]), Err(PickRefusal::Generated));
+        // Far from any letter, there's nothing to mark.
+        assert_eq!(picked("#set page(margin: 40pt)\nTexto.\n", [300.0, 700.0], [300.0, 700.0]), Err(PickRefusal::Nothing));
+        // A page that isn't there, likewise.
+        let job = Job::ReviewPick { request: 1, page: 99, from: [1.0, 1.0], to: [1.0, 1.0] };
+        let answer = answered("Texto.\n", vec![job], |event| if let Event::ReviewPicked { result, .. } = event { Some(result) } else { None });
+        assert_eq!(answer, Err(PickRefusal::Nothing));
+    }
+
+    #[test]
+    fn a_range_is_found_on_each_line_it_runs_over() {
+        let text = format!("#set page(width: 8cm, margin: 1cm)\n{}\n", "palavras para quebrar em linhas ".repeat(6));
+        let at = text.find("palavras").unwrap();
+        let job = Job::Places { ranges: std::iter::once(at..text.len() - 2).collect() };
+        let places = answered(&text, vec![job], |event| if let Event::Places(places) = event { Some(places) } else { None });
+        assert!(places.len() >= 3, "{places:?}");
+        assert!(places.iter().all(|p| p.index == 0 && p.page == 0 && p.width > 0.0));
     }
 
     #[test]

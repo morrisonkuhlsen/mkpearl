@@ -20,8 +20,8 @@ Pearl's plan and progress log. Each section says what is done and its **Next:** 
 - *Done:* autosave; version history; comparing versions on the pages; a timeline with passages brought back (#32); recovery after a crash.
 
 ## Working together
-- *Done:* direct sessions (yrs, Noise); Claude as a person in the session; comments on the text (#12).
-- **Next:** review marks on the pages (#22); a relay for the internet (#13); images from guests (#16).
+- *Done:* direct sessions (yrs, Noise); Claude as a person in the session; comments on the text (#12); review marks on the pages (#22).
+- **Next:** a relay for the internet (#13); images from guests (#16).
 
 ## Getting it to people
 - *Done:* the licences in the program; the gates and CI; the interface in English and Portuguese; packages and a release workflow, see `docs/releasing.md`.
