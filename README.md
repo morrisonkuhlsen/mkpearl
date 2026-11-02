@@ -72,7 +72,7 @@
 **Documents**
 - Letterhead and watermark, from a window with a live preview.
 - Templates, an outline, a files pane and PDF export.
-- Version history: see what changed, look at past pages and restore.
+- Version history: see what changed, compare two versions side by side on their finished pages, with what came in, went out or changed place marked, and restore.
 - Autosave, and recovery of unsaved text after a crash.
 
 **With others**
@@ -80,7 +80,7 @@
 - Claude as a person in the session, with your own API key.
 
 **Learning**
-- 28 lessons in English and Brazilian Portuguese, with live examples.
+- 29 lessons in English and Brazilian Portuguese, with live examples.
 - A searchable reference of every Typst function, from the documentation Typst carries inside itself, in English. F1 looks up the word at the caret.
 
 The interface is in English and Brazilian Portuguese.
