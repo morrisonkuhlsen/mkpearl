@@ -333,6 +333,10 @@ refresh-the-list = Refresh the list
 relations = Relations
 remove = Remove
 remove-the-saved-key = Remove the saved key
+replace = Replace
+replace-all = Replace all
+replace-h = Find and replace (Ctrl+H)
+replace-with = Replace with
 report-abnt = Report (ABNT)
 restore = Restore
 restore-the-example = Restore
@@ -603,3 +607,7 @@ ignore = Ignore
 until-pearl-closes = Until Pearl closes
 add-to-the-dictionary = Add to the dictionary
 on-this-computer = On this computer
+replaced-count = { $n ->
+    [one] 1 replacement made
+   *[other] { $n } replacements made
+}

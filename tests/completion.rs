@@ -2,8 +2,9 @@
 
 use std::time::{Duration, Instant};
 
-use egui::{Event, Key};
+use egui::{Event, Key, Modifiers};
 use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
 use pearl::app::App;
 
 fn window<'a>() -> Harness<'a, App> {
@@ -316,4 +317,98 @@ fn the_style_box_turns_a_line_into_a_list_and_shows_it() {
         h.step();
     }
     assert_eq!(h.state().text(), "item");
+}
+
+fn press_keys(h: &mut Harness<'_, App>) {
+    for _ in 0..4 {
+        h.step();
+    }
+}
+
+/// The search open on its replacing part, with this word found and the keyboard in the field for what replaces it.
+fn replacing<'a>(text: &str, word: &str) -> Harness<'a, App> {
+    let mut h = searching(text);
+    h.event(Event::Text(word.to_string()));
+    press_keys(&mut h);
+    let ctx = h.ctx.clone();
+    h.state_mut().open_replace(&ctx);
+    press_keys(&mut h);
+    h
+}
+
+#[test]
+fn control_h_opens_it_without_erasing_a_letter() {
+    let mut h = window();
+    h.state_mut().set_text("uma palavra aqui");
+    h.step();
+    let ctx = h.ctx.clone();
+    h.state_mut().select(&ctx, 4, 11);
+    h.step();
+    h.key_press_modifiers(Modifiers::COMMAND, Key::H);
+    press_keys(&mut h);
+    assert_eq!(h.state().text(), "uma palavra aqui", "Ctrl+H doesn't reach the editor as a backspace");
+    assert!(h.query_by_label("Substituir tudo").is_some());
+    h.event(Event::Text("termo".to_string()));
+    press_keys(&mut h);
+    h.get_by_label("Substituir tudo").click();
+    press_keys(&mut h);
+    assert_eq!(h.state().text(), "uma termo aqui", "it opened on the word selected, with the keyboard in the other field");
+}
+
+#[test]
+fn enter_replaces_one_at_a_time_and_stays_in_the_field() {
+    let mut h = replacing("x um x dois x", "x");
+    h.event(Event::Text("yy".to_string()));
+    press_keys(&mut h);
+    let ctx = h.ctx.clone();
+    assert_eq!(h.state().selected_range(&ctx), (0, 1), "the match on show is the one it'll replace");
+    h.key_press(Key::Enter);
+    press_keys(&mut h);
+    assert_eq!(h.state().text(), "yy um x dois x");
+    assert_eq!(h.state().selected_range(&ctx), (6, 7), "on to the next one");
+    h.key_press(Key::Enter);
+    press_keys(&mut h);
+    assert_eq!(h.state().text(), "yy um yy dois x", "the keyboard stayed: Enter didn't go to the document");
+    assert!(!h.state().text().contains('\n'));
+}
+
+#[test]
+fn replacing_with_nothing_selected_shows_the_match_first() {
+    let mut h = replacing("a x b", "x");
+    let ctx = h.ctx.clone();
+    h.state_mut().select(&ctx, 0, 0);
+    press_keys(&mut h);
+    // The last of its name: the first turns the replacing part on and off.
+    h.get_all_by_label("Substituir").last().unwrap().click();
+    press_keys(&mut h);
+    assert_eq!(h.state().text(), "a x b", "nothing changes unseen");
+    assert_eq!(h.state().selected_range(&ctx), (2, 3));
+    h.get_all_by_label("Substituir").last().unwrap().click();
+    press_keys(&mut h);
+    assert_eq!(h.state().text(), "a  b", "now it's seen, and with nothing typed the match goes");
+}
+
+#[test]
+fn replacing_all_is_one_undo_step_and_says_how_many() {
+    let mut h = replacing("Alvo, alvo e ALVO. Só isto fica.\n", "alvo");
+    h.event(Event::Text("gol".to_string()));
+    press_keys(&mut h);
+    h.get_by_label("Substituir tudo").click();
+    press_keys(&mut h);
+    assert_eq!(h.state().text(), "gol, gol e gol. Só isto fica.\n");
+    assert!(h.state().status().contains('3'), "{}", h.state().status());
+    h.key_press(Key::Escape);
+    press_keys(&mut h);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    press_keys(&mut h);
+    assert_eq!(h.state().text(), "Alvo, alvo e ALVO. Só isto fica.\n");
+}
+
+#[test]
+fn with_no_match_the_buttons_do_nothing() {
+    let mut h = replacing("nada aqui", "xis");
+    h.get_by_label("Substituir tudo").click();
+    press_keys(&mut h);
+    assert_eq!(h.state().text(), "nada aqui");
+    assert!(!h.state().is_dirty());
 }

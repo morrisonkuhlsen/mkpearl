@@ -254,6 +254,15 @@ fn main() {
             std::thread::sleep(Duration::from_millis(10));
         }
     }
+    if args.iter().any(|a| a == "replace") {
+        let ctx = harness.ctx.clone();
+        harness.state_mut().select(&ctx, 0, 0);
+        harness.state_mut().open_replace(&ctx);
+        harness.step();
+        harness.step();
+        harness.event(egui::Event::Text("tabela".to_string()));
+        harness.run_steps(10);
+    }
     if args.iter().any(|a| a == "search") {
         harness.state_mut().open_search();
         harness.step();

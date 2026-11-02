@@ -333,6 +333,10 @@ refresh-the-list = Atualizar a lista
 relations = Relações
 remove = Remover
 remove-the-saved-key = Remover a chave salva
+replace = Substituir
+replace-all = Substituir tudo
+replace-h = Localizar e substituir (Ctrl+H)
+replace-with = Substituir por
 report-abnt = Relatório (ABNT)
 restore = Restaurar
 restore-the-example = Restaurar
@@ -603,3 +607,7 @@ ignore = Ignorar
 until-pearl-closes = Até fechar o Pearl
 add-to-the-dictionary = Adicionar ao dicionário
 on-this-computer = Neste computador
+replaced-count = { $n ->
+    [one] 1 substituição feita
+   *[other] { $n } substituições feitas
+}

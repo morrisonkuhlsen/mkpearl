@@ -506,6 +506,46 @@ pub fn find_all(text: &str, query: &str, limit: usize) -> Vec<Sel> {
     out
 }
 
+/// Replaces these matches, char ranges in order and not overlapping, by `with`, in one pass however many
+/// there are. The selection stays on the same letters; inside a match, it goes to the end of what took
+/// its place.
+pub fn replace_matches(text: &mut String, (a, b): Sel, matches: &[Sel], with: &str) -> Sel {
+    let added = with.chars().count();
+    let moved = |c: usize| {
+        let mut out = c;
+        for &(start, end) in matches {
+            if c >= end {
+                out = out - (end - start) + added;
+            } else if c > start {
+                return out - (c - start) + added;
+            } else {
+                break;
+            }
+        }
+        out
+    };
+    let selection = (moved(a), moved(b));
+    let mut out = String::with_capacity(text.len());
+    let mut remaining = matches.iter();
+    let mut current = remaining.next();
+    for (index, letter) in text.chars().enumerate() {
+        if let Some(&(start, end)) = current {
+            if index == start {
+                out.push_str(with);
+            }
+            if (start..end).contains(&index) {
+                if index + 1 == end {
+                    current = remaining.next();
+                }
+                continue;
+            }
+        }
+        out.push(letter);
+    }
+    *text = out;
+    selection
+}
+
 /// The next match of `query` from char `from`, ignoring case, wrapping round the end of the text.
 pub fn find(text: &str, query: &str, from: usize, backwards: bool) -> Option<Sel> {
     let needle: Vec<char> = query.chars().flat_map(char::to_lowercase).collect();
@@ -571,6 +611,49 @@ mod tests {
         assert_eq!((t.as_str(), s), ("um\n== dois", (8, 8)));
         let s = line_marker(&mut t, s, "== ");
         assert_eq!((t.as_str(), s), ("um\ndois", (5, 5)));
+    }
+
+    fn replaced(text: &str, query: &str, with: &str) -> String {
+        let mut out = text.to_string();
+        replace_matches(&mut out, (0, 0), &find_all(text, query, usize::MAX), with);
+        out
+    }
+
+    #[test]
+    fn every_match_is_replaced_as_written_and_nothing_else() {
+        assert_eq!(replaced("um Alvo e um alvo.", "alvo", "gol"), "um gol e um gol.");
+        assert_eq!(replaced("açúcar é ação", "ção", "ções"), "açúcar é ações");
+        assert_eq!(replaced("nada aqui", "xis", "y"), "nada aqui");
+        assert_eq!(replaced("tirar isto", " isto", ""), "tirar");
+        assert_eq!(replaced("a a", "a", "aa"), "aa aa", "what comes in isn't searched again");
+        assert_eq!(replaced("x", "x", "$1 \\n #set"), "$1 \\n #set", "the replacement is plain text");
+        assert_eq!(replaced("", "x", "y"), "");
+        assert_eq!(replaced("x", "", "y"), "x");
+    }
+
+    #[test]
+    fn replacing_keeps_the_selection_on_its_letters() {
+        let mut text = "aa alvo bb alvo cc".to_string();
+        let matches = find_all(&text, "alvo", usize::MAX);
+        let (a, b) = replace_matches(&mut text.clone(), (11, 16), &matches, "x");
+        assert_eq!((a, b), (8, 10), "the start of a match, and the letter after it, stay where they are");
+        let (a, _) = replace_matches(&mut text, (13, 13), &matches, "x");
+        assert_eq!(text, "aa x bb x cc");
+        assert_eq!(a, 9, "from inside a match to the end of what took its place");
+        let mut text = "alvo fim".to_string();
+        assert_eq!(replace_matches(&mut text, (5, 5), &[(0, 4)], "é"), (2, 2));
+        let mut text = "um alvo".to_string();
+        assert_eq!(replace_matches(&mut text, (0, 2), &[(3, 7)], "é"), (0, 2), "what's before stays");
+    }
+
+    #[test]
+    fn a_huge_replacement_takes_no_time() {
+        let mut text = "alvo ".repeat(200_000);
+        let matches = find_all(&text, "alvo", usize::MAX);
+        let started = std::time::Instant::now();
+        replace_matches(&mut text, (0, 0), &matches, "gol");
+        assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
+        assert_eq!(text.len(), 800_000);
     }
 
     #[test]
