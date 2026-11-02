@@ -341,6 +341,7 @@ pub struct App {
     ribbon_collapsed: bool,
     find: Option<String>,
     find_focus: bool,
+    find_options: edit::FindOptions,
     /// What replaces a match, while the search offers it.
     replacing: Option<String>,
     replace_focus: bool,
@@ -487,6 +488,7 @@ impl App {
             ribbon_collapsed: false,
             find: None,
             find_focus: false,
+            find_options: edit::FindOptions::default(),
             replacing: None,
             replace_focus: false,
             about: false,
@@ -3083,11 +3085,13 @@ impl App {
         self.find_focus = true;
     }
 
-    /// Opens the search with its replacing part, on the text selected when there's a line of it.
+    /// Opens the search with its replacing part. A search with nothing in it yet starts from the text
+    /// selected, when there's a line of it; one under way stays as it is, since what it has selected is
+    /// its own match, perhaps in another case.
     pub fn open_replace(&mut self, ctx: &egui::Context) {
         let selected = edit::selected(&self.text, self.selection(ctx)).to_string();
         let query = self.find.get_or_insert_default();
-        if !selected.is_empty() && !selected.contains('\n') {
+        if query.is_empty() && !selected.contains('\n') {
             query.clone_from(&selected);
         }
         let has_query = !query.is_empty();
@@ -3100,8 +3104,8 @@ impl App {
     /// that nothing changes unseen.
     fn replace_current(&mut self, ctx: &egui::Context, query: &str, with: &str) {
         let selection = self.selection(ctx);
-        if edit::find(&self.text, query, selection.0, false) != Some(selection) {
-            if let Some(found) = edit::find(&self.text, query, selection.0, false) {
+        if edit::find(&self.text, query, self.find_options, selection.0, false) != Some(selection) {
+            if let Some(found) = edit::find(&self.text, query, self.find_options, selection.0, false) {
                 self.set_selection(ctx, found);
                 self.scroll_caret = true;
             }
@@ -3109,7 +3113,7 @@ impl App {
         }
         let end = selection.0 + with.chars().count();
         self.replacing_edit(ctx, |text, sel| edit::replace_matches(text, sel, &[selection], with));
-        if let Some(found) = edit::find(&self.text, query, end, false) {
+        if let Some(found) = edit::find(&self.text, query, self.find_options, end, false) {
             self.set_selection(ctx, found);
         } else {
             self.set_selection(ctx, (end, end));
@@ -3118,7 +3122,7 @@ impl App {
 
     /// Replaces all the matches, as one undo step, and says how many.
     fn replace_every(&mut self, ctx: &egui::Context, query: &str, with: &str) {
-        let matches = edit::find_all(&self.text, query, usize::MAX);
+        let matches = edit::find_all(&self.text, query, self.find_options, usize::MAX);
         if !matches.is_empty() {
             self.replacing_edit(ctx, |text, sel| edit::replace_matches(text, sel, &matches, with));
         }
@@ -3141,7 +3145,7 @@ impl App {
 
     fn find_from(&mut self, ctx: &egui::Context, from: usize, backwards: bool) {
         let Some(query) = self.find.clone() else { return };
-        if let Some(found) = edit::find(&self.text, &query, from, backwards) {
+        if let Some(found) = edit::find(&self.text, &query, self.find_options, from, backwards) {
             self.set_selection(ctx, found);
             self.scroll_caret = true;
         }
@@ -3516,7 +3520,7 @@ impl App {
         let scroll_caret = std::mem::take(&mut self.scroll_caret);
         let show_numbers = self.line_numbers;
         let scroll_target = self.selection(&ctx).0;
-        let found = self.find.as_deref().map_or_else(Vec::new, |q| edit::find_all(&self.text, q, MAX_MATCHES_SHOWN));
+        let found = self.find.as_deref().map_or_else(Vec::new, |q| edit::find_all(&self.text, q, self.find_options, MAX_MATCHES_SHOWN));
         let current_match = self.find.as_ref().map(|_| self.selection(&ctx));
         let waiting = self.session.as_ref().is_some_and(Session::is_waiting);
         let carets = self.session.as_ref().map_or_else(Vec::new, Session::cursors);
@@ -4161,7 +4165,7 @@ impl App {
             let mut keep = true;
             let (mut next, mut previous, mut edited) = (false, false, false);
             let (mut replace_one, mut replace_all) = (false, false);
-            let matches = edit::find_all(&self.text, &query, MAX_MATCHES_SHOWN);
+            let matches = edit::find_all(&self.text, &query, self.find_options, MAX_MATCHES_SHOWN);
             let selection = self.selection(ctx);
             let place = matches.iter().position(|m| *m == selection);
             egui::Window::new(tx("find")).collapsible(false).resizable(false).title_bar(false).anchor(egui::Align2::RIGHT_TOP, [-44.0, 134.0]).show(
@@ -4180,6 +4184,14 @@ impl App {
                         }
                         if ui.input(|i| i.key_pressed(Key::Escape)) {
                             keep = false;
+                        }
+                        if ui.selectable_label(self.find_options.match_case, "Aa").on_hover_text(tx("match-case")).clicked() {
+                            self.find_options.match_case ^= true;
+                            edited = true;
+                        }
+                        if ui.selectable_label(self.find_options.whole_word, "ab|").on_hover_text(tx("whole-word")).clicked() {
+                            self.find_options.whole_word ^= true;
+                            edited = true;
                         }
                         let t = Tokens::get(ui.ctx());
                         let count = match (query.is_empty(), matches.len(), place) {

@@ -485,20 +485,64 @@ pub fn toggle_comment(text: &mut String, (a, b): Sel) -> Sel {
     (start_c, start_c + n)
 }
 
-/// Every match of `query`, ignoring case, not overlapping, as char ranges, up to `limit`.
-pub fn find_all(text: &str, query: &str, limit: usize) -> Vec<Sel> {
-    let needle: Vec<char> = query.chars().flat_map(char::to_lowercase).collect();
-    if needle.is_empty() {
+/// How a search compares. By default it ignores case and finds parts of words.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FindOptions {
+    pub match_case: bool,
+    pub whole_word: bool,
+}
+
+/// A query ready to be compared at places in a text.
+struct Matcher {
+    needle: Vec<char>,
+    hay: Vec<char>,
+    options: FindOptions,
+}
+
+fn in_a_word(letter: char) -> bool {
+    letter.is_alphanumeric() || letter == '_'
+}
+
+impl Matcher {
+    fn new(text: &str, query: &str, options: FindOptions) -> Self {
+        let needle = if options.match_case { query.chars().collect() } else { query.chars().flat_map(char::to_lowercase).collect() };
+        Self { needle, hay: text.chars().collect(), options }
+    }
+
+    fn at(&self, at: usize) -> bool {
+        let Some(window) = self.hay.get(at..at + self.needle.len()) else { return false };
+        let same = if self.options.match_case {
+            window == self.needle.as_slice()
+        } else {
+            window.iter().zip(&self.needle).all(|(h, n)| h.to_lowercase().eq(std::iter::once(*n)))
+        };
+        same && (!self.options.whole_word || self.stands_alone(at))
+    }
+
+    /// Whether the match here has no more of its word on either side. A query's edge that's no letter,
+    /// as in `#set`, has no word to run on into on that side.
+    fn stands_alone(&self, at: usize) -> bool {
+        let before = at.checked_sub(1).and_then(|i| self.hay.get(i)).copied();
+        let after = self.hay.get(at + self.needle.len()).copied();
+        let first_free = !self.needle.first().copied().is_some_and(in_a_word) || !before.is_some_and(in_a_word);
+        let last_free = !self.needle.last().copied().is_some_and(in_a_word) || !after.is_some_and(in_a_word);
+        first_free && last_free
+    }
+}
+
+/// Every match of `query`, not overlapping, as char ranges, up to `limit`.
+pub fn find_all(text: &str, query: &str, options: FindOptions, limit: usize) -> Vec<Sel> {
+    let matcher = Matcher::new(text, query, options);
+    let size = matcher.needle.len();
+    if size == 0 {
         return Vec::new();
     }
-    let hay: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
     let mut at = 0;
-    while at + needle.len() <= hay.len() && out.len() < limit {
-        let fits = hay.get(at..at + needle.len()).is_some_and(|w| w.iter().zip(&needle).all(|(h, n)| h.to_lowercase().eq(std::iter::once(*n))));
-        if fits {
-            out.push((at, at + needle.len()));
-            at += needle.len();
+    while at + size <= matcher.hay.len() && out.len() < limit {
+        if matcher.at(at) {
+            out.push((at, at + size));
+            at += size;
         } else {
             at += 1;
         }
@@ -546,23 +590,21 @@ pub fn replace_matches(text: &mut String, (a, b): Sel, matches: &[Sel], with: &s
     selection
 }
 
-/// The next match of `query` from char `from`, ignoring case, wrapping round the end of the text.
-pub fn find(text: &str, query: &str, from: usize, backwards: bool) -> Option<Sel> {
-    let needle: Vec<char> = query.chars().flat_map(char::to_lowercase).collect();
-    let hay: Vec<char> = text.chars().collect();
-    if needle.is_empty() || hay.len() < needle.len() {
+/// The next match of `query` from char `from`, wrapping round the end of the text.
+pub fn find(text: &str, query: &str, options: FindOptions, from: usize, backwards: bool) -> Option<Sel> {
+    let matcher = Matcher::new(text, query, options);
+    let size = matcher.needle.len();
+    if size == 0 || matcher.hay.len() < size {
         return None;
     }
-    let same =
-        |at: usize| hay.get(at..at + needle.len()).is_some_and(|w| w.iter().zip(&needle).all(|(h, n)| h.to_lowercase().eq(std::iter::once(*n))));
-    let last = hay.len() - needle.len();
+    let last = matcher.hay.len() - size;
     let from = from.min(last + 1);
     let found = if backwards {
-        (0..from).rev().find(|i| same(*i)).or_else(|| (from..=last).rev().find(|i| same(*i)))
+        (0..from).rev().find(|i| matcher.at(*i)).or_else(|| (from..=last).rev().find(|i| matcher.at(*i)))
     } else {
-        (from..=last).find(|i| same(*i)).or_else(|| (0..from).find(|i| same(*i)))
+        (from..=last).find(|i| matcher.at(*i)).or_else(|| (0..from).find(|i| matcher.at(*i)))
     };
-    found.map(|i| (i, i + needle.len()))
+    found.map(|i| (i, i + size))
 }
 
 /// The 1-based line of a byte offset.
@@ -615,7 +657,7 @@ mod tests {
 
     fn replaced(text: &str, query: &str, with: &str) -> String {
         let mut out = text.to_string();
-        replace_matches(&mut out, (0, 0), &find_all(text, query, usize::MAX), with);
+        replace_matches(&mut out, (0, 0), &find_all(text, query, FindOptions::default(), usize::MAX), with);
         out
     }
 
@@ -632,9 +674,31 @@ mod tests {
     }
 
     #[test]
+    fn a_search_can_match_case_and_whole_words() {
+        let case = FindOptions { match_case: true, whole_word: false };
+        let word = FindOptions { match_case: false, whole_word: true };
+        let both = FindOptions { match_case: true, whole_word: true };
+        let text = "Ana e banana, ANA e ana_b. ação Ação";
+        assert_eq!(find_all(text, "ana", FindOptions::default(), 99).len(), 4);
+        assert_eq!(find_all(text, "ana", case, 99), [(7, 10), (20, 23)]);
+        assert_eq!(find_all(text, "ana", word, 99), [(0, 3), (14, 17)], "banana and ana_b are other words");
+        assert_eq!(find_all(text, "Ana", both, 99), [(0, 3)]);
+        assert_eq!(find_all(text, "ção", word, 99), [], "an accented letter is part of its word");
+        assert_eq!(find_all(text, "Ação", case, 99).len(), 1);
+        assert_eq!(find_all("#set page #setting", "#set", word, 99), [(0, 4)], "what isn't a letter has no word on that side");
+        assert_eq!(find_all("(a) a", "(a)", word, 99), [(0, 3)]);
+        assert_eq!(find(text, "ana", word, 1, false), Some((14, 17)));
+        assert_eq!(find(text, "ana", word, 1, true), Some((0, 3)));
+        assert_eq!(find(text, "ana", word, 0, true), Some((14, 17)), "going back wraps round too");
+        assert_eq!(find("banana", "ana", word, 0, false), None);
+        assert_eq!(find("", "a", both, 0, false), None);
+        assert!(find_all("x", "", both, 99).is_empty());
+    }
+
+    #[test]
     fn replacing_keeps_the_selection_on_its_letters() {
         let mut text = "aa alvo bb alvo cc".to_string();
-        let matches = find_all(&text, "alvo", usize::MAX);
+        let matches = find_all(&text, "alvo", FindOptions::default(), usize::MAX);
         let (a, b) = replace_matches(&mut text.clone(), (11, 16), &matches, "x");
         assert_eq!((a, b), (8, 10), "the start of a match, and the letter after it, stay where they are");
         let (a, _) = replace_matches(&mut text, (13, 13), &matches, "x");
@@ -649,7 +713,7 @@ mod tests {
     #[test]
     fn a_huge_replacement_takes_no_time() {
         let mut text = "alvo ".repeat(200_000);
-        let matches = find_all(&text, "alvo", usize::MAX);
+        let matches = find_all(&text, "alvo", FindOptions::default(), usize::MAX);
         let started = std::time::Instant::now();
         replace_matches(&mut text, (0, 0), &matches, "gol");
         assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
@@ -842,11 +906,11 @@ mod tests {
 
     #[test]
     fn every_match_is_found_without_overlap_and_within_the_limit() {
-        assert_eq!(find_all("Ação ação", "AÇÃO", 10), [(0, 4), (5, 9)]);
-        assert_eq!(find_all("aaaa", "aa", 10), [(0, 2), (2, 4)]);
-        assert_eq!(find_all("aaaa", "a", 2).len(), 2);
-        assert!(find_all("abc", "", 10).is_empty());
-        assert!(find_all("a", "abc", 10).is_empty());
+        assert_eq!(find_all("Ação ação", "AÇÃO", FindOptions::default(), 10), [(0, 4), (5, 9)]);
+        assert_eq!(find_all("aaaa", "aa", FindOptions::default(), 10), [(0, 2), (2, 4)]);
+        assert_eq!(find_all("aaaa", "a", FindOptions::default(), 2).len(), 2);
+        assert!(find_all("abc", "", FindOptions::default(), 10).is_empty());
+        assert!(find_all("a", "abc", FindOptions::default(), 10).is_empty());
     }
 
     #[test]
@@ -876,13 +940,13 @@ mod tests {
     #[test]
     fn find_ignores_case_wraps_and_goes_back() {
         let t = "Ação ação AÇÃO";
-        assert_eq!(find(t, "ação", 0, false), Some((0, 4)));
-        assert_eq!(find(t, "ação", 1, false), Some((5, 9)));
-        assert_eq!(find(t, "ação", 11, false), Some((0, 4)));
-        assert_eq!(find(t, "ação", 5, true), Some((0, 4)));
-        assert_eq!(find(t, "ação", 0, true), Some((10, 14)));
-        assert_eq!(find(t, "", 0, false), None);
-        assert_eq!(find("a", "abc", 0, false), None);
+        assert_eq!(find(t, "ação", FindOptions::default(), 0, false), Some((0, 4)));
+        assert_eq!(find(t, "ação", FindOptions::default(), 1, false), Some((5, 9)));
+        assert_eq!(find(t, "ação", FindOptions::default(), 11, false), Some((0, 4)));
+        assert_eq!(find(t, "ação", FindOptions::default(), 5, true), Some((0, 4)));
+        assert_eq!(find(t, "ação", FindOptions::default(), 0, true), Some((10, 14)));
+        assert_eq!(find(t, "", FindOptions::default(), 0, false), None);
+        assert_eq!(find("a", "abc", FindOptions::default(), 0, false), None);
     }
 
     #[test]
