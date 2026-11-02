@@ -204,12 +204,15 @@ impl App {
         let Some(timeline) = &self.timeline else { return };
         let on_show = timeline.current().and_then(|v| timeline.shown.get(&v.stamp));
         ui.horizontal_top(|ui| {
-            egui::Frame::new().inner_margin(8.0).show(ui, |ui| {
+            ui.add_space(8.0);
+            ui.vertical(|ui| {
                 ui.set_width(PASSAGES_WIDTH);
+                ui.add_space(8.0);
                 bring = Self::timeline_passages_list(ui, timeline, t);
             });
             ui.separator();
-            egui::Frame::new().inner_margin(8.0).show(ui, |ui| {
+            ui.vertical(|ui| {
+                ui.add_space(8.0);
                 match on_show {
                     Some(shown) => Self::timeline_pages_grid(ui, shown, t),
                     None => {
