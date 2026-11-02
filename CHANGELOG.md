@@ -35,6 +35,9 @@ Every release of Pearl, newest first, in the spirit of
   window opens on it again.
 - Comparing versions on the pages: before and now side by side, with what came in, went out or changed
   place marked on the finished pages.
+- A typography watch in the Problems pane: widows, orphans, headings alone at the end of a page, what
+  goes past the margin and figures far from their first mention, marked on the pages. A click goes to
+  the passage, and Ignore lasts until the passage changes.
 - A splash screen in the colours and the hand-drawn style of its picture.
 - Typing on the pages: a click puts a caret there, also with only the pages on show, and what's typed
   goes into the source.

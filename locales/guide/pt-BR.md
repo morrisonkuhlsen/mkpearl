@@ -273,6 +273,9 @@ Na aba Layout da Página, o botão Timbrado e marca d'água abre uma janela com 
 Um texto sobre a marca d'água.
 ```
 > Tente: troque "RASCUNHO" por "CÓPIA" e mude o ângulo.
+## Vigia de tipografia
+?? tipografia viúva órfã título margem tabela figura problemas
+O painel Problemas também aponta o que fica ruim nas páginas prontas: a primeira ou a última linha de um parágrafo sozinha em uma página, um título sozinho no fim da página, tabelas e texto além da margem, e figuras a duas ou mais páginas da primeira menção. Com o painel aberto, cada item fica marcado na página, e um clique leva ao trecho. Ignorar cala o aviso até o trecho mudar. Só o texto corrido deste arquivo é lido, e páginas em colunas não são verificadas quanto a viúvas e órfãs.
 ## Comparar versões nas páginas
 ?? pearl comparar versão diferença revisão antes depois histórico
 No painel Versões, escolha uma versão e clique em Comparar nas páginas. As páginas de antes e de agora ficam lado a lado: verde para o que entrou, vermelho para o que saiu e azul para o que mudou de lugar. Os botões Anterior e Próxima percorrem as mudanças, e nada no documento é alterado.

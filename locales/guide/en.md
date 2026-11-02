@@ -273,6 +273,9 @@ In the Page Layout tab, the Letterhead and watermark button opens a window with 
 Some text over the watermark.
 ```
 > Try: change "DRAFT" to "COPY" and change the angle.
+## Typography watch
+?? typography widow orphan heading margin table figure problems
+The Problems pane also points out what reads badly on the finished pages: a paragraph's first or last line alone on a page, a heading alone at the end of a page, tables and text past the margin, and figures two or more pages from their first mention. With the pane open, each is marked on the page, and a click goes to its passage. Ignore keeps one quiet until that passage changes. It reads only this file's running text, and pages in columns aren't checked for widows and orphans.
 ## Comparing versions on the pages
 ?? pearl compare version difference review before after history
 In the Versions pane, choose a version and click Compare on the pages. The pages from before and now go side by side: green for what came in, red for what went out and blue for what changed place. The Previous and Next buttons go through the changes, and nothing in the document is altered.

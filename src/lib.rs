@@ -28,5 +28,6 @@ pub mod splash;
 pub mod templates;
 pub mod theme;
 pub mod typing;
+pub mod typography;
 pub mod widgets;
 pub mod world;
