@@ -21,7 +21,7 @@ One crate, by the owner's decision: nothing needs the split yet, and it would to
 | `variants`, `app/variants` | other ways to set a document, as the edit each would make; compiled on a thread of their own, so typing doesn't wait |
 | `fit`, `app/fit` | the smallest layout changes that reach a number of pages: the ladder and the search, compiled on a thread of their own |
 | `timeline`, `app/timeline` | a slider over the versions and their pages, and what each says that the document no longer does, read in blocks by Typst's parser |
-| `comments`, `app/comments` | threads tied to a passage, as flat entries a session shares in its document, in a file beside the document |
+| `comments`, `app/comments` | threads tied to a passage, and review marks, which are threads asking for a change; flat entries a session shares in its document, in a file beside the document. `compiler` maps points of a page to the source and back |
 | `history` | versions, whole copies under the user's data folder |
 | `recovery` | copies of unsaved text beside a lock the system releases when a run ends |
 | `spell` | words from Typst's parser, checked by `spellbook` on a thread of its own |

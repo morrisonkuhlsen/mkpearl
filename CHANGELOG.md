@@ -52,6 +52,8 @@ Every release of Pearl, newest first, in the spirit of
   The search can match case and whole words.
 - Comments on the text: threads tied to a passage, with replies, resolved and reopened, shared in a session
   and kept in a file beside the document, outside its text and its PDF.
+- Reviewing on the pages: strike out, highlight or note on the finished pages. Each mark finds its source
+  and becomes a suggestion to accept, as one undo step, or decline. Comments show on the pages too.
 - A splash screen in the colours and the hand-drawn style of its picture.
 - Typing on the pages: a click puts a caret there, also with only the pages on show, and what's typed
   goes into the source.

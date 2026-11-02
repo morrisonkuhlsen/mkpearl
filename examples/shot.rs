@@ -184,6 +184,12 @@ fn main() {
         }
         harness.run_steps(5);
     }
+    if args.iter().any(|a| a == "comments") {
+        // The places on the pages come from the compiler's thread.
+        harness.run_steps(20);
+        std::thread::sleep(Duration::from_millis(200));
+        harness.run_steps(20);
+    }
     if args.iter().any(|a| a == "exporting") {
         // Pointed somewhere harmless: with nothing to warn about, it would export there.
         let scratch = std::env::temp_dir().join("pearl-shot-export.pdf");

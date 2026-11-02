@@ -4,7 +4,7 @@
 //!
 //! An entry from a peer or a file is hostile input, read within limits: what doesn't parse doesn't count.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Range;
 
 use serde_json::{Value, json};
@@ -35,10 +35,48 @@ pub struct Message {
     pub text: String,
 }
 
+/// What a review mark asks for, once someone accepts it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MarkKind {
+    /// Takes the passage out, or puts `with` in its place.
+    Strike,
+    Highlight,
+}
+
+impl MarkKind {
+    fn code(self) -> &'static str {
+        match self {
+            Self::Strike => "strike",
+            Self::Highlight => "highlight",
+        }
+    }
+
+    fn from_code(code: &str) -> Option<Self> {
+        match code {
+            "strike" => Some(Self::Strike),
+            "highlight" => Some(Self::Highlight),
+            _ => None,
+        }
+    }
+}
+
+/// How a mark ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Accepted,
+    Declined,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Thread {
     pub id: String,
+    /// The words it's on. A mark's stay as they were when it was made, to tell if it still applies.
     pub quote: String,
+    /// A suggestion, for a review mark; a comment asks for nothing.
+    pub mark: Option<MarkKind>,
+    /// What replaces the passage, for a mark that strikes it out.
+    pub with: String,
+    pub outcome: Option<Outcome>,
     before: String,
     after: String,
     /// The byte it was at when written, to choose among the same words elsewhere.
@@ -70,11 +108,23 @@ fn new_id(now: u64) -> String {
 }
 
 fn head_entry(thread: &Thread) -> String {
-    json!({"quote": thread.quote, "before": thread.before, "after": thread.after, "hint": thread.hint, "stamp": thread.stamp}).to_string()
+    json!({
+        "quote": thread.quote, "before": thread.before, "after": thread.after, "hint": thread.hint, "stamp": thread.stamp,
+        "mark": thread.mark.map(MarkKind::code), "with": thread.with,
+    })
+    .to_string()
 }
 
 fn message_entry(message: &Message) -> String {
     json!({"author": message.author, "stamp": message.stamp, "text": message.text}).to_string()
+}
+
+fn outcome_of(code: Option<&str>) -> Option<Outcome> {
+    match code {
+        Some("accepted") => Some(Outcome::Accepted),
+        Some("declined") => Some(Outcome::Declined),
+        _ => None,
+    }
 }
 
 /// The threads in a set of entries, oldest first. What doesn't parse, or has no words, doesn't count.
@@ -91,6 +141,9 @@ fn threads_of(entries: &BTreeMap<String, String>) -> Vec<Thread> {
         let thread = Thread {
             id: id.to_string(),
             quote,
+            mark: head.get("mark").and_then(Value::as_str).and_then(MarkKind::from_code),
+            with: string_of(&head, "with", MAX_TEXT),
+            outcome: outcome_of(entries.get(&format!("o/{id}")).map(String::as_str)),
             before: string_of(&head, "before", CONTEXT),
             after: string_of(&head, "after", CONTEXT),
             hint: usize::try_from(number_of(&head, "hint")).unwrap_or(0),
@@ -110,7 +163,8 @@ fn threads_of(entries: &BTreeMap<String, String>) -> Vec<Thread> {
             thread.messages.push(Message { id: message.to_string(), author, stamp: number_of(&body, "stamp"), text });
         }
     }
-    let mut list: Vec<Thread> = threads.into_values().filter(|t| !t.messages.is_empty()).collect();
+    // A mark says what it wants by itself; a comment with no words says nothing.
+    let mut list: Vec<Thread> = threads.into_values().filter(|t| !t.messages.is_empty() || t.mark.is_some()).collect();
     for thread in &mut list {
         thread.messages.sort_by(|a, b| (a.stamp, &a.id).cmp(&(b.stamp, &b.id)));
     }
@@ -123,6 +177,33 @@ fn context_of(text: &str, range: &Range<usize>) -> (String, String) {
     let before: Vec<char> = text.get(..range.start).unwrap_or_default().chars().rev().take(CONTEXT).collect();
     let after = text.get(range.end..).unwrap_or_default().chars().take(CONTEXT).collect();
     (before.into_iter().rev().collect(), after)
+}
+
+/// Whether what's around a passage found again is what was around it when it was marked, right up to it.
+fn same_surroundings(text: &str, range: &Range<usize>, thread: &Thread) -> bool {
+    const CLOSE: usize = 10;
+    let (before, after) = context_of(text, range);
+    let ends_alike = before.chars().rev().take(CLOSE).eq(thread.before.chars().rev().take(CLOSE));
+    let starts_alike = after.chars().take(CLOSE).eq(thread.after.chars().take(CLOSE));
+    ends_alike && starts_alike
+}
+
+/// Writes what a mark asks for on the range it's on, as one change, keeping the selection on its letters.
+pub fn apply_mark(thread: &Thread, range: Range<usize>, text: &mut String, sel: edit::Sel) -> edit::Sel {
+    let Some(mark) = thread.mark else { return sel };
+    let Some(quote) = text.get(range.clone()) else { return sel };
+    let change = match mark {
+        MarkKind::Highlight => (range.clone(), format!("#highlight[{quote}]")),
+        MarkKind::Strike if !thread.with.is_empty() => (range.clone(), thread.with.clone()),
+        MarkKind::Strike => {
+            // A word taken out of a sentence shouldn't leave two spaces behind.
+            let before = text.get(..range.start).and_then(|t| t.chars().next_back());
+            let after = text.get(range.end..).and_then(|t| t.chars().next());
+            let end = if before == Some(' ') && after == Some(' ') { range.end + 1 } else { range.end };
+            (range.start..end, String::new())
+        }
+    };
+    edit::replace_keeping(text, sel, vec![change])
 }
 
 /// Where a thread's passage is: the occurrence with most of what was around it, then the nearest.
@@ -165,6 +246,8 @@ pub struct Book {
     entries: BTreeMap<String, String>,
     threads: Vec<Thread>,
     places: HashMap<String, Range<usize>>,
+    /// Those found by their words, rather than followed through every change since they were made.
+    searched: HashSet<String>,
     /// The open passages, as char ranges, for drawing.
     drawn: Vec<(usize, usize)>,
     known: String,
@@ -192,6 +275,30 @@ impl Book {
         self.places.get(id).cloned()
     }
 
+    /// Whether a mark still says what it did, in the place it was made, so that it can be applied. A
+    /// passage changed since, or the same words found somewhere else, aren't what the reviewer saw.
+    pub fn still_applies(&self, thread: &Thread) -> bool {
+        let Some(range) = self.places.get(&thread.id) else { return false };
+        self.known.get(range.clone()) == Some(thread.quote.as_str())
+            && (!self.searched.contains(&thread.id) || same_surroundings(&self.known, range, thread))
+    }
+
+    /// Where a passage picked a moment ago is now, the text having perhaps moved on.
+    pub fn relocated_range(&self, text: &str, quote: &str, range: Range<usize>) -> Range<usize> {
+        if text.get(range.clone()) == Some(quote) {
+            return range;
+        }
+        let nearest = text.match_indices(quote).take(MAX_OCCURRENCES).map(|(at, _)| at).min_by_key(|at| at.abs_diff(range.start));
+        nearest.map_or(0..0, |at| at..at + quote.len())
+    }
+
+    /// The range it's on, if it can be applied.
+    pub fn applicable(&self, id: &str) -> Option<(Thread, Range<usize>)> {
+        let thread = self.threads.iter().find(|t| t.id == id)?;
+        (thread.mark.is_some() && thread.outcome.is_none() && self.still_applies(thread)).then_some(())?;
+        Some((thread.clone(), self.places.get(id)?.clone()))
+    }
+
     pub fn open_count(&self) -> usize {
         self.threads.iter().filter(|t| !t.resolved).count()
     }
@@ -201,6 +308,7 @@ impl Book {
         self.threads = threads_of(&self.entries);
         let ids: Vec<&str> = self.threads.iter().map(|t| t.id.as_str()).collect();
         self.places.retain(|id, _| ids.contains(&id.as_str()));
+        self.searched.retain(|id| ids.contains(&id.as_str()));
         self.known.clear();
         self.known.push_str(text);
         self.relocate();
@@ -213,6 +321,7 @@ impl Book {
                 && let Some(found) = locate(&self.known, thread)
             {
                 self.places.insert(thread.id.clone(), found);
+                self.searched.insert(thread.id.clone());
             }
         }
         let open = self.threads.iter().filter(|t| !t.resolved).filter_map(|t| self.places.get(&t.id)).take(MAX_DRAWN);
@@ -257,16 +366,75 @@ impl Book {
 
     /// Starts a thread on a byte range of the text. The entries it made, to share.
     pub fn start(&mut self, text: &str, range: Range<usize>, author: &str, body: &str, now: u64) -> Vec<(String, String)> {
-        let Some(quote) = text.get(range.clone()).filter(|q| !q.trim().is_empty() && !body.trim().is_empty()) else { return Vec::new() };
+        if body.trim().is_empty() {
+            return Vec::new();
+        }
+        self.start_thread(text, range, author, body, None, "", now)
+    }
+
+    /// Starts a review mark on a byte range. A passage too long to keep whole can't be one: a mark has to
+    /// say exactly what it would change.
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_mark(
+        &mut self,
+        text: &str,
+        range: Range<usize>,
+        author: &str,
+        mark: MarkKind,
+        with: &str,
+        note: &str,
+        now: u64,
+    ) -> Vec<(String, String)> {
+        if text.get(range.clone()).is_none_or(|quote| quote.chars().count() > MAX_QUOTE) {
+            return Vec::new();
+        }
+        self.start_thread(text, range, author, note, Some(mark), with, now)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn start_thread(
+        &mut self,
+        text: &str,
+        range: Range<usize>,
+        author: &str,
+        body: &str,
+        mark: Option<MarkKind>,
+        with: &str,
+        now: u64,
+    ) -> Vec<(String, String)> {
+        let Some(quote) = text.get(range.clone()).filter(|q| !q.trim().is_empty()) else { return Vec::new() };
         // A long passage is held by its beginning, which is what's drawn and looked for.
         let quote = clean(quote, MAX_QUOTE);
         let range = range.start..range.start + quote.len();
         let (before, after) = context_of(text, &range);
         let id = new_id(now);
-        let head = Thread { id: id.clone(), quote, before, after, hint: range.start, stamp: now, resolved: false, messages: Vec::new() };
-        let message = Message { id: new_id(now), author: clean(author, MAX_AUTHOR), stamp: now, text: clean(body, MAX_TEXT) };
+        let head = Thread {
+            id: id.clone(),
+            quote,
+            mark,
+            with: clean(with, MAX_TEXT),
+            outcome: None,
+            before,
+            after,
+            hint: range.start,
+            stamp: now,
+            resolved: false,
+            messages: Vec::new(),
+        };
         self.places.insert(id.clone(), range);
-        self.set(vec![(format!("t/{id}"), head_entry(&head)), (format!("m/{id}/{}", message.id), message_entry(&message))])
+        self.searched.remove(&id);
+        let mut entries = vec![(format!("t/{id}"), head_entry(&head))];
+        if !body.trim().is_empty() {
+            let message = Message { id: new_id(now), author: clean(author, MAX_AUTHOR), stamp: now, text: clean(body, MAX_TEXT) };
+            entries.push((format!("m/{id}/{}", message.id), message_entry(&message)));
+        }
+        self.set(entries)
+    }
+
+    /// Closes a mark with this outcome.
+    pub fn conclude(&mut self, thread: &str, outcome: Outcome) -> Vec<(String, String)> {
+        let code = if outcome == Outcome::Accepted { "accepted" } else { "declined" };
+        self.set(vec![(format!("o/{thread}"), code.to_string()), (format!("r/{thread}"), "1".to_string())])
     }
 
     pub fn reply(&mut self, thread: &str, author: &str, body: &str, now: u64) -> Vec<(String, String)> {
@@ -291,7 +459,9 @@ impl Book {
             .threads
             .iter()
             .map(|thread| {
-                let place = self.places.get(&thread.id);
+                // What a mark was made on stays on record: taking a changed passage for it would make it
+                // apply again on the next run, to something its reviewer never saw.
+                let place = self.places.get(&thread.id).filter(|_| thread.mark.is_none() || self.still_applies(thread));
                 let live = place.and_then(|range| self.known.get(range.clone()));
                 let (before, after) = place.map_or_else(|| (thread.before.clone(), thread.after.clone()), |range| context_of(&self.known, range));
                 let messages: Vec<Value> =
@@ -300,6 +470,8 @@ impl Book {
                     "id": thread.id, "quote": live.unwrap_or(&thread.quote), "before": before, "after": after,
                     "hint": place.map_or(thread.hint, |range| range.start), "stamp": thread.stamp,
                     "resolved": thread.resolved, "messages": messages,
+                    "mark": thread.mark.map(MarkKind::code), "with": thread.with,
+                    "outcome": match thread.outcome { Some(Outcome::Accepted) => Some("accepted"), Some(Outcome::Declined) => Some("declined"), None => None },
                 })
             })
             .collect();
@@ -319,6 +491,9 @@ impl Book {
             let head = Thread {
                 id: id.clone(),
                 quote: string_of(thread, "quote", MAX_QUOTE),
+                mark: thread.get("mark").and_then(Value::as_str).and_then(MarkKind::from_code),
+                with: string_of(thread, "with", MAX_TEXT),
+                outcome: None,
                 before: string_of(thread, "before", CONTEXT),
                 after: string_of(thread, "after", CONTEXT),
                 hint: usize::try_from(number_of(thread, "hint")).unwrap_or(0),
@@ -327,6 +502,9 @@ impl Book {
                 messages: Vec::new(),
             };
             entries.insert(format!("t/{id}"), head_entry(&head));
+            if let Some(outcome) = thread.get("outcome").and_then(Value::as_str).filter(|o| outcome_of(Some(o)).is_some()) {
+                entries.insert(format!("o/{id}"), outcome.to_string());
+            }
             if thread.get("resolved").and_then(Value::as_bool).unwrap_or(false) {
                 entries.insert(format!("r/{id}"), "1".to_string());
             }
@@ -515,6 +693,104 @@ mod tests {
         book.follow("ç");
         book.follow("");
         assert_eq!(book.place(&id), None);
+    }
+
+    fn with_mark(text: &str, part: &str, mark: MarkKind, with: &str) -> (Book, String) {
+        let mut book = Book::default();
+        book.follow(text);
+        assert!(!book.start_mark(text, range_of(text, part), "Ana", mark, with, "", 10).is_empty());
+        let id = book.threads()[0].id.clone();
+        (book, id)
+    }
+
+    fn accepted(text: &str, part: &str, mark: MarkKind, with: &str) -> String {
+        let (book, id) = with_mark(text, part, mark, with);
+        let (thread, range) = book.applicable(&id).unwrap();
+        let mut out = text.to_string();
+        apply_mark(&thread, range, &mut out, (0, 0));
+        out
+    }
+
+    #[test]
+    fn accepting_a_mark_does_what_it_says_and_nothing_else() {
+        assert_eq!(accepted("Uma palavra errada aqui.\n", "errada", MarkKind::Strike, ""), "Uma palavra aqui.\n", "no two spaces left behind");
+        assert_eq!(
+            accepted("Uma palavra errada.\n", "errada", MarkKind::Strike, ""),
+            "Uma palavra .\n",
+            "a space before a stop is the writer's to judge"
+        );
+        assert_eq!(accepted("Uma palavra errada aqui.\n", "errada", MarkKind::Strike, "certa"), "Uma palavra certa aqui.\n");
+        assert_eq!(accepted("Uma palavra errada aqui.\n", "palavra", MarkKind::Highlight, ""), "Uma #highlight[palavra] errada aqui.\n");
+    }
+
+    #[test]
+    fn a_mark_whose_text_changed_can_no_longer_be_applied() {
+        let (mut book, id) = with_mark(TEXT, "trecho comentado", MarkKind::Strike, "");
+        assert!(book.applicable(&id).is_some());
+
+        // Changed inside: followed, but no longer what the reviewer saw.
+        let changed = TEXT.replace("trecho comentado", "trecho já comentado");
+        book.follow(&changed);
+        assert!(book.place(&id).is_some());
+        assert!(book.applicable(&id).is_none());
+
+        // Changed back, it is again.
+        book.follow(TEXT);
+        assert!(book.applicable(&id).is_some());
+
+        // Moved along by text elsewhere, it still is.
+        let moved = format!("Antes de tudo. {TEXT}");
+        book.follow(&moved);
+        assert!(book.applicable(&id).is_some());
+    }
+
+    #[test]
+    fn the_same_words_somewhere_else_are_not_what_was_marked() {
+        let text = "Primeiro alvo aqui. Depois o alvo ali.\n";
+        let at = text.rfind("alvo").unwrap();
+        let mut book = Book::default();
+        book.follow(text);
+        book.start_mark(text, at..at + 4, "Ana", MarkKind::Strike, "", "", 1);
+        let id = book.threads()[0].id.clone();
+        assert!(book.applicable(&id).is_some());
+
+        // The one marked goes: the other is found, for showing, but isn't taken for it.
+        let left = "Primeiro alvo aqui. Depois ali.\n";
+        book.follow(left);
+        assert_eq!(passage(&book, &id, left).as_deref(), Some("alvo"));
+        assert!(book.applicable(&id).is_none(), "never applied to what it wasn't made on");
+    }
+
+    #[test]
+    fn a_file_doesnt_make_a_changed_mark_apply_again() {
+        let (mut book, id) = with_mark(TEXT, "trecho comentado", MarkKind::Strike, "outro");
+        let changed = TEXT.replace("trecho comentado", "trecho já comentado");
+        book.follow(&changed);
+        let mut again = Book::default();
+        again.replace_entries(Book::entries_from_file(&book.to_file()).unwrap(), &changed);
+        assert_eq!(again.threads()[0].quote, "trecho comentado", "what was marked stays on record");
+        assert_eq!(again.threads()[0].with, "outro");
+        assert!(again.applicable(&id).is_none());
+
+        // Unchanged, it applies after the file too, and an outcome stays.
+        let (mut book, id) = with_mark(TEXT, "trecho comentado", MarkKind::Highlight, "");
+        let mut again = Book::default();
+        again.replace_entries(Book::entries_from_file(&book.to_file()).unwrap(), TEXT);
+        assert!(again.applicable(&id).is_some());
+        book.conclude(&id, Outcome::Declined);
+        let mut again = Book::default();
+        again.replace_entries(Book::entries_from_file(&book.to_file()).unwrap(), TEXT);
+        assert_eq!((again.threads()[0].outcome, again.threads()[0].resolved), (Some(Outcome::Declined), true));
+        assert!(again.applicable(&id).is_none(), "concluded, it's over");
+    }
+
+    #[test]
+    fn a_passage_too_long_to_keep_whole_cant_be_marked() {
+        let long = "a".repeat(MAX_QUOTE + 1);
+        let mut book = Book::default();
+        book.follow(&long);
+        assert!(book.start_mark(&long, 0..long.len(), "Ana", MarkKind::Strike, "", "", 1).is_empty());
+        assert!(book.start_mark(&long, 0..long.len(), "Ana", MarkKind::Highlight, "", "", 1).is_empty());
     }
 
     #[test]

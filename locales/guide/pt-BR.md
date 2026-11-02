@@ -295,6 +295,9 @@ No painel Versões, Linha do tempo da escrita abre um controle deslizante sobre 
 ## Comentários
 ?? comentários comentário revisão conversa responder resolver sessão
 Selecione um trecho no código e pressione Ctrl+Alt+M, ou abra o painel Comentários, para deixar um comentário nele. Cada trecho com comentário aberto fica marcado no código, e um clique na conversa leva até ele. Quem está na sessão vê os comentários e pode responder. Eles ficam em um arquivo ao lado do documento, terminado em `.comments.json`, e assim o texto e o PDF continuam como estão. Uma conversa pode ser apagada depois de resolvida.
+## Revisar nas páginas
+?? revisão marcar riscar destacar anotar sugestão aceitar recusar páginas
+Na aba Página Inicial, Revisar transforma as páginas em algo para marcar: escolha Riscar, Destacar ou Anotar e arraste sobre as palavras ou clique em uma. Um trecho riscado pode dizer o que entra no lugar. Cada marca vira uma sugestão no painel Comentários: Aceitar escreve no código, em um único Ctrl+Z, e Recusar não mexe no código. Se o texto sob uma marca tiver mudado, ela não pode mais ser aplicada, e avisa. Palavras que vêm do código do documento, como números e referências, não podem ser marcadas.
 ## Comparar versões nas páginas
 ?? pearl comparar versão diferença revisão antes depois histórico
 No painel Versões, escolha uma versão e clique em Comparar nas páginas. As páginas de antes e de agora ficam lado a lado: verde para o que entrou, vermelho para o que saiu e azul para o que mudou de lugar. Os botões Anterior e Próxima percorrem as mudanças, e nada no documento é alterado.
