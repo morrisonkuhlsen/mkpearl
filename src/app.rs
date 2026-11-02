@@ -29,6 +29,7 @@ use crate::spell::{self, Speller};
 use crate::theme::{self, ThemeChoice, Tokens};
 use crate::widgets::{field_menu, glyphs, group_begin, group_end, icon_button_mono, labelled, sep, toggle, tool, tool_menu};
 
+mod accessibility;
 mod backstage;
 mod comparing;
 mod docs;
@@ -389,6 +390,7 @@ pub struct App {
     letterhead_dialog: Option<letterhead::LetterheadDialog>,
     variants_dialog: Option<variants::VariantsDialog>,
     variants_asked: u64,
+    export_check: accessibility::ExportCheck,
     fit_dialog: Option<fit::FitDialog>,
     formulas: formulas::FormulaPane,
     /// The status bar's last compile time, which anything else may replace at any moment.
@@ -519,6 +521,7 @@ impl App {
             letterhead_dialog: None,
             variants_dialog: None,
             variants_asked: 0,
+            export_check: accessibility::ExportCheck::load(),
             fit_dialog: None,
             formulas: formulas::FormulaPane::default(),
             // What it says at the start gives way to the first compile.
@@ -793,6 +796,7 @@ impl App {
                 }
                 Event::Exported(Ok(path)) => self.status = tr!("pdf-saved", path = path.display().to_string()),
                 Event::Exported(Err(e)) => self.status = tr!("export-failed", error = e.to_string()),
+                Event::ExportRefused(problems) => self.export_check.refused = Some(problems),
                 Event::Failed(e) => self.status = e,
             }
         }
@@ -1024,18 +1028,42 @@ impl App {
         }
     }
 
-    fn export_pdf(&mut self) {
+    pub fn export_pdf(&mut self) {
+        if self.can_export() {
+            if self.export_check.should_warn(&self.watch) {
+                self.export_check.warning = true;
+            } else {
+                self.choose_where_to_export(false);
+            }
+        }
+    }
+
+    /// Exports as PDF/UA-1. What's in the way is told by the compiler, when it's refused.
+    pub fn export_accessible_pdf(&mut self) {
+        if self.can_export() {
+            self.choose_where_to_export(true);
+        }
+    }
+
+    fn can_export(&mut self) -> bool {
         if self.previewing {
             self.status = tx("the-pages-are-showing-an-old-version").into();
-            return;
+            return false;
         }
         if self.diags.iter().any(|d| d.error) {
             self.status = tx("fix-the-errors-before-exporting-the-pdf").into();
-            return;
+            return false;
         }
-        let name = self.path.as_deref().and_then(Path::file_stem).map_or_else(|| "documento".to_string(), |s| s.to_string_lossy().into_owned());
-        if let Some(path) = self.dialog().add_filter("PDF", &["pdf"]).set_file_name(format!("{name}.pdf")).save_file() {
-            self.compiler.send(Job::ExportPdf(path));
+        true
+    }
+
+    fn choose_where_to_export(&mut self, accessible: bool) {
+        let chosen = self.export_check.target.clone().or_else(|| {
+            let name = self.path.as_deref().and_then(Path::file_stem).map_or_else(|| "documento".to_string(), |s| s.to_string_lossy().into_owned());
+            self.dialog().add_filter("PDF", &["pdf"]).set_file_name(format!("{name}.pdf")).save_file()
+        });
+        if let Some(path) = chosen {
+            self.compiler.send(Job::ExportPdf { path, accessible });
         }
     }
 
@@ -2117,6 +2145,10 @@ impl App {
                                 self.export_pdf();
                                 ui.close();
                             }
+                            if ui.button(tx("export-accessible-pdf")).clicked() {
+                                self.export_accessible_pdf();
+                                ui.close();
+                            }
                             if ui.button(tx("save-a-copy-typ")).clicked() {
                                 self.save_copy();
                                 ui.close();
@@ -2260,6 +2292,10 @@ impl App {
         }
         if item(ui, tx("export-pdf"), "Ctrl+E") {
             self.export_pdf();
+            ui.close();
+        }
+        if item(ui, tx("export-accessible-pdf"), "") {
+            self.export_accessible_pdf();
             ui.close();
         }
     }
@@ -4004,6 +4040,7 @@ impl App {
         self.letterhead_window(ctx, &tokens);
         self.variants_window(ctx, &tokens);
         self.fit_window(ctx, &tokens);
+        self.export_check_windows(ctx, &tokens);
         if self.about {
             let mut open = true;
             egui::Window::new(tx("about-pearl"))

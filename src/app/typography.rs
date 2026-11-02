@@ -64,20 +64,26 @@ impl App {
             return;
         }
         let (mut jump, mut ignore) = (None, None);
-        ui.add_space(6.0);
-        ui.label(RichText::new(tx("typography")).font(theme::ui_bold(12.5)));
-        ui.add_space(2.0);
-        for (index, found) in self.watch.visible().enumerate() {
-            ui.push_id(("typography", index), |ui| {
-                let message = egui::Label::new(found.message()).wrap().sense(Sense::click());
-                if ui.add(message).on_hover_text(tx("go-to-the-passage")).clicked() {
-                    jump = Some(*found);
-                }
-                if ui.small_button(tx("ignore")).clicked() {
-                    ignore = Some(found.key);
-                }
-            });
-            ui.add_space(4.0);
+        for (name, accessibility) in [(tx("typography"), false), (tx("accessibility"), true)] {
+            let group = || self.watch.visible().filter(|f| f.kind.is_accessibility() == accessibility);
+            if group().next().is_none() {
+                continue;
+            }
+            ui.add_space(6.0);
+            ui.label(RichText::new(name).font(theme::ui_bold(12.5)));
+            ui.add_space(2.0);
+            for (index, found) in group().enumerate() {
+                ui.push_id((name, index), |ui| {
+                    let message = egui::Label::new(found.message()).wrap().sense(Sense::click());
+                    if ui.add(message).on_hover_text(tx("go-to-the-passage")).clicked() {
+                        jump = Some(*found);
+                    }
+                    if ui.small_button(tx("ignore")).clicked() {
+                        ignore = Some(found.key);
+                    }
+                });
+                ui.add_space(4.0);
+            }
         }
         let hidden = self.watch.hidden();
         let restore = hidden > 0 && ui.small_button(tr!("show-what-was-ignored", n = hidden)).clicked();
