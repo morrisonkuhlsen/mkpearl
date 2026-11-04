@@ -162,6 +162,14 @@ enum Pending {
     Quit,
 }
 
+/// The file on disk no longer says what Pearl last read or wrote there.
+struct OutsideChange {
+    /// What the file said when this was noticed; none when it's too large to hold.
+    seen: Option<Vec<u8>>,
+    /// Whether that text is safe in the history.
+    kept: bool,
+}
+
 /// The panes the right-hand strip opens.
 #[derive(Clone, Copy, PartialEq)]
 enum Side {
@@ -340,6 +348,10 @@ pub struct App {
     colored: Option<(u64, Color32, egui::text::LayoutJob)>,
     title: String,
     autosave: bool,
+    /// What the open file said when last read or written, to notice when something else changes it.
+    disk_text: Option<Vec<u8>>,
+    /// A change made outside Pearl, waiting for an answer. Nothing is written over it meanwhile.
+    outside_change: Option<OutsideChange>,
     changed_at: f64,
     ribbon_collapsed: bool,
     find: Option<String>,
@@ -462,6 +474,7 @@ impl App {
         };
         let app = Self {
             compiler: Compiler::start()?,
+            disk_text: path.is_some().then(|| text.clone().into_bytes()),
             text,
             path,
             dirty: false,
@@ -488,6 +501,7 @@ impl App {
             colored: None,
             title: String::new(),
             autosave: true,
+            outside_change: None,
             changed_at: 0.0,
             ribbon_collapsed: false,
             find: None,
@@ -993,6 +1007,8 @@ impl App {
     pub fn start_document(&mut self, ctx: &egui::Context, text: String) {
         self.text = text;
         self.path = None;
+        self.disk_text = None;
+        self.outside_change = None;
         self.dirty = false;
         self.pages.clear();
         self.textures.clear();
@@ -1007,6 +1023,8 @@ impl App {
     pub fn open_path(&mut self, ctx: &egui::Context, path: PathBuf) {
         match std::fs::read_to_string(&path) {
             Ok(text) => {
+                self.disk_text = Some(text.clone().into_bytes());
+                self.outside_change = None;
                 self.text = text;
                 self.path = Some(path);
                 self.dirty = false;
@@ -1038,9 +1056,14 @@ impl App {
             _ => self.dialog().add_filter("Typst", &["typ"]).set_file_name("documento.typ").save_file(),
         };
         let Some(path) = target else { return false };
+        // Another file chosen in the dialog was the user's to write over; this one may have moved on.
+        if !save_as && self.notice_outside_change(&path) {
+            return false;
+        }
         match crate::compiler::write_whole(&path, self.text.as_bytes()) {
             Ok(()) => {
                 self.status = tr!("saved-to", path = path.display().to_string());
+                self.disk_text = Some(self.text.clone().into_bytes());
                 self.path = Some(path);
                 self.dirty = false;
                 self.remember_path();
@@ -1060,6 +1083,119 @@ impl App {
                 false
             }
         }
+    }
+
+    /// True when writing to `path` must wait: something else changed the file, or it can't be read
+    /// to tell. A changed file's text goes into the history first, and the user is asked. A file
+    /// that's gone holds nothing to lose.
+    fn notice_outside_change(&mut self, path: &Path) -> bool {
+        if self.outside_change.is_some() {
+            return true;
+        }
+        let Some(expected) = &self.disk_text else { return false };
+        let size = match std::fs::metadata(path) {
+            Ok(metadata) => metadata.len(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
+            Err(e) => {
+                self.status = tr!("cant-save", error = e.to_string());
+                return true;
+            }
+        };
+        if size > history::MAX_BYTES {
+            self.outside_change = Some(OutsideChange { seen: None, kept: false });
+            return true;
+        }
+        let seen = match std::fs::read(path) {
+            Ok(seen) if seen == *expected => return false,
+            Ok(seen) => seen,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
+            Err(e) => {
+                self.status = tr!("cant-save", error = e.to_string());
+                return true;
+            }
+        };
+        // Text that isn't UTF-8 can't be a version as it is; the file stays until the user answers.
+        let text = String::from_utf8_lossy(&seen);
+        let kept = self.store().is_some_and(|store| match store.keep(path, &text, history::Kind::ChangedOutside, history::now_ms()) {
+            Ok(_) => {
+                self.versions = store.list();
+                true
+            }
+            Err(e) => {
+                self.status = tr!("cant-keep-version", error = e.to_string());
+                false
+            }
+        });
+        self.outside_change = Some(OutsideChange { seen: Some(seen), kept });
+        true
+    }
+
+    /// Asks what to do about a file changed outside Pearl. Whatever the answer, neither text is lost
+    /// without the user being told first.
+    fn outside_change_dialog(&mut self, ctx: &egui::Context) {
+        let Some(change) = &self.outside_change else { return };
+        let name = document_name(self.path.as_deref());
+        let kept = change.kept;
+        let mut answer = None;
+        egui::Modal::new(Id::unique("changed-outside")).show(ctx, |ui| {
+            ui.set_width(420.0);
+            ui.heading(tx("the-file-changed-outside-pearl"));
+            ui.label(if kept { tr!("changed-outside-kept", name = name.clone()) } else { tr!("changed-outside-not-kept", name = name.clone()) });
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button(tx("use-the-files-text")).clicked() {
+                    answer = Some(0);
+                }
+                if ui.button(tx("write-mine-over-the-file")).clicked() {
+                    answer = Some(1);
+                }
+                if ui.button(tx("not-now")).clicked() {
+                    answer = Some(2);
+                }
+            });
+        });
+        if answer.is_some() {
+            self.want_focus = true;
+        }
+        match answer {
+            Some(0) => self.use_the_files_text(ctx),
+            Some(1) => {
+                // Compared again with what the user was told of: a newer change asks again.
+                self.disk_text = self.outside_change.take().and_then(|change| change.seen);
+                self.save(false);
+            }
+            Some(_) => {
+                self.outside_change = None;
+                self.autosave = false;
+                self.status = tx("the-file-wasnt-written-autosave-is-off").into();
+            }
+            None => {}
+        }
+    }
+
+    /// Takes what the file says now, as one undo step. The text it replaces goes into the history
+    /// first; if it can't, nothing changes and the status says why.
+    fn use_the_files_text(&mut self, ctx: &egui::Context) {
+        let Some(path) = self.path.clone() else { return };
+        let text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) => {
+                self.status = tr!("cant-open", path = path.display().to_string(), error = e.to_string());
+                return;
+            }
+        };
+        if !self.keep_version(history::Kind::BeforeRestore) {
+            return;
+        }
+        self.outside_change = None;
+        self.end_viewing();
+        self.disk_text = Some(text.clone().into_bytes());
+        self.edit(ctx, |current, _| {
+            *current = text;
+            (0, 0)
+        });
+        self.dirty = false;
+        self.status = tx("showing-the-files-text").into();
     }
 
     pub fn export_pdf(&mut self) {
@@ -1401,13 +1537,19 @@ impl App {
     }
 
     /// Keeps the document as a version, if it has a file and has changed since the last. A failure
-    /// here says so but stops nothing: the document itself is saved apart from this.
-    fn keep_version(&mut self, kind: history::Kind) {
-        let (Some(store), Some(path)) = (self.store(), self.path.clone()) else { return };
-        if let Err(e) = store.keep(&path, &self.text, kind, history::now_ms()) {
-            self.status = tr!("cant-keep-version", error = e.to_string());
-        }
+    /// here says so but stops nothing: the document itself is saved apart from this. False when it
+    /// failed, for what must not go on without the version.
+    fn keep_version(&mut self, kind: history::Kind) -> bool {
+        let (Some(store), Some(path)) = (self.store(), self.path.clone()) else { return true };
+        let kept = store.keep(&path, &self.text, kind, history::now_ms());
         self.versions = store.list();
+        match kept {
+            Ok(_) => true,
+            Err(e) => {
+                self.status = tr!("cant-keep-version", error = e.to_string());
+                false
+            }
+        }
     }
 
     fn end_viewing(&mut self) {
@@ -1883,6 +2025,8 @@ impl App {
                 self.session = Some(session);
                 self.text.clear();
                 self.path = None;
+                self.disk_text = None;
+                self.outside_change = None;
                 self.dirty = false;
                 self.pages.clear();
                 self.textures.clear();
@@ -3224,7 +3368,7 @@ impl App {
                 ctx.request_repaint_after_secs((due - self.time_now) as f32);
             }
         }
-        if !(self.autosave && self.dirty && self.path.is_some()) {
+        if !(self.autosave && self.dirty && self.path.is_some()) || self.outside_change.is_some() {
             return;
         }
         let wait = AUTOSAVE_DELAY - (ctx.input(|i| i.time) - self.changed_at);
@@ -3234,7 +3378,7 @@ impl App {
             self.autosaving = true;
             let saved = self.save(false);
             self.autosaving = false;
-            if !saved {
+            if !saved && self.outside_change.is_none() {
                 self.autosave = false;
             }
         }
@@ -4385,6 +4529,7 @@ impl App {
                 self.table_dialog = Some(dialog);
             }
         }
+        self.outside_change_dialog(ctx);
         if let Some(action) = self.confirm {
             let mut answer = None;
             egui::Modal::new(Id::unique("save-changes")).show(ctx, |ui| {

@@ -14,7 +14,7 @@ const DAY: u64 = 24 * HOUR;
 /// However old, this many of the newest stay.
 const ALWAYS_KEEP: usize = 10;
 const MAX_VERSIONS: usize = 300;
-const MAX_BYTES: u64 = 100 * 1024 * 1024;
+pub(crate) const MAX_BYTES: u64 = 100 * 1024 * 1024;
 /// Past this a line comparison would take too long; the versions then count as wholly different.
 const MAX_DIFF_CELLS: usize = 4_000_000;
 
@@ -27,10 +27,13 @@ pub enum Kind {
     BeforeRestore,
     BeforeClaude,
     AfterClaude,
+    /// What the file said when something other than Pearl had changed it.
+    ChangedOutside,
 }
 
 impl Kind {
-    const ALL: [Kind; 6] = [Kind::Opened, Kind::Saved, Kind::Autosaved, Kind::BeforeRestore, Kind::BeforeClaude, Kind::AfterClaude];
+    const ALL: [Kind; 7] =
+        [Kind::Opened, Kind::Saved, Kind::Autosaved, Kind::BeforeRestore, Kind::BeforeClaude, Kind::AfterClaude, Kind::ChangedOutside];
 
     fn code(self) -> &'static str {
         match self {
@@ -40,6 +43,7 @@ impl Kind {
             Kind::BeforeRestore => "restore",
             Kind::BeforeClaude => "before-claude",
             Kind::AfterClaude => "after-claude",
+            Kind::ChangedOutside => "outside",
         }
     }
 
@@ -51,6 +55,7 @@ impl Kind {
             Kind::BeforeRestore => tx("before-restoring"),
             Kind::BeforeClaude => tx("before-claude"),
             Kind::AfterClaude => tx("after-claude"),
+            Kind::ChangedOutside => tx("changed-outside-pearl"),
         }
     }
 }

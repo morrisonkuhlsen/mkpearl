@@ -63,6 +63,7 @@ Every release of Pearl, newest first, in the spirit of
 - Margins dragged on the rulers change the `#set page` rule, as one undo step.
 - Copying and pasting with other programs, which didn't reach the system's clipboard.
 - Saving replaces the file all at once and reaches the disk first, so a full disk or a power cut leaves the old text or the new, never part of it. A document in a folder where no new file can be created can't be saved there any more, and says so.
+- A file changed outside Pearl (another editor, `git pull`, a sync folder) is no longer written over unseen: before saving, Pearl keeps what the file says as a version and asks whether to use it, write yours over it, or leave it for now.
 - Undo stays within the open document: after opening or starting another, or recovering or joining one, it can't bring the previous text back into it, where autosave would write it over the file.
 - Packages for Linux, Windows and macOS, built by a release workflow.
 - Third-party licences, readable under About.
