@@ -996,16 +996,65 @@ enum Refusal {
     Failure(String),
 }
 
-/// Writes a file whole or not at all: a failure halfway leaves what was there before.
+/// Writes a file whole or not at all, and on the disk before this returns: a failure at any point,
+/// or the machine's end, leaves what was there before.
 pub(crate) fn write_whole(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    let mut name = path.file_name().map(std::ffi::OsStr::to_os_string).unwrap_or_default();
-    name.push(".pearl-part");
-    let part = path.with_file_name(name);
-    let written = std::fs::write(&part, bytes).and_then(|()| std::fs::rename(&part, path));
+    replace_file(path, |file| std::io::Write::write_all(file, bytes))
+}
+
+/// Tells this run's temporary files apart, as threads write different files at once.
+static PARTS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// A new file takes the place of the old one all at once, as the old one would have been written:
+/// through a link, with its permissions, and only if this user may write to it. A rename by itself
+/// would replace the link and go over a read-only file.
+fn replace_file(path: &std::path::Path, fill: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>) -> std::io::Result<()> {
+    use std::io::{Error, ErrorKind};
+    let target = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let existing = match std::fs::metadata(&target) {
+        Ok(metadata) => Some(metadata),
+        Err(e) if e.kind() == ErrorKind::NotFound => None,
+        Err(e) => return Err(e),
+    };
+    if let Some(metadata) = &existing {
+        // Before opening: a pipe would wait for a reader, and nothing here is meant for one.
+        if !metadata.is_file() {
+            return Err(Error::new(ErrorKind::InvalidInput, "not a regular file"));
+        }
+        // Changes nothing: opening without truncating only asks the system.
+        std::fs::OpenOptions::new().write(true).open(&target)?;
+    }
+    let mut name = target.file_name().map(std::ffi::OsStr::to_os_string).unwrap_or_default();
+    let n = PARTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    name.push(format!(".{}-{n}.pearl-part", std::process::id()));
+    let part = target.with_file_name(name);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    // What may be private stays so until it has its permissions. A new file gets the usual ones.
+    #[cfg(unix)]
+    if existing.is_some() {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(&part)?;
+    let written = fill(&mut file)
+        .and_then(|()| existing.map_or(Ok(()), |metadata| file.set_permissions(metadata.permissions())))
+        .and_then(|()| file.sync_all())
+        .and_then(|()| {
+            drop(file);
+            std::fs::rename(&part, &target)
+        });
     if written.is_err() {
         let _ = std::fs::remove_file(&part);
+        return written;
     }
-    written
+    // The rename reaches the disk with the folder. Not every system syncs one; the file is in place.
+    #[cfg(unix)]
+    if let Some(folder) = target.parent() {
+        let folder = if folder.as_os_str().is_empty() { std::path::Path::new(".") } else { folder };
+        let _ = std::fs::File::open(folder).and_then(|f| f.sync_all());
+    }
+    Ok(())
 }
 
 /// The text closest to a point.
@@ -1756,6 +1805,81 @@ mod tests {
         let path = folder.join("nada").join("doc.pdf");
         assert!(matches!(exported("Texto.\n", &path, false), Event::Exported(Err(_))));
         assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 0);
+        std::fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn a_failure_halfway_through_a_write_leaves_the_old_file_and_no_part() {
+        use std::io::Write;
+        let folder = export_folder("halfway");
+        let path = folder.join("doc.typ");
+        std::fs::write(&path, "o texto inteiro\n").unwrap();
+        let failed = replace_file(&path, |file| {
+            file.write_all(b"o te")?;
+            Err(std::io::Error::other("sem espa\u{e7}o"))
+        });
+        assert!(failed.is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "o texto inteiro\n");
+        assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 1);
+        std::fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn writing_whole_makes_a_new_file_and_replaces_an_old_one() {
+        let folder = export_folder("whole");
+        let path = folder.join("novo.typ");
+        write_whole(&path, b"um").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"um");
+        write_whole(&path, b"dois").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"dois");
+        assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 1);
+        std::fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn writing_whole_refuses_what_is_not_a_file() {
+        let folder = export_folder("not-a-file");
+        let inner = folder.join("pasta");
+        std::fs::create_dir(&inner).unwrap();
+        assert!(write_whole(&inner, b"x").is_err());
+        assert!(inner.is_dir());
+        assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 1);
+        std::fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[test]
+    fn writing_whole_refuses_a_read_only_file() {
+        let folder = export_folder("read-only");
+        let path = folder.join("doc.typ");
+        std::fs::write(&path, "antes").unwrap();
+        let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+        permissions.set_readonly(true);
+        std::fs::set_permissions(&path, permissions.clone()).unwrap();
+        // Whoever the system lets write anyway, as root, has nothing to prove here.
+        if std::fs::OpenOptions::new().write(true).open(&path).is_err() {
+            assert!(write_whole(&path, b"depois").is_err());
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), "antes");
+            assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 1);
+        }
+        #[expect(clippy::permissions_set_readonly_false, reason = "only to clean up what the test made")]
+        permissions.set_readonly(false);
+        std::fs::set_permissions(&path, permissions).unwrap();
+        std::fs::remove_dir_all(folder).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn writing_whole_goes_through_a_link_and_keeps_the_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let folder = export_folder("link");
+        let (real, link) = (folder.join("real.typ"), folder.join("link.typ"));
+        std::fs::write(&real, "antes").unwrap();
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        write_whole(&link, b"depois").unwrap();
+        assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink(), "the link is still one");
+        assert_eq!(std::fs::read_to_string(&real).unwrap(), "depois");
+        assert_eq!(std::fs::metadata(&real).unwrap().permissions().mode() & 0o7777, 0o600);
         std::fs::remove_dir_all(folder).unwrap();
     }
 

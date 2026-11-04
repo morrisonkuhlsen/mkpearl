@@ -1038,7 +1038,7 @@ impl App {
             _ => self.dialog().add_filter("Typst", &["typ"]).set_file_name("documento.typ").save_file(),
         };
         let Some(path) = target else { return false };
-        match std::fs::write(&path, &self.text) {
+        match crate::compiler::write_whole(&path, self.text.as_bytes()) {
             Ok(()) => {
                 self.status = tr!("saved-to", path = path.display().to_string());
                 self.path = Some(path);
@@ -3206,7 +3206,7 @@ impl App {
     /// Saves the source to a file of the user's choice, leaving the open document as it is.
     fn save_copy(&mut self) {
         let Some(path) = self.dialog().add_filter("Typst", &["typ"]).set_file_name("copia.typ").save_file() else { return };
-        self.status = match std::fs::write(&path, &self.text) {
+        self.status = match crate::compiler::write_whole(&path, self.text.as_bytes()) {
             Ok(()) => tr!("copy-saved", path = path.display().to_string()),
             Err(e) => tr!("cant-save", error = e.to_string()),
         };
