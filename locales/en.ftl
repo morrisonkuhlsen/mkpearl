@@ -325,6 +325,7 @@ paste-an-anthropic-api-key-consoleanthropiccom = Paste an Anthropic API key (con
 paste-the-link-sent-by-the-person = Paste the link sent by the person who opened the session:
 paste-v = Paste (Ctrl+V)
 pdf-export = PDF export
+pearl-couldnt-start = Pearl couldn't start: { $error }
 pearl-ended-without-saving-these-documents = Pearl ended without saving these documents:
 people-in-the-session = People in the session
 piecewise-function = Piecewise function

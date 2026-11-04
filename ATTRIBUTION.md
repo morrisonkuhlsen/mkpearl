@@ -13,6 +13,7 @@ no row.
 | Terms of the brand files | Morrison Kühlsen | `docs/brand/LICENSE.md` | As it says |
 | Splash picture | No human author: generated with ChatGPT and supplied by the project's owner | `assets/splash.png` | Not under the repository's licences. OpenAI's Terms of Use assign the output to the person who made it, to the extent the law permits, and don't promise it is unique; read November 2026 |
 | README screenshots | Pearl's contributors; `splash.png` holds the splash picture and the wordmark, under their rows | `docs/images/main.png`, `dark.png`, `formulas.png`, `documentation.png`, `references.png`, `letterhead.png`, `splash.png`; drawn by `examples/shot.rs` | The repository's licences, except the picture and the wordmark in `splash.png` |
+| Windows icon | Pearl's contributors; drawn by `examples/icon.rs` | `packaging/windows/pearl.ico` | The repository's licences |
 | Inter Regular | The Inter Project Authors | `assets/fonts/Inter-Regular.ttf` | SIL Open Font License 1.1 |
 | Inter SemiBold | The Inter Project Authors | `assets/fonts/Inter-SemiBold.ttf` | SIL Open Font License 1.1 |
 | Inter's licence | The Inter Project Authors | `assets/fonts/OFL-Inter.txt` | As it says |

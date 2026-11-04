@@ -614,20 +614,25 @@ pub fn pearl(painter: &Painter, center: Pos2, radius: f32) {
 
 /// The window icon: the same sphere on a clear ground.
 pub fn icon() -> egui::IconData {
-    const SIDE: u32 = 128;
-    let mut rgba = Vec::with_capacity((SIDE * SIDE * 4) as usize);
-    let half = SIDE as f32 / 2.0;
-    for py in 0..SIDE {
-        for px in 0..SIDE {
-            let (x, y) = ((px as f32 + 0.5 - half) / (half - 4.0), (py as f32 + 0.5 - half) / (half - 4.0));
+    icon_of_size(128)
+}
+
+/// The icon drawn at a size, for what needs several, as a Windows `.ico` does.
+pub fn icon_of_size(side: u32) -> egui::IconData {
+    let mut rgba = Vec::with_capacity((side * side * 4) as usize);
+    let half = side as f32 / 2.0;
+    let margin = half / 16.0;
+    for py in 0..side {
+        for px in 0..side {
+            let (x, y) = ((px as f32 + 0.5 - half) / (half - margin), (py as f32 + 0.5 - half) / (half - margin));
             let d = (x * x + y * y).sqrt();
-            let alpha = ((1.0 - d) * (half - 4.0) + 0.5).clamp(0.0, 1.0);
+            let alpha = ((1.0 - d) * (half - margin) + 0.5).clamp(0.0, 1.0);
             let scale = if d > 0.999 { 0.999 / d } else { 1.0 };
             let [r, g, b, _] = to_color(nacre(x * scale, y * scale)).to_array();
             rgba.extend_from_slice(&[r, g, b, (alpha * 255.0) as u8]);
         }
     }
-    egui::IconData { rgba, width: SIDE, height: SIDE }
+    egui::IconData { rgba, width: side, height: side }
 }
 
 #[cfg(test)]

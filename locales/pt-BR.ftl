@@ -325,6 +325,7 @@ paste-an-anthropic-api-key-consoleanthropiccom = Cole uma chave da API da Anthro
 paste-the-link-sent-by-the-person = Cole o link que a pessoa que abriu a sessão enviou:
 paste-v = Colar (Ctrl+V)
 pdf-export = exportação em PDF
+pearl-couldnt-start = O Pearl não conseguiu iniciar: { $error }
 pearl-ended-without-saving-these-documents = O Pearl foi encerrado sem salvar estes documentos:
 people-in-the-session = Pessoas na sessão
 piecewise-function = Função por casos

@@ -1,5 +1,7 @@
 //! `pearl [--no-splash] [documento.typ]` opens a document, or the sample without one, after the
 //! splash screen.
+// Windows gives a console program a window of its own, and closing that ends Pearl without asking.
+#![cfg_attr(windows, windows_subsystem = "windows")]
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -34,6 +36,18 @@ fn show_splash() -> eframe::Result {
 }
 
 fn main() -> eframe::Result {
+    let result = run();
+    // Windows has no console to print this on when `main` returns it.
+    if cfg!(windows)
+        && let Err(error) = &result
+    {
+        let words = pearl::tr!("pearl-couldnt-start", error = error.to_string());
+        rfd::MessageDialog::new().set_level(rfd::MessageLevel::Error).set_title("Pearl").set_description(words).show();
+    }
+    result
+}
+
+fn run() -> eframe::Result {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     let path = args.iter().find(|a| !a.to_string_lossy().starts_with("--")).map(std::path::PathBuf::from);
     pearl::i18n::set(pearl::i18n::load());

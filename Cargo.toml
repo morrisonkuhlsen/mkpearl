@@ -26,6 +26,10 @@ ureq = { version = "2", default-features = false, features = ["tls"] }
 yrs = "0.28.0"
 spellbook = "0.4.2"
 
+# The icon and version in the Windows program, from build.rs.
+[target.'cfg(windows)'.build-dependencies]
+winresource = { version = "0.1", default-features = false }
+
 [dev-dependencies]
 egui_kittest = { version = "0.37", features = ["wgpu"] }
 

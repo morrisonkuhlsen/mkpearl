@@ -63,6 +63,7 @@ Every release of Pearl, newest first, in the spirit of
 - Margins dragged on the rulers change the `#set page` rule, as one undo step.
 - Copying and pasting with other programs, which didn't reach the system's clipboard.
 - Saving replaces the file all at once and reaches the disk first, so a full disk or a power cut leaves the old text or the new, never part of it. A document in a folder where no new file can be created can't be saved there any more, and says so.
+- On Windows, Pearl opens without a console window beside it, whose closing ended the program without asking to save. The program and its installer have Pearl's icon, and the program its version; a failure to start says so in a message.
 - Several carets at once, as in VS Code: Alt+click adds or removes one, Alt+drag adds a selection, Shift+Alt+drag selects a box, and Shift+Alt or Ctrl+Alt with Up or Down adds one on the next line. Typing, accents, deleting, the arrows, copying and pasting work at all of them, with as many pasted lines as carets going in one each, and Esc goes back to one.
 - Discarding changes to open another document no longer marks them as saved when nothing opens (the file dialog cancelled, a recent file that's gone, a bad session link): they stay unsaved, with their recovery copy, and closing still asks.
 - A file changed outside Pearl (another editor, `git pull`, a sync folder) is no longer written over unseen: before saving, Pearl keeps what the file says as a version and asks whether to use it, write yours over it, or leave it for now.
