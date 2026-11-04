@@ -856,6 +856,13 @@ impl App {
         self.kept_selection = Some((a, b));
     }
 
+    /// Another document is in the editor: the caret goes to its top, and the history it had goes
+    /// too. It holds whole texts, and an undo would put the last document's into this one's file.
+    fn reset_editor(&mut self, ctx: &egui::Context) {
+        egui::TextEdit::store_state(ctx, Id::unique(EDITOR), egui::text_edit::TextEditState::default());
+        self.set_selection(ctx, (0, 0));
+    }
+
     fn edit(&mut self, ctx: &egui::Context, f: impl FnOnce(&mut String, Sel) -> Sel) {
         self.previewing = false;
         let sel = self.selection(ctx);
@@ -983,7 +990,7 @@ impl App {
     }
 
     /// A new document with no file yet.
-    fn start_document(&mut self, ctx: &egui::Context, text: String) {
+    pub fn start_document(&mut self, ctx: &egui::Context, text: String) {
         self.text = text;
         self.path = None;
         self.dirty = false;
@@ -993,11 +1000,11 @@ impl App {
         self.want_focus = true;
         self.end_viewing();
         self.versions.clear();
-        self.set_selection(ctx, (0, 0));
+        self.reset_editor(ctx);
         self.compile();
     }
 
-    fn open_path(&mut self, ctx: &egui::Context, path: PathBuf) {
+    pub fn open_path(&mut self, ctx: &egui::Context, path: PathBuf) {
         match std::fs::read_to_string(&path) {
             Ok(text) => {
                 self.text = text;
@@ -1008,7 +1015,7 @@ impl App {
                 self.remember_path();
                 self.end_viewing();
                 self.keep_version(history::Kind::Opened);
-                self.set_selection(ctx, (0, 0));
+                self.reset_editor(ctx);
                 self.compile();
             }
             Err(e) => self.status = tr!("cant-open", path = path.display().to_string(), error = e.to_string()),
@@ -1880,7 +1887,7 @@ impl App {
                 self.pages.clear();
                 self.textures.clear();
                 self.backstage = None;
-                self.set_selection(ctx, (0, 0));
+                self.reset_editor(ctx);
                 self.share_dialog = Some(ShareDialog::Running { copied: false });
                 self.status = tx("connecting-to-the-session").into();
             }

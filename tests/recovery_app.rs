@@ -74,6 +74,12 @@ fn what_a_crash_leaves_is_offered_and_recovered() {
     assert!(h.state().recoverable().is_empty());
     assert!(h.state().has_recovery_copy(), "still safe if this run ends badly too");
 
+    // What the window showed before it isn't one undo away, to come back over the recovered text.
+    let recovered = h.state().text().to_string();
+    h.event(egui::Event::Key { key: egui::Key::Z, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND });
+    h.run_steps(3);
+    assert_eq!(h.state().text(), recovered);
+
     h.state_mut().finish_recovery();
     let folder = root.join("data/pearl/recovery");
     assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 0, "a clean exit leaves nothing");
