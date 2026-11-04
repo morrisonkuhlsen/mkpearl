@@ -1,5 +1,5 @@
 //! Renders a window offscreen to a PNG, without touching the desktop.
-//! `cargo run --example shot -- out.png splash` or `… out.png [tab] [dark] [error] [dropping]`
+//! `cargo run --example shot -- out.png splash [seconds]` or `… out.png [tab] [dark] [error] [dropping]`
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -17,10 +17,12 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let out = args.first().expect("usage: shot out.png [splash | tab] [dark] [error]").clone();
     if args.get(1).is_some_and(|a| a == "splash") {
+        // A moment of its animation, to look at; the whole time by default.
+        let at: Option<f64> = args.get(2).and_then(|a| a.parse().ok());
         let mut harness = egui_kittest::Harness::builder()
             .with_size(egui::vec2(SIZE[0], SIZE[1]))
             .with_pixels_per_point(1.5)
-            .with_step_dt(0.5)
+            .with_step_dt(if at.is_some() { 1.0 / 60.0 } else { 0.5 })
             .wgpu()
             .build_ui_state(
                 |ui, s: &mut SplashScreen| {
@@ -30,7 +32,13 @@ fn main() {
                 },
                 SplashScreen::default(),
             );
-        harness.run_steps(5);
+        if let Some(at) = at {
+            while harness.ctx.input(|i| i.time) < at {
+                harness.step();
+            }
+        } else {
+            harness.run_steps(5);
+        }
         harness.render().expect("render").save(&out).expect("save");
         println!("{out}");
         return;

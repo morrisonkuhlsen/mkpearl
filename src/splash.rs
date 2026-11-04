@@ -2,7 +2,8 @@
 //! On ink, Pearl's mark, name, motto and version, and a bar that fills while it shows with the
 //! program's parts named in turn; beside them, the picture, whole, as tall as the window. The bar
 //! is a timed presentation, not a measure of loading. It closes by itself after a moment; a click
-//! or Esc closes it sooner. The picture's clouds drift: they're cut out of it when it loads.
+//! or Esc closes it sooner. The picture stays alive meanwhile: its clouds drift, cut out of it when it
+//! loads; the duck bobs, the fish breathes bubbles and the frog blinks.
 
 use crate::i18n::tx;
 use crate::tr;
@@ -42,6 +43,40 @@ const NEAR_SKY: u32 = 24;
 const LINE: [u8; 3] = [0x10, 0x10, 0x14];
 /// How far from the sky around a cloud its line's edge blends into it, in pixels.
 const LINE_EDGE: usize = 2;
+/// The picture's width and height, in pixels; what follows is measured on it.
+const PICTURE_SIDE: f32 = 1254.0;
+/// The pixels that hold the duck: left, top, right, bottom, the last two past its end.
+const DUCK_AREA: [u32; 4] = [212, 755, 358, 860];
+/// A point of its white body and of its orange beak, from which the rest of it is found.
+const DUCK_BODY: [u32; 2] = [300, 825];
+const DUCK_BEAK: [u32; 2] = [332, 790];
+/// How far from its colours the duck reaches: all that's within the first, and what's dark within
+/// the second, which is its drawn line.
+const DUCK_EDGE: usize = 2;
+const DUCK_LINE: usize = 5;
+/// How bright a pixel is when it has nothing of the line: darker than the darkest of the water.
+const LINE_CLEAR: f32 = 115.0;
+/// How far it bobs, in pixels, and in how many seconds it goes up and down.
+const DUCK_BOB: f32 = 4.0;
+const DUCK_BOB_SECONDS: f32 = 2.2;
+/// How much it leans, in pixels of height for each one from its middle, and how slowly.
+const DUCK_LEAN: f32 = 0.014;
+const DUCK_LEAN_SECONDS: f32 = 3.1;
+/// The fish's mouth, where the bubbles start, and how high they go before they're gone.
+const FISH_MOUTH: [f32; 2] = [675.0, 934.0];
+const BUBBLE_RISE: f32 = 105.0;
+/// The bubbles drawn in the picture, which those drawn here replace: x, y and radius.
+const DRAWN_BUBBLES: [[f32; 3]; 2] = [[681.0, 921.0, 8.0], [692.0, 903.0, 9.0]];
+const BUBBLES: usize = 3;
+const BUBBLE_SECONDS: f32 = 2.4;
+const BUBBLE_LINE: Color32 = Color32::from_rgb(0x1B, 0x45, 0x77);
+/// The frog's eye and the lid that closes over it, in the green around the eye.
+const FROG_EYE: [f32; 2] = [1128.0, 868.0];
+const FROG_LID_RADIUS: f32 = 8.0;
+const FROG_LID: Color32 = Color32::from_rgb(0x70, 0xB5, 0x34);
+/// When the frog blinks, in seconds since the start, and how long it takes.
+const BLINKS: [f32; 3] = [1.3, 3.2, 3.6];
+const BLINK_SECONDS: f32 = 0.22;
 /// Pearl's colour: nacre.
 pub const BRAND: Color32 = Color32::from_rgb(0xE9, 0xE1, 0xD3);
 const NAME: &str = "Pearl";
@@ -95,12 +130,14 @@ impl SplashScreen {
 struct Scene {
     ground: TextureHandle,
     clouds: Vec<Layer>,
+    duck: Option<Layer>,
 }
 
 struct Layer {
     texture: TextureHandle,
     /// Where it lies when it hasn't moved, as a part of the picture.
     place: Rect,
+    /// How fast it drifts; the duck stays where it is.
     speed: f32,
 }
 
@@ -226,8 +263,204 @@ fn cut_cloud(picture: &mut image::RgbImage, cloud: &Cloud) -> Option<(egui::Colo
     Some((image, Rect::from_min_max(pos2(left as f32 / w, top as f32 / h), pos2(right as f32 / w, bottom as f32 / h))))
 }
 
+/// Paints a circle of the picture over with the mean of what's around it.
+fn erase_circle(picture: &mut image::RgbImage, [x, y, radius]: [f32; 3]) {
+    const AROUND: f32 = 3.0;
+    let reach = (radius + AROUND).ceil() as i64;
+    let (cx, cy) = (x as i64, y as i64);
+    let offsets = || (-reach..=reach).flat_map(|dy| (-reach..=reach).map(move |dx| (dx, dy)));
+    let far = |dx: i64, dy: i64| ((dx * dx + dy * dy) as f32).sqrt();
+    let spot = |dx: i64, dy: i64| Some((u32::try_from(cx + dx).ok()?, u32::try_from(cy + dy).ok()?));
+    let ring: Vec<[u8; 3]> = offsets()
+        .filter(|&(dx, dy)| far(dx, dy) > radius && far(dx, dy) <= radius + AROUND)
+        .filter_map(|(dx, dy)| spot(dx, dy).and_then(|(px, py)| pixel(picture, px, py)))
+        .collect();
+    let n = ring.len() as f32;
+    if n == 0.0 {
+        return;
+    }
+    let mean = [0, 1, 2].map(|c: usize| (ring.iter().map(|p| f32::from(p.get(c).copied().unwrap_or(0))).sum::<f32>() / n).round() as u8);
+    for (dx, dy) in offsets().filter(|&(dx, dy)| far(dx, dy) <= radius) {
+        if let Some((px, py)) = spot(dx, dy)
+            && let Some(p) = picture.get_pixel_mut_checked(px, py)
+        {
+            p.0 = mean;
+        }
+    }
+}
+
+/// How far from nothing (0) to everything (1) a value has come between two others, gently.
+fn ease(from: f32, to: f32, value: f32) -> f32 {
+    let t = ((value - from) / (to - from)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Takes the duck out of the picture, leaving what's beside it on each row, and gives it back on a
+/// clear ground. Nothing around it has one colour to tell it by, as the sky does for a cloud, so it's
+/// found from inside, by its own colours.
+fn cut_duck(picture: &mut image::RgbImage) -> Option<(egui::ColorImage, Rect)> {
+    let [left, top, right, bottom] = DUCK_AREA;
+    let (right, bottom) = (right.min(picture.width()), bottom.min(picture.height()));
+    let (width, height) = (right.checked_sub(left)? as usize, bottom.checked_sub(top)? as usize);
+    let seen = |x: usize, y: usize| pixel(picture, left.saturating_add(x as u32), top.saturating_add(y as u32));
+    type Belongs = fn([u8; 3]) -> bool;
+    let white: Belongs = |[r, g, b]| r > 200 && g > 200 && b > 190;
+    let orange: Belongs = |[r, _, b]| r > 200 && b < 120;
+
+    // Its colours, spreading from a point of each.
+    let mut own = vec![false; width.checked_mul(height)?];
+    for ([x, y], belongs) in [(DUCK_BODY, white), (DUCK_BEAK, orange)] {
+        let mut pending = vec![(x.checked_sub(left)? as usize, y.checked_sub(top)? as usize)];
+        while let Some((x, y)) = pending.pop() {
+            if x >= width || y >= height {
+                continue;
+            }
+            let fits = seen(x, y).is_some_and(belongs);
+            let Some(mark) = own.get_mut(y * width + x) else { continue };
+            if *mark || !fits {
+                continue;
+            }
+            *mark = true;
+            pending.extend([(x + 1, y), (x.wrapping_sub(1), y), (x, y + 1), (x, y.wrapping_sub(1))]);
+        }
+    }
+    let within = |x: usize, y: usize, reach: usize| {
+        (y.saturating_sub(reach)..=(y + reach).min(height - 1)).any(|row| {
+            (x.saturating_sub(reach)..=(x + reach).min(width - 1))
+                .any(|column| column.abs_diff(x).pow(2) + row.abs_diff(y).pow(2) <= reach.pow(2) && own.get(row * width + column) == Some(&true))
+        })
+    };
+
+    let mut image = egui::ColorImage::filled([width, height], Color32::TRANSPARENT);
+    for y in 0..height {
+        for x in 0..width {
+            let Some(p) = seen(x, y) else { continue };
+            let [r, g, b] = p;
+            let color = if within(x, y, DUCK_EDGE) {
+                Color32::from_rgb(r, g, b)
+            } else if within(x, y, DUCK_LINE) {
+                // The line's edge goes clear as it turns into what's behind it.
+                let alpha = ((LINE_CLEAR - brightness(p)) / 40.0).clamp(0.0, 1.0);
+                let [r, g, b] = LINE;
+                Color32::from_rgba_unmultiplied(r, g, b, (alpha * 255.0).round() as u8)
+            } else {
+                continue;
+            };
+            if let Some(slot) = image.pixels.get_mut(y * width + x) {
+                *slot = color;
+            }
+        }
+    }
+
+    // Behind it, row by row, from one side of each gap to the other. It moves little: what shows of
+    // this is a sliver.
+    // A little past the line, whose faint edge would stay behind as a ghost of the duck.
+    let is_taken = |x: usize, y: usize| within(x, y, DUCK_LINE + 2);
+    let mut patch = Vec::new();
+    for y in 0..height {
+        let mut x = 0;
+        while x < width {
+            if !is_taken(x, y) {
+                x += 1;
+                continue;
+            }
+            let start = x;
+            while x < width && is_taken(x, y) {
+                x += 1;
+            }
+            // A pixel of margin on each side, as a mix with the line would carry it along.
+            let before = start.checked_sub(2).and_then(|at| seen(at, y));
+            let after = seen(x + 1, y).filter(|_| x + 1 < width);
+            let (Some(a), Some(b)) = (before.or(after), after.or(before)) else { continue };
+            let ends = (a.map(f32::from), b.map(f32::from));
+            for at in start..x {
+                patch.push((at, y, mix(ends, (at - start) as f32 / (x - start).max(1) as f32)));
+            }
+        }
+    }
+    for (x, y, color) in patch {
+        if let Some(p) = picture.get_pixel_mut_checked(left + x as u32, top + y as u32) {
+            p.0 = color;
+        }
+    }
+    let (w, h) = (picture.width().max(1) as f32, picture.height().max(1) as f32);
+    Some((image, Rect::from_min_max(pos2(left as f32 / w, top as f32 / h), pos2(right as f32 / w, bottom as f32 / h))))
+}
+
+/// How far up a column of the duck has gone, in pixels: all of it bobs, and it leans a little.
+fn duck_lift(x: f32, seconds: f32) -> f32 {
+    let turn = |period: f32| (seconds / period * std::f32::consts::TAU).sin();
+    let [left, _, right, _] = DUCK_AREA;
+    let middle = (left + right) as f32 / 2.0;
+    DUCK_BOB * turn(DUCK_BOB_SECONDS) + DUCK_LEAN * (x - middle) * turn(DUCK_LEAN_SECONDS)
+}
+
+/// The duck where it is now: four corners are enough, as it leans in a straight line.
+fn paint_duck(painter: &Painter, duck: &Layer, art: Rect, seconds: f32) {
+    let place = duck.place;
+    let scale = art.width() / PICTURE_SIDE;
+    let corner = |u: f32, v: f32| {
+        let at = place.min.to_vec2() + vec2(u, v) * place.size();
+        Vertex { pos: art.min + at * art.size() - vec2(0.0, duck_lift(at.x * PICTURE_SIDE, seconds) * scale), uv: pos2(u, v), color: Color32::WHITE }
+    };
+    let mut mesh = Mesh::with_texture(duck.texture.id());
+    mesh.vertices.extend([corner(0.0, 0.0), corner(1.0, 0.0), corner(1.0, 1.0), corner(0.0, 1.0)]);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    painter.add(mesh);
+}
+
+/// A bubble at this moment: where it is, its radius and how much of it shows.
+fn bubble(index: usize, seconds: f32) -> ([f32; 2], f32, f32) {
+    let start = index as f32 / BUBBLES as f32;
+    let age = (seconds / BUBBLE_SECONDS + start).rem_euclid(1.0);
+    let [x, y] = FISH_MOUTH;
+    let sway = (age * 9.0 + index as f32 * 2.0).sin() * 4.0 + age * 18.0;
+    let shows = ease(0.0, 0.08, age) * (1.0 - ease(0.7, 1.0, age));
+    ([x + sway, y - age * BUBBLE_RISE], 2.5 + age * 5.5, shows)
+}
+
+/// How closed the frog's eye is, from 0 to 1.
+fn eye_closed(seconds: f32) -> f32 {
+    BLINKS.iter().map(|at| (1.0 - (seconds - at).abs() / (BLINK_SECONDS / 2.0)).max(0.0)).fold(0.0, f32::max)
+}
+
+fn paint_bubbles(painter: &Painter, art: Rect, seconds: f32) {
+    let scale = art.width() / PICTURE_SIDE;
+    for index in 0..BUBBLES {
+        let ([x, y], radius, shows) = bubble(index, seconds);
+        let center = art.min + vec2(x, y) * scale;
+        let line = egui::Stroke::new(2.4 * scale, BUBBLE_LINE.gamma_multiply(shows));
+        painter.circle(center, radius * scale, Color32::WHITE.gamma_multiply(0.18 * shows), line);
+    }
+}
+
+fn paint_blink(painter: &Painter, art: Rect, seconds: f32) {
+    let closed = eye_closed(seconds);
+    if closed <= 0.0 {
+        return;
+    }
+    let scale = art.width() / PICTURE_SIDE;
+    let [x, y] = FROG_EYE;
+    let center = art.min + vec2(x, y) * scale;
+    let radius = FROG_LID_RADIUS * scale;
+    // The lid comes down over the eye, and when it's shut its edge is a line, like the drawn ones.
+    let reach = Rect::from_min_max(center - vec2(radius, radius) * 1.2, pos2(center.x + radius * 1.2, center.y - radius + 2.0 * radius * closed));
+    painter.with_clip_rect(reach.intersect(art)).circle_filled(center, radius, FROG_LID);
+    let points: Vec<Pos2> = (0..=12)
+        .map(|i| {
+            let a = (20.0 + 140.0 * i as f32 / 12.0).to_radians();
+            center + vec2(a.cos(), a.sin() * 0.55) * radius * 0.85
+        })
+        .collect();
+    painter.line(points, egui::Stroke::new(2.4 * scale, INK.gamma_multiply(ease(0.6, 1.0, closed))));
+}
+
 fn load_picture(ctx: &egui::Context) -> Option<Scene> {
     let mut picture = decode_picture().ok()?;
+    for drawn in DRAWN_BUBBLES {
+        erase_circle(&mut picture, drawn);
+    }
     // Shown at about a third of its size: mipmaps keep the drawn lines from shimmering.
     let options = TextureOptions { mipmap_mode: Some(egui::TextureFilter::Linear), ..TextureOptions::LINEAR };
     let mut clouds = Vec::new();
@@ -236,9 +469,10 @@ fn load_picture(ctx: &egui::Context) -> Option<Scene> {
             clouds.push(Layer { texture: ctx.load_texture(format!("splash-cloud-{i}"), image, options), place, speed: cloud.speed });
         }
     }
+    let duck = cut_duck(&mut picture).map(|(image, place)| Layer { texture: ctx.load_texture("splash-duck", image, options), place, speed: 0.0 });
     let size = [picture.width() as usize, picture.height() as usize];
     let ground = ctx.load_texture("splash-picture", egui::ColorImage::from_rgb(size, picture.as_raw()), options);
-    Some(Scene { ground, clouds })
+    Some(Scene { ground, clouds, duck })
 }
 
 fn decode_wordmark() -> Result<egui::ColorImage, image::ImageError> {
@@ -272,6 +506,11 @@ fn paint(painter: &Painter, rect: Rect, progress: f32, picture: Option<&Scene>, 
         painter.image(scene.ground.id(), art, whole, Color32::WHITE);
         let seconds = progress * HOLD as f32;
         let sky = painter.with_clip_rect(art);
+        if let Some(duck) = &scene.duck {
+            paint_duck(&sky, duck, art, seconds);
+        }
+        paint_bubbles(&sky, art, seconds);
+        paint_blink(&sky, art, seconds);
         for cloud in &scene.clouds {
             let min = art.min + cloud.place.min.to_vec2() * art.size() + vec2(cloud.speed * seconds * art.width(), 0.0);
             sky.image(cloud.texture.id(), Rect::from_min_size(min, cloud.place.size() * art.size()), whole, Color32::WHITE);
@@ -449,6 +688,99 @@ mod tests {
             }
         }
         assert!(off / count < 3, "the mean difference is {}", off as f64 / count as f64);
+    }
+
+    #[test]
+    fn the_measures_are_of_this_picture() {
+        assert_eq!(decode_picture().unwrap().width() as f32, PICTURE_SIDE);
+    }
+
+    #[test]
+    fn the_drawn_bubbles_are_gone_and_the_water_stays() {
+        let mut picture = decode_picture().unwrap();
+        let dark = |picture: &image::RgbImage, [x, y, radius]: [f32; 3]| {
+            let reach = radius as i32;
+            (-reach..=reach)
+                .flat_map(|dy| (-reach..=reach).map(move |dx| (dx, dy)))
+                .filter(|&(dx, dy)| ((dx * dx + dy * dy) as f32).sqrt() <= radius)
+                .filter(|&(dx, dy)| picture.get_pixel((x as i32 + dx) as u32, (y as i32 + dy) as u32).0[0] < 50)
+                .count()
+        };
+        assert!(DRAWN_BUBBLES.iter().all(|&b| dark(&picture, b) > 10), "the bubbles are where they're said to be");
+        for drawn in DRAWN_BUBBLES {
+            erase_circle(&mut picture, drawn);
+        }
+        assert!(DRAWN_BUBBLES.iter().all(|&b| dark(&picture, b) == 0));
+        // Out of the picture, nothing happens and nothing breaks.
+        erase_circle(&mut picture, [-500.0, 5000.0, 4.0]);
+    }
+
+    #[test]
+    fn the_duck_comes_out_whole_and_the_far_shore_stays() {
+        let original = decode_picture().unwrap();
+        let mut ground = original.clone();
+        let (image, _) = cut_duck(&mut ground).unwrap();
+        let [left, top, right, bottom] = DUCK_AREA;
+        // Its white, its beak and its line came with it, and nothing is left of them.
+        let pixels = || image.pixels.iter().map(|p| p.to_array());
+        assert!(pixels().filter(|[r, g, b, a]| *a == 255 && *r > 230 && *g > 230 && *b > 220).count() > 3000);
+        assert!(pixels().filter(|[r, _, b, a]| *a == 255 && *r > 200 && *b < 120).count() > 50);
+        assert!(pixels().filter(|[r, _, _, a]| *a > 200 && *r < 60).count() > 500);
+        for y in top..bottom {
+            for x in left..right {
+                let [r, g, b] = ground.get_pixel(x, y).0;
+                assert!(!(r > 225 && g > 225 && b > 215), "white left at ({x}, {y})");
+                assert!(!(r > 200 && b < 100 && g < 170), "the beak left at ({x}, {y})");
+            }
+        }
+        // It's clear at the corners, where the water and the shore are, and they aren't touched there.
+        assert_eq!(image[(0, 0)], Color32::TRANSPARENT);
+        assert_eq!(image[(image.size[0] - 1, 0)], Color32::TRANSPARENT);
+        assert_eq!(ground.get_pixel(left, top), original.get_pixel(left, top));
+        // The shore's line runs on behind its head, on a row of the patch as dark as beside it.
+        let beside = ground.get_pixel(left + 2, 771).0;
+        let behind = ground.get_pixel(310, 771).0;
+        assert!(distance(beside, behind) < 120, "{beside:?} {behind:?}");
+    }
+
+    #[test]
+    fn the_duck_bobs_and_leans_from_where_it_was_drawn() {
+        assert_eq!(duck_lift(100.0, 0.0), 0.0);
+        assert_eq!(duck_lift(400.0, 0.0), 0.0);
+        let up = DUCK_BOB_SECONDS / 4.0;
+        assert!(duck_lift(285.0, up) > DUCK_BOB * 0.9);
+        let [left, _, right, _] = DUCK_AREA;
+        for tenth in 0..=50 {
+            let seconds = tenth as f32 / 10.0;
+            for x in [left as f32, right as f32] {
+                assert!(duck_lift(x, seconds).abs() <= DUCK_BOB + 2.0);
+            }
+        }
+    }
+
+    #[test]
+    fn the_bubbles_rise_from_the_mouth_and_fade_under_the_water() {
+        let surface = 785.0;
+        for hundredth in 0..=1000 {
+            let seconds = hundredth as f32 / 100.0;
+            for index in 0..BUBBLES {
+                let ([_, y], radius, shows) = bubble(index, seconds);
+                assert!(y - radius > surface && y <= FISH_MOUTH[1], "{y}");
+                assert!((0.0..=1.0).contains(&shows));
+            }
+        }
+        let early = bubble(0, BUBBLE_SECONDS * 0.2);
+        let later = bubble(0, BUBBLE_SECONDS * 0.6);
+        assert!(later.0[1] < early.0[1] && later.1 > early.1);
+        assert_eq!(bubble(0, 0.0).2, 0.0, "it starts unseen");
+    }
+
+    #[test]
+    fn the_frog_blinks_now_and_then() {
+        assert_eq!(eye_closed(0.0), 0.0);
+        assert_eq!(eye_closed(BLINKS[0]), 1.0);
+        assert_eq!(eye_closed(BLINKS[0] + BLINK_SECONDS), 0.0);
+        assert!(BLINKS.iter().all(|at| *at < HOLD as f32));
     }
 
     #[test]
