@@ -998,6 +998,8 @@ impl App {
             }
             Pending::Quit => {
                 self.quitting = true;
+                // Answered already: autosave has no business writing it on the way out.
+                self.dirty = false;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
         }
@@ -4557,8 +4559,9 @@ impl App {
                     }
                 }
                 Some(1) => {
+                    // What replaces the document clears the mark: an action that ends up doing
+                    // nothing leaves the edits unsaved, with their recovery copy.
                     self.confirm = None;
-                    self.dirty = false;
                     self.perform(ctx, action);
                 }
                 Some(_) => self.confirm = None,
