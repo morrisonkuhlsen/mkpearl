@@ -5,6 +5,7 @@
 pub mod app;
 pub mod assistant;
 pub mod bib;
+pub mod carets;
 pub mod collab;
 pub mod comments;
 pub mod compare;

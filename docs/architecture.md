@@ -5,6 +5,7 @@ One crate, by the owner's decision: nothing needs the split yet, and it would to
 | Module | What it holds |
 | --- | --- |
 | `app`, `app/backstage` | the window and the File view |
+| `carets`, `app/multi_caret` | several carets: what typing does at each, and the keys and pointer taken before egui's single-caret editor sees them |
 | `compiler` | a worker thread: compiling, rendering pages, PDF, completions, hover; `world` is what Typst sees |
 | `collab` | sessions: `doc` (the yrs document), `net` and `wire` (Noise over TCP) |
 | `assistant` | Claude, joining as a peer through the same session link, by the raw Messages API |

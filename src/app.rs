@@ -38,6 +38,7 @@ mod figures;
 mod fit;
 mod formulas;
 mod letterhead;
+mod multi_caret;
 mod references;
 mod timeline;
 mod typography;
@@ -348,6 +349,12 @@ pub struct App {
     colored: Option<(u64, Color32, egui::text::LayoutJob)>,
     title: String,
     autosave: bool,
+    /// More carets than the editor's own, when there are.
+    multi: Option<multi_caret::MultiCaret>,
+    /// Where a box selection started, as line and column, while it's being dragged.
+    column_from: Option<(usize, usize)>,
+    /// The pointer was over the editor at the last frame.
+    editor_hovered: bool,
     /// What the open file said when last read or written, to notice when something else changes it.
     disk_text: Option<Vec<u8>>,
     /// A change made outside Pearl, waiting for an answer. Nothing is written over it meanwhile.
@@ -501,6 +508,9 @@ impl App {
             colored: None,
             title: String::new(),
             autosave: true,
+            multi: None,
+            column_from: None,
+            editor_hovered: false,
             outside_change: None,
             changed_at: 0.0,
             ribbon_collapsed: false,
@@ -873,11 +883,14 @@ impl App {
     /// Another document is in the editor: the caret goes to its top, and the history it had goes
     /// too. It holds whole texts, and an undo would put the last document's into this one's file.
     fn reset_editor(&mut self, ctx: &egui::Context) {
+        self.multi = None;
         egui::TextEdit::store_state(ctx, Id::unique(EDITOR), egui::text_edit::TextEditState::default());
         self.set_selection(ctx, (0, 0));
     }
 
     fn edit(&mut self, ctx: &egui::Context, f: impl FnOnce(&mut String, Sel) -> Sel) {
+        // What edits at several carets puts them back; anything else is about one place.
+        self.multi = None;
         self.previewing = false;
         let sel = self.selection(ctx);
         // One undo step for each of these, also from the pages, when the editor hasn't had the focus
@@ -1358,6 +1371,7 @@ impl App {
             self.ask_completions(ctx, true);
         }
         self.completion_keys(ctx);
+        self.caret_keys(ctx);
         self.typing_help(ctx);
         // Before the editor sees them: its own history doesn't suit a session (see `undo`).
         if self.session.is_some() {
@@ -3703,8 +3717,12 @@ impl App {
         let want_focus = std::mem::take(&mut self.want_focus);
         let pending = self.pending_caret.take();
         if let Some(c) = pending {
+            self.multi = None;
             self.set_selection(&ctx, (c, c));
         }
+        let column_drag = self.column_drag_begins(&ctx);
+        let caret_before = self.selection(&ctx);
+        let drawn_carets = self.multi.as_ref().map(|m| (m.carets.list().to_vec(), m.carets.primary_index()));
         // Coming back to the editor: with the focus before it draws, or it would collapse the
         // selection again, and with the one it had.
         if want_focus {
@@ -3745,6 +3763,7 @@ impl App {
         let mut asked_about = None;
         let mut hover_pos = None;
         let mut kept = None;
+        let (mut caret_place, mut caret_column, mut own_selection, mut over_editor) = (None, 0, None, false);
         egui::ScrollArea::vertical().id_salt("source-scroll").auto_shrink([false, false]).show(ui, |ui| {
             let min_h = ui.available_height();
             ui.horizontal_top(|ui| {
@@ -3760,9 +3779,17 @@ impl App {
                     .desired_width(f32::INFINITY)
                     .desired_rows(rows_fit)
                     .layouter(&mut layouter)
-                    .interactive(!waiting)
+                    .interactive(!waiting && !column_drag)
                     .show(ui);
                 output.response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::MultilineTextInput, true, tx("source-2")));
+                over_editor = output.response.contains_pointer();
+                own_selection = output.cursor_range.map(|r| (usize::from(r.secondary.index), usize::from(r.primary.index)));
+                if let Some(p) = ui.ctx().pointer_interact_pos() {
+                    let relative = p - output.galley_pos;
+                    caret_place = Some(usize::from(output.galley.cursor_from_pos(relative).index));
+                    let width = ui.painter().layout_no_wrap("0".to_string(), FontId::monospace(13.0), Color32::WHITE).size().x.max(1.0);
+                    caret_column = (relative.x / width).round().max(0.0) as usize;
+                }
                 changed = output.response.changed();
                 if want_focus {
                     output.response.request_focus();
@@ -3833,6 +3860,22 @@ impl App {
                         }
                     }
                 };
+                // The other carets. The editor draws its own, except while a box is dragged.
+                if let Some((list, primary)) = &drawn_carets {
+                    let stroke = ui.visuals().text_cursor.stroke;
+                    let selected = ui.visuals().selection.bg_fill.gamma_multiply(0.6);
+                    for (i, caret) in list.iter().enumerate() {
+                        if i == *primary && !column_drag {
+                            continue;
+                        }
+                        let (a, b) = caret.sel();
+                        if a != b {
+                            paint_range(a, b, selected);
+                        }
+                        let at = place(caret.head);
+                        ui.painter().rect_filled(Rect::from_min_size(at.min, vec2(stroke.width.max(1.5), at.height())), 0.0, stroke.color);
+                    }
+                }
                 // The passages with open comments, under the search's matches.
                 for (a, b) in &commented {
                     paint_range(*a, *b, t.warning.gamma_multiply(0.22));
@@ -3851,6 +3894,8 @@ impl App {
         if kept.is_some() {
             self.kept_selection = kept;
         }
+        self.caret_pointer(&ctx, caret_before, caret_place, caret_column, own_selection);
+        self.editor_hovered = over_editor;
         if changed {
             self.dirty = true;
             self.previewing = false;
