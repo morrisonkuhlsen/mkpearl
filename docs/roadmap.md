@@ -10,6 +10,7 @@ Pearl's plan and progress log. Each section says what is done and its **Next:** 
   typing on the pages, dragging the margins on the rulers, and selecting, resizing, moving and
   removing figures on the pages.
 - *Done:* several carets at once, as in VS Code.
+- *Done:* a refinement of the look: the pages' shadow and desk, an icon strip, the File view's sheets, the ribbon's fields.
 - *Done:* ready-made formulas, with previews and a search.
 - *Done:* letterhead and watermark, with a live preview and the opacity of a picture.
 - *Done:* the typography watch (#27); layout variants (#25); fitting in a number of pages (#26); the accessibility check and PDF/UA-1 export (#30).

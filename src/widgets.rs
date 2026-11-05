@@ -129,7 +129,13 @@ pub fn field_menu(ui: &mut Ui, text: &str, width: f32, tip: &str, menu: impl FnO
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 23.0), Sense::click());
     ui.painter().rect(rect, 0.0, if resp.hovered() { t.field_hover } else { t.input_bg }, Stroke::new(1.0, t.input_border), StrokeKind::Inside);
     let area = Rect::from_min_max(rect.min, pos2(rect.right() - 14.0, rect.bottom()));
-    ui.painter().with_clip_rect(area.intersect(ui.clip_rect())).text(area.center(), Align2::CENTER_CENTER, text, theme::ui_font(12.5), t.text);
+    ui.painter().with_clip_rect(area.intersect(ui.clip_rect())).text(
+        pos2(area.left() + 7.0, area.center().y),
+        Align2::LEFT_CENTER,
+        text,
+        theme::ui_font(12.5),
+        t.text,
+    );
     chevron(ui, pos2(rect.right() - 8.0, rect.center().y + 1.0), &t);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tip));
     let resp = resp.on_hover_text(tip);

@@ -52,6 +52,7 @@ pub enum Icon {
     Eraser,
     SortFilter,
     Find,
+    Replace,
     Undo,
     Redo,
     Save,
@@ -191,6 +192,7 @@ impl Icon {
         Icon::Eraser,
         Icon::SortFilter,
         Icon::Find,
+        Icon::Replace,
         Icon::Undo,
         Icon::Redo,
         Icon::Save,
@@ -413,8 +415,8 @@ impl Icon {
     fn ink(self, dark: bool) -> Option<Color32> {
         use Icon::*;
         let (light, night) = match self {
-            Paste | Cut | Copy | Brush | Undo | Redo | Save | Eraser | FillDown | Find | Search | NewFile | OpenFolder | Print | Share | Folder
-            | Book | Home | Info => ink::TERRACOTTA,
+            Paste | Cut | Copy | Brush | Undo | Redo | Save | Eraser | FillDown | Find | Replace | Search | NewFile | OpenFolder | Print | Share
+            | Folder | Book | Home | Info => ink::TERRACOTTA,
             Bold | Italic | Underline | Strike | Borders | BorderAll | BorderNone | BorderOutside | BorderThick | Fill | FontColor | AlignTop
             | AlignMiddle | AlignBottom | AlignLeft | AlignCenter | AlignRight | Orientation | IndentDec | IndentInc | Wrap | Merge | Freeze
             | Zoom | Gridlines | Normal | PageLayout | PageBreak | Margins | Orient | Portrait | Landscape | SheetRtl | Paper | Ruler | PrintArea
@@ -669,6 +671,13 @@ fn paint_with(p: &Painter, rect: Rect, icon: Icon, c: Color32, pal: &Palette) {
             g.stroke(&[(8.0, 2.0), (8.0, 11.5)], a);
             g.head(8.0, 14.5, down, a);
             g.closed(&[(10.0, 2.5), (14.5, 2.5), (12.75, 6.0), (12.75, 10.0), (11.75, 10.0), (11.75, 6.0)], muted);
+        }
+        Icon::Replace => {
+            // One letter becoming another, the arrow turning from the first down to the second.
+            g.text(4.5, 5.5, "a", 10.0, c, true, false);
+            g.text(10.5, 11.0, "b", 10.0, c, true, false);
+            g.stroke(&[(8.0, 2.5), (13.5, 2.5), (13.5, 5.0)], a);
+            g.head(13.5, 7.0, down, a);
         }
         Icon::Find | Icon::Search | Icon::Zoom => {
             g.ring(6.5, 6.5, 4.5, c);

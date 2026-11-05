@@ -12,6 +12,7 @@ Every release of Pearl, newest first, in the spirit of
 - Autocompletion, closing brackets, help on hover and a search with its matches on show.
 - Claude as a person in the session, with your own API key.
 - Version history for saved documents: see what changed, look at past pages and restore.
+- A more refined look: pages with a soft shadow on a lighter desk, a right strip of icons with their names under the pointer, a File view with its templates as sheets on one row, centred, and with long paths shortened in the middle; the ribbon's fields are aligned.
 - Rulers in centimetres around the pages, with the margins shaded.
 - Recovery: text left unsaved by a crash is offered back when Pearl opens again.
 - Spell checking in Brazilian Portuguese: misspelt words underlined, and a right click for suggestions,

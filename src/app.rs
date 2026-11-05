@@ -2430,7 +2430,7 @@ impl App {
                                 }
                             }
                         }
-                        let help = top_label(ui, tx("help"), theme::ui_font(13.0), t.text, MENU_H, t);
+                        let help = top_label(ui, tx("help"), theme::ui_font(13.0), t.text_dim, MENU_H, t);
                         egui::Popup::menu(&help).show(|ui| {
                             ui.set_min_width(230.0);
                             if ui.button(tx("documentation")).clicked() {
@@ -2574,7 +2574,7 @@ impl App {
                 }
             }
         });
-        field_menu(ui, tx("size"), 54.0, tx("size-of-the-selected-text"), |ui| {
+        field_menu(ui, tx("size"), 76.0, tx("size-of-the-selected-text"), |ui| {
             for size in [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 32] {
                 if ui.button(format!("{size} pt")).clicked() {
                     self.wrap(&ctx, &format!("#text(size: {size}pt)["), "]");
@@ -2698,7 +2698,7 @@ impl App {
                 }
             }
         }
-        if glyphs(ui, "a→b", tx("replace-h")).clicked() {
+        if tool(ui, Icon::Replace, tx("replace-h")).clicked() {
             let ctx = ui.ctx().clone();
             self.open_replace(&ctx);
         }
@@ -3062,21 +3062,14 @@ impl App {
             (Side::Claude, Icon::Pen, "Claude", 0),
             (Side::Docs, Icon::Note, tx("documentation"), 0),
         ];
-        // Only where it's in use: with ten names the strip no longer fits a usual window, and loses them all.
+        // Only where it's in use, so a document without comments isn't asked about them.
         if self.comments_in_use() || self.side == Some(Side::Comments) {
             items.insert(items.len() - 1, (Side::Comments, Icon::Comment, tx("comments"), self.open_comments()));
         }
-        let font = theme::ui_font(13.0);
-        let full_height = |name: &str, badge: usize| {
-            26.0 + ui.painter().layout_no_wrap(name.to_string(), font.clone(), t.text).size().x + if badge > 0 { 18.0 } else { 6.0 }
-        };
-        // Where the names don't all fit, the icons stand alone, and each says its name under the pointer.
-        let needed: f32 = items.iter().map(|(_, _, name, badge)| full_height(name, *badge) + 2.0).sum();
-        let compact = needed + 4.0 > rect.height();
+        // Icons alone, each saying its name under the pointer, closer together in a short window.
+        let height = ((rect.height() - 8.0) / items.len() as f32 - 2.0).clamp(20.0, 30.0);
         for (k, (side, icon, name, badge)) in items.into_iter().enumerate() {
             let on = self.side == Some(side);
-            let galley = ui.painter().layout_no_wrap(name.to_string(), font.clone(), t.text);
-            let height = if compact { 26.0 } else { full_height(name, badge) };
             let slot = Rect::from_min_size(pos2(rect.left() + 1.0, top), vec2(rect.width() - 1.0, height));
             top += height + 2.0;
             let resp = ui.interact(slot, ui.scope_id().with(("side", k)), Sense::click());
@@ -3087,18 +3080,17 @@ impl App {
             } else if resp.hovered() {
                 ui.painter().rect_filled(slot, 0.0, t.hover);
             }
-            let x = slot.center().x;
-            crate::icons::paint(ui.painter(), Rect::from_center_size(pos2(x, slot.top() + 12.0), vec2(14.0, 14.0)), icon, t.text);
-            // Turned a quarter clockwise, it reads downwards and its height lies to the left of `at`.
-            let at = pos2(x + galley.size().y / 2.0, slot.top() + 24.0);
-            if !compact {
-                ui.painter()
-                    .add(egui::epaint::TextShape::new(at, galley, if on { t.accent } else { t.text }).with_angle(std::f32::consts::FRAC_PI_2));
-            }
+            let ink = if on {
+                t.accent
+            } else if resp.hovered() {
+                t.text
+            } else {
+                t.text_dim
+            };
+            crate::icons::paint_mono(ui.painter(), Rect::from_center_size(slot.center(), vec2(15.0, 15.0)), icon, ink);
             if badge > 0 {
-                let place = if compact { pos2(slot.right() - 7.0, slot.top() + 6.0) } else { pos2(x, slot.bottom() - 9.0) };
                 ui.painter().text(
-                    place,
+                    pos2(slot.right() - 7.0, slot.top() + 6.0),
                     egui::Align2::CENTER_CENTER,
                     badge.to_string(),
                     theme::ui_font(12.0),
@@ -4113,9 +4105,11 @@ impl App {
         // A past version's pages aren't what the watch read.
         let watching = !self.previewing && self.side == Some(Side::Problems);
         let mut pages_ui = ui.new_child(egui::UiBuilder::new().max_rect(pages_area));
+        // egui's fade would veil the page at the edge of the view, which reads as a stain on the paper.
+        pages_ui.spacing_mut().scroll.fade.strength = 0.0;
         let scrolled = egui::ScrollArea::both().id_salt("pages-scroll").auto_shrink([false, false]).show(&mut pages_ui, |ui| {
             ui.add_space(PAD);
-            ui.spacing_mut().item_spacing = vec2(0.0, 14.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, 20.0);
             ui.vertical_centered(|ui| {
                 for (i, page) in self.pages.iter().enumerate() {
                     let size = vec2(page.width_pt, page.height_pt) * zoom;
@@ -4124,7 +4118,7 @@ impl App {
                     if !ui.is_rect_visible(rect.expand(200.0)) && !scroll_page.is_some_and(|(p, _)| p == i) {
                         continue;
                     }
-                    ui.painter().rect_filled(rect.translate(vec2(0.0, 2.0)).expand(1.0), 1.0, Color32::from_black_alpha(45));
+                    theme::paint_sheet_shadow(ui.painter(), rect, t);
                     if let Some(tex) = self.textures.get(&page.hash) {
                         ui.painter().image(tex.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
                     }
