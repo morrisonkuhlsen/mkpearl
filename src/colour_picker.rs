@@ -363,11 +363,11 @@ fn swatch(ui: &mut Ui, colour: Colour, on: bool, t: &Tokens) -> Response {
     if colour.a < 255 {
         checkers(ui, rect);
     }
-    ui.painter().rect_filled(rect, 0.0, colour.color32());
+    ui.painter().rect_filled(rect, 2.0, colour.color32());
     // The light ones must not melt into the menu.
-    ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0, Color32::from_black_alpha(36)), StrokeKind::Inside);
+    ui.painter().rect_stroke(rect, 2.0, Stroke::new(1.0, Color32::from_black_alpha(36)), StrokeKind::Inside);
     if resp.hovered() || on {
-        ui.painter().rect_stroke(rect.expand(1.5), 0.0, Stroke::new(1.5, if on { t.accent } else { t.text }), StrokeKind::Outside);
+        ui.painter().rect_stroke(rect.expand(1.5), 3.0, Stroke::new(1.5, if on { t.accent } else { t.text }), StrokeKind::Outside);
     }
     resp.on_hover_text(hex)
 }

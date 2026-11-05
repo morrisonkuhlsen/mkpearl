@@ -6,6 +6,9 @@ use std::sync::Arc;
 
 use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId, Stroke, Visuals};
 
+/// The corners of menus, fields, buttons and cards. Softer than MK Matrix's square ones: Pearl is for
+/// writing in, by the owner's decision. Sheets of paper and what runs to a window's edge stay square.
+pub const RADIUS: u8 = 4;
 pub const UI: &str = "ui";
 pub const UI_BOLD: &str = "ui-bold";
 // The icon set's lettered icons draw in the interface fonts here; Pearl has no cell fonts.
@@ -421,7 +424,7 @@ pub fn set_choice(ctx: &egui::Context, choice: ThemeChoice) {
     });
 }
 
-/// egui's visuals for one palette, with the 2-3 px widget and square window corners of MK Matrix.
+/// egui's visuals for one palette, with Pearl's corners.
 fn visuals(t: &Tokens) -> Visuals {
     let mut v = if t.dark { Visuals::dark() } else { Visuals::light() };
     v.panel_fill = t.window;
@@ -437,13 +440,14 @@ fn visuals(t: &Tokens) -> Visuals {
     v.widgets.hovered.weak_bg_fill = t.hover;
     v.widgets.active.weak_bg_fill = t.pressed;
     v.widgets.inactive.bg_stroke = Stroke::new(1.0, t.input_border);
-    v.widgets.noninteractive.corner_radius = egui::CornerRadius::ZERO;
-    v.widgets.inactive.corner_radius = egui::CornerRadius::ZERO;
-    v.widgets.hovered.corner_radius = egui::CornerRadius::ZERO;
-    v.widgets.active.corner_radius = egui::CornerRadius::ZERO;
-    v.widgets.open.corner_radius = egui::CornerRadius::ZERO;
-    v.window_corner_radius = egui::CornerRadius::ZERO;
-    v.menu_corner_radius = egui::CornerRadius::ZERO;
+    let corners = egui::CornerRadius::same(RADIUS);
+    v.widgets.noninteractive.corner_radius = corners;
+    v.widgets.inactive.corner_radius = corners;
+    v.widgets.hovered.corner_radius = corners;
+    v.widgets.active.corner_radius = corners;
+    v.widgets.open.corner_radius = corners;
+    v.window_corner_radius = corners;
+    v.menu_corner_radius = corners;
     v.popup_shadow = egui::epaint::Shadow { offset: [0, 4], blur: 16, spread: 0, color: t.shadow };
     v
 }

@@ -12,6 +12,7 @@ Pearl's plan and progress log. Each section says what is done and its **Next:** 
 - *Done:* several carets at once, as in VS Code.
 - *Done:* the time worked on each document.
 - *Done:* a colour picker for text and highlight.
+- *Done:* a calmer editor, and corners of 4 px by the owner's decision, where MK Matrix has square ones.
 - *Done:* a refinement of the look: the pages' shadow and desk, an icon strip, the File view's sheets, the ribbon's fields.
 - *Done:* ready-made formulas, with previews and a search.
 - *Done:* letterhead and watermark, with a live preview and the opacity of a picture.

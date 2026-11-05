@@ -3079,7 +3079,7 @@ impl App {
         resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, shown, tx("line-numbers")));
         // A switch, not a view: only the view in use wears the accent here.
         if resp.hovered() {
-            ui.painter().rect_filled(slot.shrink(4.0), 0.0, t.hover);
+            ui.painter().rect_filled(slot.shrink(4.0), theme::RADIUS, t.hover);
         }
         ui.painter().text(slot.center(), egui::Align2::CENTER_CENTER, "12", theme::ui_font(13.0), if shown { t.text } else { t.text_disabled });
         if resp.on_hover_text(if shown { tx("hide-line-numbers") } else { tx("show-line-numbers") }).clicked() {

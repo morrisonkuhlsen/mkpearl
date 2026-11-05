@@ -88,7 +88,7 @@ fn tile(ui: &mut Ui, label: &str, kind: Option<usize>) -> egui::Response {
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
     let p = ui.painter();
     let thumb = Rect::from_min_size(rect.min, vec2(rect.width(), 112.0));
-    p.rect_filled(thumb, 0.0, if resp.hovered() { t.hover } else { t.desk });
+    p.rect_filled(thumb, theme::RADIUS, if resp.hovered() { t.hover } else { t.desk });
     let page = Rect::from_center_size(thumb.center(), vec2(72.0, 96.0));
     theme::paint_sheet_shadow(p, page, &t);
     p.rect_filled(page, 0.0, Color32::WHITE);

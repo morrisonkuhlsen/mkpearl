@@ -46,12 +46,12 @@ pub fn sep(ui: &mut Ui, group: &str) {
 
 fn feedback(ui: &Ui, rect: Rect, resp: &Response, on: bool, t: &Tokens) {
     if resp.is_pointer_button_down_on() || on {
-        ui.painter().rect_filled(rect, 0.0, t.pressed);
+        ui.painter().rect_filled(rect, theme::RADIUS, t.pressed);
     } else if resp.hovered() {
-        ui.painter().rect_filled(rect, 0.0, t.hover);
+        ui.painter().rect_filled(rect, theme::RADIUS, t.hover);
     }
     if on {
-        ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0, t.separator), StrokeKind::Inside);
+        ui.painter().rect_stroke(rect, theme::RADIUS, Stroke::new(1.0, t.separator), StrokeKind::Inside);
     }
 }
 
@@ -132,7 +132,13 @@ pub fn glyphs(ui: &mut Ui, text: &str, tip: &str) -> Response {
 pub fn field_menu(ui: &mut Ui, text: &str, width: f32, tip: &str, menu: impl FnOnce(&mut Ui)) {
     let t = Tokens::get(ui.ctx());
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 23.0), Sense::click());
-    ui.painter().rect(rect, 0.0, if resp.hovered() { t.field_hover } else { t.input_bg }, Stroke::new(1.0, t.input_border), StrokeKind::Inside);
+    ui.painter().rect(
+        rect,
+        theme::RADIUS,
+        if resp.hovered() { t.field_hover } else { t.input_bg },
+        Stroke::new(1.0, t.input_border),
+        StrokeKind::Inside,
+    );
     let area = Rect::from_min_max(rect.min, pos2(rect.right() - 14.0, rect.bottom()));
     ui.painter().with_clip_rect(area.intersect(ui.clip_rect())).text(
         pos2(area.left() + 7.0, area.center().y),
