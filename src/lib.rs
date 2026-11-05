@@ -7,6 +7,7 @@ pub mod assistant;
 pub mod bib;
 pub mod carets;
 pub mod collab;
+pub mod colour_picker;
 pub mod comments;
 pub mod compare;
 pub mod compiler;

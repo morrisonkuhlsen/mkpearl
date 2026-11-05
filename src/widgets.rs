@@ -102,6 +102,11 @@ pub fn toggle(ui: &mut Ui, icon: Icon, label: &str, tip: &str, on: bool) -> Resp
     button(ui, icon, label, tip, false, on)
 }
 
+/// An icon with the arrow that says it opens something.
+pub fn tool_with_arrow(ui: &mut Ui, icon: Icon, tip: &str) -> Response {
+    button(ui, icon, "", tip, true, false)
+}
+
 /// An icon that opens a menu.
 pub fn tool_menu(ui: &mut Ui, icon: Icon, tip: &str, menu: impl FnOnce(&mut Ui)) {
     let resp = button(ui, icon, "", tip, true, false);

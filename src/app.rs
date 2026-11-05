@@ -325,6 +325,9 @@ pub struct App {
     text: String,
     path: Option<PathBuf>,
     worktime: crate::worktime::WorkTime,
+    colour_picker: crate::colour_picker::Picker,
+    last_text_colour: Option<crate::colour_picker::Colour>,
+    last_highlight: Option<crate::colour_picker::Colour>,
     dirty: bool,
     tab: String,
     layout: Layout,
@@ -484,6 +487,9 @@ impl App {
             compiler: Compiler::start()?,
             disk_text: path.is_some().then(|| text.clone().into_bytes()),
             worktime: crate::worktime::WorkTime::at(history::data_folder().as_deref(), path.as_deref()),
+            colour_picker: crate::colour_picker::Picker::default(),
+            last_text_colour: None,
+            last_highlight: None,
             text,
             path,
             dirty: false,
@@ -2662,29 +2668,16 @@ impl App {
         if tool(ui, Icon::Script, tx("inline-code")).clicked() {
             self.wrap(&ctx, "`", "`");
         }
-        tool_menu(ui, Icon::Fill, tx("highlight"), |ui| {
-            for (name, color) in [(tx("yellow"), "yellow"), (tx("green"), "lime"), (tx("blue"), "aqua"), (tx("pink"), "fuchsia")] {
-                if ui.button(name).clicked() {
-                    self.wrap(&ctx, &format!("#highlight(fill: {color})["), "]");
-                    ui.close();
-                }
-            }
-        });
-        tool_menu(ui, Icon::FontColor, tx("text-colour"), |ui| {
-            for (name, color) in [
-                (tx("red"), "red"),
-                (tx("blue"), "blue"),
-                (tx("green"), "green"),
-                (tx("orange"), "orange"),
-                (tx("purple"), "purple"),
-                (tx("grey"), "gray"),
-            ] {
-                if ui.button(name).clicked() {
-                    self.wrap(&ctx, &format!("#text(fill: {color})["), "]");
-                    ui.close();
-                }
-            }
-        });
+        if let Some(colour) = crate::colour_picker::tool(ui, Icon::Fill, tx("highlight"), self.last_highlight, &mut self.colour_picker) {
+            self.last_highlight = Some(colour);
+            self.wrap(&ctx, &format!("#highlight(fill: {})[", colour.typst()), "]");
+            self.want_focus = true;
+        }
+        if let Some(colour) = crate::colour_picker::tool(ui, Icon::FontColor, tx("text-colour"), self.last_text_colour, &mut self.colour_picker) {
+            self.last_text_colour = Some(colour);
+            self.wrap(&ctx, &format!("#text(fill: {})[", colour.typst()), "]");
+            self.want_focus = true;
+        }
         sep(ui, tx("font"));
         for (icon, tip, align) in
             [(Icon::AlignLeft, tx("align-left"), "left"), (Icon::AlignCenter, tx("centre"), "center"), (Icon::AlignRight, tx("align-right"), "right")]
