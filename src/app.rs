@@ -2464,12 +2464,18 @@ impl App {
                         ui.min_rect().left()
                     });
                     // Centred title, cut with "…" so it never runs under the controls on either side.
-                    let half = (rect.center().x - left_end).min(right.inner - rect.center().x) - 12.0;
+                    const MARK: f32 = 22.0;
+                    let half = (rect.center().x - left_end).min(right.inner - rect.center().x) - 12.0 - MARK;
                     let title = if self.dirty { format!("{name} •") } else { name.to_string() };
                     let mut job = egui::text::LayoutJob::simple_singleline(title, theme::ui_bold(13.0), t.text);
                     job.wrap = egui::text::TextWrapping::truncate_at_width((2.0 * half).max(0.0));
                     let galley = ui.painter().layout_job(job);
-                    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, t.text);
+                    let at = rect.center() - galley.size() / 2.0;
+                    // The pearl goes with the name, where there's room for them to be read.
+                    if half > MARK {
+                        crate::splash::pearl(ui.painter(), pos2(at.x - 13.0, rect.center().y), 7.0);
+                    }
+                    ui.painter().galley(at, galley, t.text);
                 });
             },
         );

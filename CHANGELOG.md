@@ -18,6 +18,7 @@ Every release of Pearl, newest first, in the spirit of
 - A calmer editor: more air between lines, quieter line numbers, the caret's line marked, and source colours that go with the rest of the interface.
 - Softly rounded corners on menus, fields, buttons and cards.
 - Dark paper in the View tab, under the dark theme: the pages in dark tones while you write, with pictures, the document and its PDF as they are.
+- The pearl beside the document's name in the title bar.
 - Rulers in centimetres around the pages, with the margins shaded.
 - Recovery: text left unsaved by a crash is offered back when Pearl opens again.
 - Spell checking in Brazilian Portuguese: misspelt words underlined, and a right click for suggestions,
