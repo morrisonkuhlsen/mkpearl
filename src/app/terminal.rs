@@ -8,7 +8,7 @@ use egui::{Align2, Color32, CursorIcon, Event, FontId, Id, Key, Pos2, Rect, Sens
 use super::App;
 use crate::i18n::tx;
 use crate::icons::Icon;
-use crate::terminal::{Caret, Drawn, Palette, Program, Terminal};
+use crate::terminal::{Caret, Drawn, Launch, Palette, Program, Terminal};
 use crate::theme::{self, Tokens};
 use crate::tr;
 use crate::widgets::icon_button_mono;
@@ -87,14 +87,21 @@ impl App {
     }
 
     /// Starts `program` in the document's folder, ending what ran before. Only a click calls this.
+    /// An agent needs a file to write: a document with none is saved first, or nothing starts.
     pub fn start_terminal(&mut self, ctx: &egui::Context, program: Program) {
-        self.terminal.running = None;
         self.terminal.problem = None;
+        if program != Program::Shell && self.path.is_none() && !self.save(true) {
+            self.terminal.problem = Some(tx("save-the-document-before-the-agent").to_string());
+            return;
+        }
+        self.terminal.running = None;
         let folder = self.terminal_folder();
         let missing = tr!("terminal-program-missing", program = program.name());
         let (cw, ch) = cell_size(ctx);
         let cell = (cw.round() as u16, ch.round() as u16);
-        match Terminal::start(ctx, program, program.command(), &folder, (80, 24), cell, &missing) {
+        let document = self.path.as_deref().map(|p| std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf()));
+        let launch = Launch { program, command: program.command(), folder: &folder, document: document.as_deref(), missing: &missing };
+        match Terminal::start(ctx, &launch, (80, 24), cell) {
             Ok(term) => {
                 self.terminal.running = Some(term);
                 self.terminal.open = true;

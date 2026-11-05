@@ -111,8 +111,8 @@ fn shell_for(command: Option<&str>) -> Option<tty::Shell> {
     command?;
     #[cfg(windows)]
     {
-        let script =
-            "if (Get-Command $env:PEARL_PROGRAM -ErrorAction SilentlyContinue) { & $env:PEARL_PROGRAM } else { Write-Host $env:PEARL_MISSING }";
+        let script = "if (Get-Command $env:PEARL_PROGRAM -ErrorAction SilentlyContinue) { if ($env:PEARL_PROMPT) { & $env:PEARL_PROGRAM \
+            --append-system-prompt $env:PEARL_PROMPT } else { & $env:PEARL_PROGRAM } } else { Write-Host $env:PEARL_MISSING }";
         Some(tty::Shell::new("powershell.exe".into(), vec!["-NoLogo".into(), "-NoExit".into(), "-Command".into(), script.into()]))
     }
     #[cfg(not(windows))]
@@ -122,21 +122,41 @@ fn shell_for(command: Option<&str>) -> Option<tty::Shell> {
     }
 }
 
-/// What `sh` runs: the program if it's there, a message if not, and then the user's shell.
-const SCRIPT: &str = "if command -v \"$PEARL_PROGRAM\" >/dev/null 2>&1; then \"$PEARL_PROGRAM\"; else printf '%s\\n' \"$PEARL_MISSING\"; fi; exec \"${SHELL:-/bin/sh}\"";
+/// What `sh` runs: the program if it's there, told of the document when there's something to tell,
+/// a message if it isn't there, and then the user's shell.
+const SCRIPT: &str = "if command -v \"$PEARL_PROGRAM\" >/dev/null 2>&1; then if [ -n \"$PEARL_PROMPT\" ]; then \"$PEARL_PROGRAM\" \
+    --append-system-prompt \"$PEARL_PROMPT\"; else \"$PEARL_PROGRAM\"; fi; else printf '%s\\n' \"$PEARL_MISSING\"; fi; exec \"${SHELL:-/bin/sh}\"";
+
+/// What Claude Code is told of the document open beside it, so that "write it in Pearl" means that
+/// file, edited in place, and not a new one. Meant for the model, so not translated.
+pub fn document_prompt(document: &Path) -> String {
+    format!(
+        "You are running in a terminal inside Pearl, a Typst document editor. The document open in Pearl is {}. \
+         When the user asks you to write, change or fix the document, or to write something \"in Pearl\", edit that file in place: \
+         Pearl shows every save on its pages at once and keeps the earlier text in its version history. \
+         Don't create a new file or open another Pearl window unless the user asks for one. \
+         Pearl compiles the document itself; the `typst` program may not be installed.",
+        document.display()
+    )
+}
+
+/// What to start, and where.
+#[derive(Clone, Copy)]
+pub struct Launch<'a> {
+    pub program: Program,
+    /// None for the shell.
+    pub command: Option<&'a str>,
+    pub folder: &'a Path,
+    /// The document open in Pearl, which the program is told of.
+    pub document: Option<&'a Path>,
+    /// What's said if the program isn't installed.
+    pub missing: &'a str,
+}
 
 impl Terminal {
-    /// Starts `command` (or the shell, for none) in `folder`. `missing` is what's said if the
-    /// program isn't installed.
-    pub fn start(
-        ctx: &egui::Context,
-        program: Program,
-        command: Option<&str>,
-        folder: &Path,
-        (columns, lines): (usize, usize),
-        cell: (u16, u16),
-        missing: &str,
-    ) -> std::io::Result<Terminal> {
+    /// Starts what `launch` says, `columns` × `lines` of `cell` pixels.
+    pub fn start(ctx: &egui::Context, launch: &Launch<'_>, (columns, lines): (usize, usize), cell: (u16, u16)) -> std::io::Result<Terminal> {
+        let Launch { program, command, folder, document, missing } = *launch;
         let columns = columns.clamp(2, MAX_COLUMNS);
         let lines = lines.clamp(1, MAX_LINES);
         let (to_window, events) = channel();
@@ -147,6 +167,13 @@ impl Terminal {
         env.insert("TERM".to_string(), "xterm-256color".to_string());
         env.insert("COLORTERM".to_string(), "truecolor".to_string());
         env.insert("TERM_PROGRAM".to_string(), "Pearl".to_string());
+        if let Some(document) = document {
+            env.insert("PEARL_DOCUMENT".to_string(), document.display().to_string());
+            // Only Claude Code takes this option; others learn of the document from the variable.
+            if program == Program::Claude {
+                env.insert("PEARL_PROMPT".to_string(), document_prompt(document));
+            }
+        }
         if let Some(command) = command {
             env.insert("PEARL_PROGRAM".to_string(), command.to_string());
             env.insert("PEARL_MISSING".to_string(), missing.to_string());

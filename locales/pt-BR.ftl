@@ -391,6 +391,7 @@ save-the-changes = Salvar as alterações?
 save-the-document-before-importing-references = Salve o documento antes de importar referências: elas ficam na pasta dele.
 save-the-document-before-inserting-images-they = Salve o documento antes de inserir imagens: elas são lidas da pasta dele.
 save-the-document-before-sharing-the-session = Salve o documento antes de compartilhar: a sessão usa o arquivo e a pasta dele.
+save-the-document-before-the-agent = Salve o documento antes: o agente escreve no arquivo dele, e o Pearl mostra o que ele escreve à medida que escreve.
 save-the-document-to-see-its-references = Salve o documento para ver as referências dele.
 save-the-document-to-see-the-files = Salve o documento para ver os arquivos da pasta dele.
 save-the-key = Salvar a chave

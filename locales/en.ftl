@@ -391,6 +391,7 @@ save-the-changes = Save the changes?
 save-the-document-before-importing-references = Save the document before importing references: they're kept in its folder.
 save-the-document-before-inserting-images-they = Save the document before inserting images: they are read from its folder.
 save-the-document-before-sharing-the-session = Save the document before sharing: the session uses its file and folder.
+save-the-document-before-the-agent = Save the document first: the agent writes in its file, and Pearl shows what it writes as it goes.
 save-the-document-to-see-its-references = Save the document to see its references.
 save-the-document-to-see-the-files = Save the document to see the files in its folder.
 save-the-key = Save the key
