@@ -324,6 +324,7 @@ pub struct App {
     compiler: Compiler,
     text: String,
     path: Option<PathBuf>,
+    worktime: crate::worktime::WorkTime,
     dirty: bool,
     tab: String,
     layout: Layout,
@@ -482,6 +483,7 @@ impl App {
         let app = Self {
             compiler: Compiler::start()?,
             disk_text: path.is_some().then(|| text.clone().into_bytes()),
+            worktime: crate::worktime::WorkTime::at(history::data_folder().as_deref(), path.as_deref()),
             text,
             path,
             dirty: false,
@@ -1018,6 +1020,7 @@ impl App {
     pub fn start_document(&mut self, ctx: &egui::Context, text: String) {
         self.text = text;
         self.path = None;
+        self.worktime_for_path();
         self.disk_text = None;
         self.outside_change = None;
         self.dirty = false;
@@ -1038,6 +1041,7 @@ impl App {
                 self.outside_change = None;
                 self.text = text;
                 self.path = Some(path);
+                self.worktime_for_path();
                 self.dirty = false;
                 self.backstage = None;
                 self.want_focus = true;
@@ -1049,6 +1053,51 @@ impl App {
             }
             Err(e) => self.status = tr!("cant-open", path = path.display().to_string(), error = e.to_string()),
         }
+    }
+
+    /// Keeps what was counted for the document before this one, and takes up the count of `self.path`.
+    fn worktime_for_path(&mut self) {
+        self.worktime.save();
+        self.worktime = crate::worktime::WorkTime::at(history::data_folder().as_deref(), self.path.as_deref());
+    }
+
+    /// Counts this frame's input as work, when the window is the one in use.
+    fn worktime_tick(&mut self, ctx: &egui::Context) {
+        let (time, focused, acted) = ctx.input(|i| {
+            let acted = i.events.iter().any(|e| {
+                matches!(
+                    e,
+                    egui::Event::Key { .. }
+                        | egui::Event::Text(_)
+                        | egui::Event::Ime(_)
+                        | egui::Event::Paste(_)
+                        | egui::Event::Copy
+                        | egui::Event::Cut
+                        | egui::Event::PointerMoved(_)
+                        | egui::Event::PointerButton { .. }
+                        | egui::Event::MouseWheel { .. }
+                        | egui::Event::Touch { .. }
+                        | egui::Event::Zoom(_)
+                )
+            });
+            (i.time, i.viewport().focused.unwrap_or(true), acted)
+        });
+        if !focused {
+            self.worktime.away();
+        } else if acted {
+            self.worktime.action(time, || crate::worktime::day_of(history::now_ms()));
+        }
+        self.worktime.tick(time);
+    }
+
+    /// Seconds worked on this document, in all.
+    pub fn worked_seconds(&self) -> u64 {
+        self.worktime.total()
+    }
+
+    /// Writes down the time worked, as closing the window does.
+    pub fn save_worktime(&mut self) {
+        self.worktime.save();
     }
 
     /// Puts the open document first on the recent list.
@@ -1075,6 +1124,9 @@ impl App {
             Ok(()) => {
                 self.status = tr!("saved-to", path = path.display().to_string());
                 self.disk_text = Some(self.text.clone().into_bytes());
+                if self.path.as_deref() != Some(path.as_path()) {
+                    self.worktime.moved_to(history::data_folder().as_deref(), &path);
+                }
                 self.path = Some(path);
                 self.dirty = false;
                 self.remember_path();
@@ -1534,6 +1586,7 @@ impl App {
 
     pub fn show(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
+        self.worktime_tick(&ctx);
         if self.status != self.status_seen.0 {
             self.status_seen = (self.status.clone(), ctx.input(|i| i.time));
         }
@@ -2037,6 +2090,7 @@ impl App {
                 self.session = Some(session);
                 self.text.clear();
                 self.path = None;
+                self.worktime_for_path();
                 self.disk_text = None;
                 self.outside_change = None;
                 self.dirty = false;
@@ -3175,6 +3229,32 @@ impl App {
             ui.colored_label(t.text_dim, name);
             ui.add(egui::Label::new(egui::RichText::new(value).color(t.text)).wrap());
             ui.add_space(6.0);
+        }
+        self.worktime_rows(ui, t);
+    }
+
+    /// The time spent on the document: the sum, and the latest days.
+    fn worktime_rows(&self, ui: &mut Ui, t: &Tokens) {
+        const DAYS_SHOWN: usize = 7;
+        ui.colored_label(t.text_dim, tx("time-worked"));
+        ui.add(egui::Label::new(egui::RichText::new(worked_words(self.worktime.total())).color(t.text)).wrap());
+        let now = history::now_ms();
+        let (today, yesterday) = (crate::worktime::day_of(now), crate::worktime::day_of(now.saturating_sub(24 * 3_600_000)));
+        ui.add_space(2.0);
+        for (day, seconds) in self.worktime.latest_days(DAYS_SHOWN) {
+            let name = if day == today {
+                tx("worked-today").to_string()
+            } else if day == yesterday {
+                tx("worked-yesterday").to_string()
+            } else {
+                crate::worktime::shown_day(day)
+            };
+            ui.horizontal(|ui| {
+                ui.colored_label(t.text_dim, egui::RichText::new(name).font(theme::ui_font(12.0)));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.colored_label(t.text, egui::RichText::new(worked_words(seconds)).font(theme::ui_font(12.0)));
+                });
+            });
         }
     }
 
@@ -4699,6 +4779,7 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.worktime.save();
         self.finish_recovery();
     }
 }
@@ -4714,6 +4795,17 @@ struct SpellMenu {
 
 fn spell_personal_words() -> std::collections::HashSet<String> {
     crate::recent::read_setting(PERSONAL_FILE).map_or_else(Default::default, |text| spell::parse_personal(&text))
+}
+
+/// A span of work in words, to the minute.
+fn worked_words(seconds: u64) -> String {
+    let minutes = seconds / 60;
+    let (hours, rest) = (minutes / 60, minutes % 60);
+    match (hours, minutes) {
+        (_, 0) => tx("worked-under-a-minute").to_string(),
+        (0, _) => tr!("worked-minutes", minutes = rest),
+        _ => tr!("worked-hours", hours = hours, minutes = rest),
+    }
 }
 
 fn document_name(path: Option<&Path>) -> String {

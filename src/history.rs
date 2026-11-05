@@ -85,6 +85,12 @@ fn stable_hash(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x0000_0100_0000_01b3))
 }
 
+/// What names a document in the data folder, the same for its path from one run to the next.
+pub(crate) fn document_key(path: &Path) -> String {
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    format!("{:016x}", stable_hash(canonical.to_string_lossy().as_bytes()))
+}
+
 #[derive(Clone, Debug)]
 pub struct Store {
     dir: PathBuf,
@@ -103,9 +109,7 @@ pub(crate) fn private_folder(dir: &Path) -> std::io::Result<()> {
 impl Store {
     /// The history of the document at `path`, under `base`. Moving or renaming the file starts a new one.
     pub fn at(base: &Path, path: &Path) -> Store {
-        let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        let hash = stable_hash(canonical.to_string_lossy().as_bytes());
-        Store { dir: base.join("pearl").join("history").join(format!("{hash:016x}")) }
+        Store { dir: base.join("pearl").join("history").join(document_key(path)) }
     }
 
     /// The history of the document at `path`, in the usual place.
