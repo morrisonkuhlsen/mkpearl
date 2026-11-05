@@ -25,8 +25,9 @@ fn window(file: PathBuf) -> Harness<'static, App> {
 /// A point on a line of the source, `x` points past the text's left edge.
 fn on_line(h: &Harness<'_, App>, line: usize, x: f32) -> Pos2 {
     let rect = h.get_by_label(tx("source-2")).rect();
-    let row = h.ctx.fonts_mut(|f| f.row_height(&egui::FontId::monospace(13.0)));
-    pos2(rect.min.x as f32 + 4.0 + x, rect.min.y as f32 + 8.0 + (line as f32 + 0.5) * row)
+    // The editor's margins and line height.
+    let row = 19.0;
+    pos2(rect.min.x as f32 + 10.0 + x, rect.min.y as f32 + 8.0 + (line as f32 + 0.5) * row)
 }
 
 fn char_width(h: &Harness<'_, App>) -> f32 {

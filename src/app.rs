@@ -3077,18 +3077,17 @@ impl App {
         let shown = self.line_numbers;
         let resp = ui.interact(slot, ui.scope_id().with("rail-numbers"), Sense::click());
         resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, shown, tx("line-numbers")));
-        if shown {
-            ui.painter().rect_filled(slot.shrink(4.0), 0.0, t.accent_soft);
-        } else if resp.hovered() {
+        // A switch, not a view: only the view in use wears the accent here.
+        if resp.hovered() {
             ui.painter().rect_filled(slot.shrink(4.0), 0.0, t.hover);
         }
-        ui.painter().text(slot.center(), egui::Align2::CENTER_CENTER, "12", theme::ui_font(13.0), t.text);
+        ui.painter().text(slot.center(), egui::Align2::CENTER_CENTER, "12", theme::ui_font(13.0), if shown { t.text } else { t.text_disabled });
         if resp.on_hover_text(if shown { tx("hide-line-numbers") } else { tx("show-line-numbers") }).clicked() {
             self.line_numbers = !shown;
         }
     }
 
-    /// The right strip: the side panes, their names turned a quarter clockwise.
+    /// The right strip: the side panes, by their icons.
     fn side_strip(&mut self, ui: &mut Ui, rect: Rect, t: &Tokens) {
         ui.painter().rect_filled(rect, 0.0, t.ribbon);
         ui.painter().vline(rect.left(), rect.y_range(), Stroke::new(1.0, t.separator));
@@ -3829,11 +3828,13 @@ impl App {
             let min_h = ui.available_height();
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-                let (gutter, _) = ui.allocate_exact_size(vec2(if show_numbers { 46.0 } else { 8.0 }, min_h), Sense::hover());
-                let rows_fit = (min_h / 18.0).ceil() as usize;
+                let (gutter, _) = ui.allocate_exact_size(vec2(if show_numbers { 48.0 } else { 8.0 }, min_h), Sense::hover());
+                // Behind the text, so reserved before it's drawn.
+                let line_behind = ui.painter().add(egui::Shape::Noop);
+                let rows_fit = (min_h / 19.0).ceil() as usize;
                 let output = egui::TextEdit::multiline(text)
                     .id(id)
-                    .frame(egui::Frame::NONE.inner_margin(egui::Margin { left: 4, right: 10, top: 8, bottom: 8 }))
+                    .frame(egui::Frame::NONE.inner_margin(egui::Margin { left: 10, right: 10, top: 8, bottom: 8 }))
                     .font(egui::TextStyle::Monospace)
                     .code_editor()
                     .lock_focus(true)
@@ -3855,6 +3856,16 @@ impl App {
                 if want_focus {
                     output.response.request_focus();
                 }
+                // The source line of a lone caret, all the rows it wraps into; none for a selection.
+                let caret = output.cursor_range.filter(|r| r.primary == r.secondary && output.response.has_focus() && drawn_carets.is_none());
+                let caret_y = caret.map(|r| output.galley.pos_from_cursor(r.primary).center().y);
+                let caret_line = caret_y.map(|y| source_line_at(&output.galley, y));
+                if let Some((_, top, bottom)) = caret_line {
+                    let (left, right) = (gutter.min.x, output.response.rect.right());
+                    let y = output.galley_pos.y;
+                    let band = Rect::from_min_max(pos2(left, y + top), pos2(right, y + bottom));
+                    ui.painter().set(line_behind, egui::Shape::rect_filled(band, 0.0, t.current_line));
+                }
                 // Line numbers: one per source line, on the first row it wraps into.
                 let mut line = 1;
                 let mut starts_line = true;
@@ -3862,7 +3873,8 @@ impl App {
                 for placed in &output.galley.rows {
                     if starts_line && show_numbers {
                         let y = output.galley_pos.y + placed.pos.y + placed.row.size.y / 2.0;
-                        ui.painter().text(pos2(gutter.max.x - 8.0, y), egui::Align2::RIGHT_CENTER, line.to_string(), number.clone(), t.header_text);
+                        let ink = if caret_line.is_some_and(|(current, _, _)| current == line) { t.text } else { t.line_number };
+                        ui.painter().text(pos2(gutter.max.x - 10.0, y), egui::Align2::RIGHT_CENTER, line.to_string(), number.clone(), ink);
                         line += 1;
                     }
                     starts_line = placed.ends_with_newline;
@@ -4788,6 +4800,26 @@ struct SpellMenu {
 
 fn spell_personal_words() -> std::collections::HashSet<String> {
     crate::recent::read_setting(PERSONAL_FILE).map_or_else(Default::default, |text| spell::parse_personal(&text))
+}
+
+/// The source line at height `y` in the text, counted from 1, with where its rows begin and end.
+fn source_line_at(galley: &egui::Galley, y: f32) -> (usize, f32, f32) {
+    let (mut line, mut top, mut starts_line) = (1, 0.0, true);
+    let mut bottom = 0.0;
+    for placed in &galley.rows {
+        if starts_line {
+            if placed.pos.y > y {
+                break;
+            }
+            if placed.pos.y > 0.0 {
+                line += 1;
+            }
+            top = placed.pos.y;
+        }
+        bottom = placed.pos.y + placed.row.size.y;
+        starts_line = placed.ends_with_newline;
+    }
+    (line, top, bottom)
 }
 
 /// A span of work in words, to the minute.

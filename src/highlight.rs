@@ -2,6 +2,9 @@
 
 use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, FontId, Stroke};
+
+/// Air between the lines of the source.
+const LINE_HEIGHT: f32 = 19.0;
 use typst::syntax::{LinkedNode, SyntaxKind, Tag, highlight, parse};
 
 use crate::theme::{Syntax, Tokens};
@@ -50,6 +53,8 @@ fn walk(job: &mut LayoutJob, src: &str, node: &LinkedNode, inherited: Option<Tag
     let tag = highlight(node).or(inherited);
     if node.children().len() == 0 {
         let mut format = TextFormat::simple(style.font.clone(), tag.map_or(style.base, |t| color(t, style)));
+        format.line_height = Some(LINE_HEIGHT);
+        format.valign = egui::Align::Center;
         format.italics = matches!(tag, Some(Tag::Emph | Tag::Comment));
         let leaf = src.get(node.range()).unwrap_or_default();
         if node.kind() == SyntaxKind::Text {

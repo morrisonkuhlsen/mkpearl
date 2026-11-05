@@ -278,8 +278,7 @@ impl Picker {
             });
         });
         ui.add_space(10.0);
-        let ink = if t.accent.r() as u32 + t.accent.g() as u32 + t.accent.b() as u32 > 3 * 150 { Color32::BLACK } else { Color32::WHITE };
-        let button = egui::Button::new(egui::RichText::new(tx("apply")).color(ink)).fill(t.accent).stroke(Stroke::NONE);
+        let button = egui::Button::new(egui::RichText::new(tx("apply")).color(t.on_accent)).fill(t.accent).stroke(Stroke::NONE);
         if ui.add_sized(vec2(WIDTH, 26.0), button).clicked() {
             apply = true;
         }

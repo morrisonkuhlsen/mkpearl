@@ -110,6 +110,10 @@ pub struct Tokens {
     pub gridline: Color32,
     pub header_bg: Color32,
     pub header_text: Color32,
+    /// The editor's line numbers, quieter than its text but still easy to read.
+    pub line_number: Color32,
+    /// Behind the line the caret is on.
+    pub current_line: Color32,
     pub header_line: Color32,
     pub header_sel_bg: Color32,
     pub header_sel_text: Color32,
@@ -198,9 +202,9 @@ pub struct Syntax {
 }
 
 const LIGHT_SYNTAX: Syntax =
-    Syntax { keyword: rgb(0x0B57B3), string: rgb(0xA3361B), number: rgb(0x157A5A), comment: rgb(0x6B7280), builtin: rgb(0x7B3FB5) };
+    Syntax { keyword: rgb(0x3E5C76), string: rgb(0xA0522D), number: rgb(0x5F6D33), comment: rgb(0x6F6A60), builtin: rgb(0x6F4A7E) };
 const DARK_SYNTAX: Syntax =
-    Syntax { keyword: rgb(0x6FAEFF), string: rgb(0xF09A7A), number: rgb(0x7FD1A8), comment: rgb(0x9AA3AE), builtin: rgb(0xC69BF2) };
+    Syntax { keyword: rgb(0x8FB0CC), string: rgb(0xE08A5F), number: rgb(0xAEBB7A), comment: rgb(0x8F96A1), builtin: rgb(0xC3A6D8) };
 const SHEET_CONTROL_BG: Color32 = rgb(0xF3F3F3);
 const SHEET_CONTROL_BORDER: Color32 = rgb(0x8A8A8A);
 const SHEET_CONTROL_TEXT: Color32 = rgb(0x1F1F1F);
@@ -240,6 +244,8 @@ impl Tokens {
             // The row and column headings sit on the window's own colour.
             header_bg: pick(dark, Color32::from_rgb(0xF3, 0xF3, 0xF3), Color32::from_rgb(0x14, 0x16, 0x1C)),
             header_text: pick(dark, Color32::from_rgb(0x42, 0x42, 0x42), Color32::from_rgb(0x8B, 0x93, 0xA1)),
+            line_number: pick(dark, Color32::from_rgb(0x70, 0x70, 0x70), Color32::from_rgb(0x80, 0x88, 0x95)),
+            current_line: pick(dark, Color32::from_rgb(0xF8, 0xF6, 0xF3), Color32::from_rgb(0x18, 0x1B, 0x21)),
             header_line: pick(dark, Color32::from_rgb(0xD6, 0xD6, 0xD6), Color32::from_rgb(0x26, 0x2A, 0x33)),
             header_sel_bg: pick(dark, Color32::from_rgb(0xE1, 0xE1, 0xE1), Color32::from_rgb(0x2E, 0x24, 0x20)),
             header_sel_text: pick(dark, Color32::from_rgb(0x85, 0x42, 0x22), Color32::from_rgb(0xF0, 0xA9, 0x84)),
@@ -313,6 +319,8 @@ impl Tokens {
             gridline: rgb(0xE9E1D5),
             header_bg: rgb(0xF4EFE7),
             header_text: rgb(0x5C544B),
+            line_number: rgb(0x766E64),
+            current_line: rgb(0xF8F3EA),
             header_line: rgb(0xDDD3C5),
             input_bg: rgb(0xFFFDF9),
             input_border: rgb(0xD6CBBB),
@@ -506,10 +514,12 @@ mod tests {
         check("text on pressed", t.text, t.pressed, 4.5);
         check("File tab on window", t.accent, t.window, 4.5);
         check("on accent", t.on_accent, t.accent, 4.5);
-        check("line numbers", t.header_text, t.input_bg, 4.5);
+        check("line numbers", t.line_number, t.input_bg, 4.5);
+        check("line numbers on the current line", t.line_number, t.current_line, 4.5);
         let s = t.syntax;
         for (name, c) in [("keyword", s.keyword), ("string", s.string), ("number", s.number), ("comment", s.comment), ("builtin", s.builtin)] {
             check(&format!("code {name}"), c, t.input_bg, 4.5);
+            check(&format!("code {name} on the current line"), c, t.current_line, 4.5);
         }
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
