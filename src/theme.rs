@@ -37,9 +37,6 @@ fn system_font(files: &[&str]) -> Option<Vec<u8>> {
     })
 }
 
-/// The hand-drawn font of the splash, in the style of its picture.
-pub const CARTOON: &str = "Cartoon";
-
 pub fn font_definitions() -> FontDefinitions {
     const REGULAR: [&str; 6] = [
         "segoeui.ttf",
@@ -57,8 +54,6 @@ pub fn font_definitions() -> FontDefinitions {
     add(&mut fonts, "Inter", include_bytes!("../assets/fonts/Inter-Regular.ttf"));
     add(&mut fonts, "InterSemiBold", include_bytes!("../assets/fonts/Inter-SemiBold.ttf"));
     add(&mut fonts, "Mono", include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf"));
-    add(&mut fonts, CARTOON, include_bytes!("../assets/fonts/PatrickHand-Regular.ttf"));
-    fonts.families.insert(FontFamily::Name(CARTOON.into()), vec![CARTOON.into(), "Inter".into()]);
     let mut regular: Vec<String> = vec!["Inter".into()];
     let mut bold: Vec<String> = vec!["InterSemiBold".into(), "Inter".into()];
     if let Some(bytes) = system_font(&REGULAR) {

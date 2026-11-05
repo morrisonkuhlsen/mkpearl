@@ -19,8 +19,6 @@ no row.
 | Inter's licence | The Inter Project Authors | `assets/fonts/OFL-Inter.txt` | As it says |
 | JetBrains Mono Regular | The JetBrains Mono Project Authors | `assets/fonts/JetBrainsMono-Regular.ttf` | SIL Open Font License 1.1 |
 | JetBrains Mono's licence | The JetBrains Mono Project Authors | `assets/fonts/OFL-JetBrainsMono.txt` | As it says |
-| Patrick Hand Regular | Patrick Wagesreiter | `assets/fonts/PatrickHand-Regular.ttf`; Google Fonts' repository, unmodified | SIL Open Font License 1.1 |
-| Patrick Hand's licence | Patrick Wagesreiter | `assets/fonts/OFL-PatrickHand.txt` | As it says |
 | VERO dictionary, affixes | Raimundo Santos Moura and the VERO team | `assets/dict/pt_BR/pt_BR.aff`; LibreOffice's dictionaries repository, unmodified | LGPLv3 and Mozilla Public License |
 | VERO dictionary, words | Raimundo Santos Moura and the VERO team | `assets/dict/pt_BR/pt_BR.dic`; LibreOffice's dictionaries repository, unmodified | LGPLv3 and Mozilla Public License |
 | VERO's notes, in Portuguese | Raimundo Santos Moura and the VERO team | `assets/dict/pt_BR/README_pt_BR.txt`; LibreOffice's dictionaries repository, unmodified | LGPLv3 and Mozilla Public License |

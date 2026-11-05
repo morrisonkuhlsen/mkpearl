@@ -55,7 +55,7 @@ Every release of Pearl, newest first, in the spirit of
 - Reviewing on the pages: strike out, highlight or note on the finished pages. Each mark finds its source
   and becomes a suggestion to accept, as one undo step, or decline. Comments show on the pages too.
 - On Windows, the window's close button is named as such, apart from the Close of a pane or a view.
-- A splash screen in the colours and the hand-drawn style of its picture, whose clouds drift by, whose duck bobs, whose fish breathes bubbles and whose frog blinks.
+- A splash screen with the words on Morrison Kühlsen's ink, as in MK Matrix, beside a picture whose clouds drift by, whose duck bobs, whose fish breathes bubbles and whose frog blinks.
 - Typing on the pages: a click puts a caret there, also with only the pages on show, and what's typed
   goes into the source.
 - Figures on the pages: a click selects an image, its corner resizes it, dragging it moves its block to
