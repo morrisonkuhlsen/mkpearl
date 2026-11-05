@@ -19,6 +19,7 @@ Every release of Pearl, newest first, in the spirit of
 - Softly rounded corners on menus, fields, buttons and cards.
 - Dark paper in the View tab, under the dark theme: the pages in dark tones while you write, with pictures, the document and its PDF as they are.
 - The pearl beside the document's name in the title bar.
+- The open file followed live: what another program writes to it, such as a coding agent, shows in the source and on the pages by itself, with the text before it in the version history. Unsaved text is never replaced without asking.
 - Rulers in centimetres around the pages, with the margins shaded.
 - Recovery: text left unsaved by a crash is offered back when Pearl opens again.
 - Spell checking in Brazilian Portuguese: misspelt words underlined, and a right click for suggestions,

@@ -24,6 +24,7 @@ Pearl's plan and progress log. Each section says what is done and its **Next:** 
 - Known: #4, #5.
 
 ## Keeping the work
+- *Done:* following the open file live when another program writes it (#65).
 - *Done:* autosave; version history, which also keeps a file changed outside Pearl before anything is written over it; comparing versions on the pages; a timeline with passages brought back (#32); recovery after a crash.
 
 ## Working together

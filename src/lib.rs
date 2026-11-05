@@ -36,6 +36,7 @@ pub mod timeline;
 pub mod typing;
 pub mod typography;
 pub mod variants;
+pub mod watch;
 pub mod widgets;
 pub mod worktime;
 pub mod world;

@@ -165,6 +165,9 @@ enum Pending {
 }
 
 /// The file on disk no longer says what Pearl last read or wrote there.
+/// How many of Pearl's own last writes the watcher's news is checked against.
+const OWN_WRITES: usize = 4;
+
 struct OutsideChange {
     /// What the file said when this was noticed; none when it's too large to hold.
     seen: Option<Vec<u8>>,
@@ -368,6 +371,12 @@ pub struct App {
     disk_text: Option<Vec<u8>>,
     /// A change made outside Pearl, waiting for an answer. Nothing is written over it meanwhile.
     outside_change: Option<OutsideChange>,
+    /// Follows the open file, so what other programs write to it shows here.
+    watcher: crate::watch::Watcher,
+    /// Hashes of the last texts Pearl wrote, so the watcher seeing them isn't taken for someone else.
+    own_writes: Vec<u64>,
+    /// The hash of the last outside text the user was asked about, so the watcher doesn't ask again.
+    asked_about: Option<u64>,
     changed_at: f64,
     ribbon_collapsed: bool,
     find: Option<String>,
@@ -527,6 +536,9 @@ impl App {
             column_from: None,
             editor_hovered: false,
             outside_change: None,
+            watcher: crate::watch::Watcher::new(),
+            own_writes: Vec::new(),
+            asked_about: None,
             changed_at: 0.0,
             ribbon_collapsed: false,
             find: None,
@@ -908,15 +920,7 @@ impl App {
         self.multi = None;
         self.previewing = false;
         let sel = self.selection(ctx);
-        // One undo step for each of these, also from the pages, when the editor hasn't had the focus
-        // and so hasn't seen the text as it was.
-        let id = Id::unique(EDITOR);
-        let mut state = egui::TextEdit::load_state(ctx, id).unwrap_or_default();
-        let range = state.cursor.char_range().unwrap_or_else(|| CCursorRange::two(CCursor::new(sel.0), CCursor::new(sel.1)));
-        let mut undoer = state.undoer();
-        undoer.add_undo(&(range, self.text.clone()));
-        state.set_undoer(undoer);
-        egui::TextEdit::store_state(ctx, id, state);
+        self.push_undo(ctx, sel);
         // The keyboard follows: with only the pages on show, it needs the editor out of sight.
         self.page_typing = true;
         let next = f(&mut self.text, sel);
@@ -926,6 +930,18 @@ impl App {
         self.want_focus = true;
         self.scroll_caret = true;
         self.compile();
+    }
+
+    /// One undo step for each edit, also from the pages, when the editor hasn't had the focus and so
+    /// hasn't seen the text as it was.
+    fn push_undo(&self, ctx: &egui::Context, sel: Sel) {
+        let id = Id::unique(EDITOR);
+        let mut state = egui::TextEdit::load_state(ctx, id).unwrap_or_default();
+        let range = state.cursor.char_range().unwrap_or_else(|| CCursorRange::two(CCursor::new(sel.0), CCursor::new(sel.1)));
+        let mut undoer = state.undoer();
+        undoer.add_undo(&(range, self.text.clone()));
+        state.set_undoer(undoer);
+        egui::TextEdit::store_state(ctx, id, state);
     }
 
     fn wrap(&mut self, ctx: &egui::Context, pre: &str, post: &str) {
@@ -1158,6 +1174,10 @@ impl App {
             Ok(()) => {
                 self.status = tr!("saved-to", path = path.display().to_string());
                 self.disk_text = Some(self.text.clone().into_bytes());
+                self.own_writes.push(egui::epaint::util::hash(self.text.as_bytes()));
+                if self.own_writes.len() > OWN_WRITES {
+                    self.own_writes.remove(0);
+                }
                 if self.path.as_deref() != Some(path.as_path()) {
                     self.worktime.moved_to(history::data_folder().as_deref(), &path);
                 }
@@ -1223,8 +1243,71 @@ impl App {
                 false
             }
         });
+        self.asked_about = Some(egui::epaint::util::hash(&seen));
         self.outside_change = Some(OutsideChange { seen: Some(seen), kept });
         true
+    }
+
+    /// What other programs did to the open file. With nothing unsaved and no session, its new text
+    /// comes in by itself, the old one kept in the history first; otherwise the user is asked, as
+    /// saving does. A file gone, too large or not text leaves the editor as it is, and says so.
+    fn follow_file(&mut self, ctx: &egui::Context) {
+        self.watcher.follow(ctx, self.path.as_deref());
+        for seen in self.watcher.seen() {
+            let Some(path) = self.path.clone() else { return };
+            let name = document_name(Some(&path));
+            match seen {
+                crate::watch::Seen::Changed { path: changed, bytes } if changed == path => {
+                    let hash = egui::epaint::util::hash(&bytes);
+                    let own = self.disk_text.as_ref() == Some(&bytes) || self.own_writes.contains(&hash);
+                    if own || self.outside_change.is_some() || self.asked_about == Some(hash) {
+                        continue;
+                    }
+                    if self.dirty || self.session.is_some() {
+                        self.notice_outside_change(&path);
+                        continue;
+                    }
+                    match String::from_utf8(bytes) {
+                        Ok(text) => self.take_outside_text(ctx, &path, text),
+                        Err(_) => self.status = tr!("changed-outside-not-text", name = name),
+                    }
+                }
+                crate::watch::Seen::Gone { path: gone } if gone == path => self.status = tr!("changed-outside-gone", name = name),
+                crate::watch::Seen::TooLarge { path: large } if large == path => self.status = tr!("changed-outside-too-large", name = name),
+                crate::watch::Seen::Unreadable { path: unreadable, error } if unreadable == path => {
+                    self.status = tr!("changed-outside-unreadable", name = name, error = error);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Brings in what another program wrote, as one undo step, without taking the keyboard from
+    /// wherever it is. Both texts go into the history first; if either can't, nothing changes.
+    fn take_outside_text(&mut self, ctx: &egui::Context, path: &Path, text: String) {
+        if !self.keep_version(history::Kind::BeforeRestore) {
+            return;
+        }
+        let kept = self.store().map(|store| {
+            let kept = store.keep(path, &text, history::Kind::ChangedOutside, history::now_ms());
+            self.versions = store.list();
+            kept
+        });
+        if let Some(Err(e)) = kept {
+            self.status = tr!("cant-keep-version", error = e.to_string());
+            return;
+        }
+        self.end_viewing();
+        self.multi = None;
+        let sel = self.selection(ctx);
+        self.push_undo(ctx, sel);
+        self.disk_text = Some(text.clone().into_bytes());
+        self.text = text;
+        let n = self.text.chars().count();
+        self.set_selection(ctx, (sel.0.min(n), sel.1.min(n)));
+        self.dirty = false;
+        self.status = tr!("changed-outside-followed", name = document_name(Some(path)));
+        self.compile();
     }
 
     /// Asks what to do about a file changed outside Pearl. Whatever the answer, neither text is lost
@@ -2259,6 +2342,7 @@ impl App {
         }
         self.compiler.max_side.store(ctx.input(|i| i.max_texture_side), std::sync::atomic::Ordering::Relaxed);
         self.poll(&ctx);
+        self.follow_file(&ctx);
         self.shortcuts(&ctx);
         if ctx.input(|i| i.viewport().close_requested()) && self.dirty && !self.quitting {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
