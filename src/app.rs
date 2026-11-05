@@ -56,6 +56,7 @@ const PERSONAL_FILE: &str = "dictionary.txt";
 const SPELL_DELAY: f64 = 0.4;
 /// Holds "off" when the rulers are hidden.
 const RULER_FILE: &str = "ruler.txt";
+const DARK_PAPER_FILE: &str = "dark-paper.txt";
 /// Where a saved API key is kept, readable by this user alone.
 const KEY_FILE: &str = "anthropic-key";
 /// Seconds between the versions autosave keeps.
@@ -326,6 +327,10 @@ pub struct App {
     path: Option<PathBuf>,
     worktime: crate::worktime::WorkTime,
     colour_picker: crate::colour_picker::Picker,
+    /// The user's wish for pages on dark paper, which only the dark theme acts on.
+    dark_paper: bool,
+    /// What the compiler was last told about it.
+    dark_paper_shown: bool,
     last_text_colour: Option<crate::colour_picker::Colour>,
     last_highlight: Option<crate::colour_picker::Colour>,
     dirty: bool,
@@ -488,6 +493,8 @@ impl App {
             disk_text: path.is_some().then(|| text.clone().into_bytes()),
             worktime: crate::worktime::WorkTime::at(history::data_folder().as_deref(), path.as_deref()),
             colour_picker: crate::colour_picker::Picker::default(),
+            dark_paper: crate::recent::read_setting(DARK_PAPER_FILE).is_some_and(|v| v.trim() == "on"),
+            dark_paper_shown: false,
             last_text_colour: None,
             last_highlight: None,
             text,
@@ -1096,6 +1103,27 @@ impl App {
         self.worktime.tick(time);
     }
 
+    /// Pages change paper with the setting and with the theme, whichever moved.
+    fn dark_paper_tick(&mut self, ctx: &egui::Context) {
+        let wanted = self.dark_paper && ctx.style_of(ctx.theme()).visuals.dark_mode;
+        if wanted != self.dark_paper_shown {
+            self.dark_paper_shown = wanted;
+            self.compiler.dark_paper.store(wanted, std::sync::atomic::Ordering::Relaxed);
+            self.compile();
+        }
+    }
+
+    /// Turns dark paper on or off, for this and later runs.
+    pub fn set_dark_paper(&mut self, on: bool) {
+        self.dark_paper = on;
+        crate::recent::write_setting(DARK_PAPER_FILE, if on { "on" } else { "off" });
+    }
+
+    /// Whether the pages are showing on dark paper now.
+    pub fn on_dark_paper(&self) -> bool {
+        self.dark_paper_shown
+    }
+
     /// Seconds worked on this document, in all.
     pub fn worked_seconds(&self) -> u64 {
         self.worktime.total()
@@ -1593,6 +1621,7 @@ impl App {
     pub fn show(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         self.worktime_tick(&ctx);
+        self.dark_paper_tick(&ctx);
         if self.status != self.status_seen.0 {
             self.status_seen = (self.status.clone(), ctx.input(|i| i.time));
         }
@@ -3036,6 +3065,9 @@ impl App {
                 self.choose_theme(&ctx, choice);
             }
         }
+        if ui.visuals().dark_mode && toggle(ui, Icon::Paper, tx("dark-paper"), tx("dark-paper-h"), self.dark_paper).clicked() {
+            self.set_dark_paper(!self.dark_paper);
+        }
         group_end(ui, tx("theme"));
     }
 
@@ -3344,7 +3376,7 @@ impl App {
     }
 
     /// Switches the theme and remembers the choice for the next time.
-    fn choose_theme(&mut self, ctx: &egui::Context, choice: ThemeChoice) {
+    pub fn choose_theme(&mut self, ctx: &egui::Context, choice: ThemeChoice) {
         self.theme = choice;
         theme::set_choice(ctx, choice);
         choice.save();

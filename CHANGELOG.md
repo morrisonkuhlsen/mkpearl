@@ -17,6 +17,7 @@ Every release of Pearl, newest first, in the spirit of
 - A colour picker for text and highlight: a palette with tints and shades, the latest colours used, and any other colour by a square, hue, opacity, hex code or RGB numbers. The ribbon's button shows the colour last used.
 - A calmer editor: more air between lines, quieter line numbers, the caret's line marked, and source colours that go with the rest of the interface.
 - Softly rounded corners on menus, fields, buttons and cards.
+- Dark paper in the View tab, under the dark theme: the pages in dark tones while you write, with pictures, the document and its PDF as they are.
 - Rulers in centimetres around the pages, with the margins shaded.
 - Recovery: text left unsaved by a crash is offered back when Pearl opens again.
 - Spell checking in Brazilian Portuguese: misspelt words underlined, and a right click for suggestions,

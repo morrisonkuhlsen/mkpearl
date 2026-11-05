@@ -5,7 +5,7 @@ use crate::i18n::tx;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
@@ -349,6 +349,8 @@ pub struct Compiler {
     pub repaint: Arc<OnceLock<egui::Context>>,
     /// The longest side a page texture may have on this GPU.
     pub max_side: Arc<AtomicUsize>,
+    /// Whether pages are shown on dark paper; takes effect at the next compile.
+    pub dark_paper: Arc<AtomicBool>,
 }
 
 impl Compiler {
@@ -359,13 +361,15 @@ impl Compiler {
         let wake = Arc::clone(&repaint);
         let max_side = Arc::new(AtomicUsize::new(SAFE_TEXTURE_SIDE));
         let limit = Arc::clone(&max_side);
+        let dark_paper = Arc::new(AtomicBool::new(false));
+        let dark = Arc::clone(&dark_paper);
         std::thread::Builder::new()
             .name("typst".into())
             // Deeply nested documents recurse far; the default stack would overflow first.
             .stack_size(32 * 1024 * 1024)
-            .spawn(move || Worker::new(event_tx, wake, limit).run(job_rx))
+            .spawn(move || Worker::new(event_tx, wake, limit, dark).run(job_rx))
             .map_err(|e| e.to_string())?;
-        Ok(Self { jobs, events, repaint, max_side })
+        Ok(Self { jobs, events, repaint, max_side, dark_paper })
     }
 
     pub fn send(&self, job: Job) {
@@ -378,6 +382,7 @@ struct Worker {
     events: Sender<Event>,
     wake: Arc<OnceLock<egui::Context>>,
     max_side: Arc<AtomicUsize>,
+    dark_paper: Arc<AtomicBool>,
     fonts: Arc<typst_kit::fonts::FontStore>,
     world: Option<DocWorld>,
     path: Option<PathBuf>,
@@ -395,11 +400,12 @@ struct Worker {
 }
 
 impl Worker {
-    fn new(events: Sender<Event>, wake: Arc<OnceLock<egui::Context>>, max_side: Arc<AtomicUsize>) -> Self {
+    fn new(events: Sender<Event>, wake: Arc<OnceLock<egui::Context>>, max_side: Arc<AtomicUsize>, dark_paper: Arc<AtomicBool>) -> Self {
         Self {
             events,
             wake,
             max_side,
+            dark_paper,
             fonts: load_fonts(),
             world: None,
             path: None,
@@ -552,17 +558,19 @@ impl Worker {
     /// Rasterises the pages that changed; the others come from the cache.
     fn render(&mut self, doc: &PagedDocument) -> Vec<Page> {
         let limit = self.max_side.load(Ordering::Relaxed);
+        let dark = self.dark_paper.load(Ordering::Relaxed);
         let mut out = Vec::with_capacity(doc.pages().len());
         for page in doc.pages() {
             let size = page.frame.size();
             let scale = page_scale(size.x.to_pt(), size.y.to_pt(), limit);
             let options = RenderOptions { pixel_per_pt: typst::utils::Scalar::new(scale), render_bleed: false };
-            let hash = hash128(&(&page.frame, &page.fill, scale.to_bits()));
+            let hash = hash128(&(&page.frame, &page.fill, scale.to_bits(), dark));
             let pixels = self
                 .rendered
                 .entry(hash)
                 .or_insert_with(|| {
-                    let map = typst_render::render(page, &options);
+                    let map =
+                        if dark { typst_render::render(&crate::dark_paper::page(page), &options) } else { typst_render::render(page, &options) };
                     Pixels { size: [map.width() as usize, map.height() as usize], rgba: Arc::new(map.take_demultiplied()) }
                 })
                 .clone();
@@ -1471,6 +1479,40 @@ mod tests {
     use crate::edit::table_snippet;
     use crate::sample::SAMPLE;
     use std::time::Duration;
+
+    #[test]
+    fn dark_paper_changes_the_page_but_not_its_pictures() {
+        let text = r##"#set page(width: 200pt, height: 200pt, margin: 0pt)
+#place(top + left, image(bytes("<svg xmlns='http://www.w3.org/2000/svg' width='50' height='50'><rect width='50' height='50' fill='white'/></svg>"), format: "svg", width: 50pt))
+#place(bottom + right, rect(width: 50pt, height: 50pt, fill: black))"##;
+        let c = Compiler::start().unwrap();
+        let pixel = |page: &Page, x: usize, y: usize| {
+            let at = (y * page.pixels.size[0] + x) * 4;
+            let rgba = &page.pixels.rgba[at..at + 3];
+            [rgba[0], rgba[1], rgba[2]]
+        };
+        for dark in [false, true] {
+            c.dark_paper.store(dark, Ordering::Relaxed);
+            c.send(Job::Compile { text: text.into(), path: None });
+            let page = loop {
+                match c.events.recv_timeout(Duration::from_secs(120)).unwrap() {
+                    Event::Compiled { pages, diags, .. } => break pages.unwrap_or_else(|| panic!("{diags:?}")).remove(0),
+                    Event::Failed(e) => panic!("{e}"),
+                    _ => {}
+                }
+            };
+            let [w, h] = page.pixels.size;
+            let (paper, picture, box_) = (pixel(&page, w / 2, h / 2), pixel(&page, w / 16, h / 16), pixel(&page, w - w / 16, h - h / 16));
+            assert_eq!(picture, [255, 255, 255], "the picture keeps its colours (dark {dark})");
+            if dark {
+                assert!(paper[0] < 50 && paper[1] < 50, "the paper is dark: {paper:?}");
+                assert!(box_[0] > 200, "black turned light: {box_:?}");
+            } else {
+                assert_eq!(paper, [255, 255, 255]);
+                assert_eq!(box_, [0, 0, 0]);
+            }
+        }
+    }
 
     fn compile(text: &str) -> (Option<Vec<Page>>, Vec<Diag>) {
         let c = Compiler::start().unwrap();

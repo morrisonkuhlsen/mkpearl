@@ -11,6 +11,7 @@ pub mod colour_picker;
 pub mod comments;
 pub mod compare;
 pub mod compiler;
+pub mod dark_paper;
 pub mod doi;
 pub mod edit;
 pub mod fit;
