@@ -329,7 +329,7 @@ impl App {
         ui.painter().text(pos2(head.right() - MODIFIED_W, head.center().y), Align2::LEFT_CENTER, tx("modified"), theme::ui_font(11.5), t.text_dim);
         let ages = self.recent_ages.lock().map(|a| a.clone()).unwrap_or_default();
         let mut chosen = None;
-        for (i, path) in self.recent.iter().take(limit).enumerate() {
+        for path in self.recent.iter().take(limit) {
             let name = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
             let folder = path.parent().map_or_else(String::new, |p| p.display().to_string());
             let (rect, resp) = ui.allocate_exact_size(vec2(width, 44.0), Sense::click());
@@ -358,11 +358,11 @@ impl App {
             };
             ui.painter().text(pos2(rect.right() - MODIFIED_W, rect.center().y), Align2::LEFT_CENTER, when, theme::ui_font(12.0), t.text_dim);
             if resp.on_hover_text(path.display().to_string()).clicked() {
-                chosen = Some(i);
+                chosen = Some(path.clone());
             }
         }
-        if let Some(i) = chosen {
-            self.request(ctx, Pending::Recent(i));
+        if let Some(path) = chosen {
+            self.request(ctx, Pending::Recent(path));
         }
     }
 

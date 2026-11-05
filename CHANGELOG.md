@@ -72,3 +72,5 @@ Every release of Pearl, newest first, in the spirit of
 - Packages for Linux, Windows and macOS, built by a release workflow.
 - Third-party licences, readable under About.
 - English and Brazilian Portuguese: choose under File, Options; it starts in the system's language.
+- Answering Save when opening a recent document now opens the one clicked, not whichever took its place on the list (#40).
+

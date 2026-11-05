@@ -150,12 +150,12 @@ enum Layout {
 }
 
 /// What waits for the answer to "save the changes?".
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 enum Pending {
     New,
     Open,
-    /// A document from the recent list, by its place in it.
-    Recent(usize),
+    /// A document from the recent list. By its path: saving first can reorder the list.
+    Recent(PathBuf),
     /// A new document from a template, by its place in the list.
     Template(usize),
     /// Joining the session behind a link.
@@ -1004,11 +1004,7 @@ impl App {
                     self.open_path(ctx, path);
                 }
             }
-            Pending::Recent(i) => {
-                if let Some(path) = self.recent.get(i).cloned() {
-                    self.open_path(ctx, path);
-                }
-            }
+            Pending::Recent(path) => self.open_path(ctx, path),
             Pending::Quit => {
                 self.quitting = true;
                 // Answered already: autosave has no business writing it on the way out.
@@ -4571,7 +4567,7 @@ impl App {
             }
         }
         self.outside_change_dialog(ctx);
-        if let Some(action) = self.confirm {
+        if let Some(action) = self.confirm.clone() {
             let mut answer = None;
             egui::Modal::new(Id::unique("save-changes")).show(ctx, |ui| {
                 ui.set_width(340.0);
