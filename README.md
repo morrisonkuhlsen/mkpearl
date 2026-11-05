@@ -111,7 +111,6 @@ A release workflow builds packages for Linux, Windows and macOS: see [`docs/rele
 Pearl is early, at version 0.1.0, with nothing released yet. The tests drive the whole window, but much of it hasn't yet been tried by people on real machines ([#7](https://github.com/morrisonkuhlsen/mkpearl/issues/7)).
 
 Worth knowing:
-- Dragging files onto the window doesn't work under Wayland, a limit of the windowing library ([#15](https://github.com/morrisonkuhlsen/mkpearl/issues/15)). Pasting does.
 - The rulers show one set of margins for the whole document ([#5](https://github.com/morrisonkuhlsen/mkpearl/issues/5)).
 - Sessions connect directly, so across the internet they need a VPN or an open port ([#13](https://github.com/morrisonkuhlsen/mkpearl/issues/13)).
 - Packages aren't signed, so Windows and macOS warn before opening them.

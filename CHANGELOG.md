@@ -17,7 +17,7 @@ Every release of Pearl, newest first, in the spirit of
 - Spell checking in Brazilian Portuguese: misspelt words underlined, and a right click for suggestions,
   ignoring a word or adding it to your dictionary.
 - Images by pasting or dragging, or from any folder through the ribbon: copied into `images/` beside
-  the document, with a figure at the caret. An unsaved document asks where to save first. Dragging doesn't work under Wayland yet (#15).
+  the document, with a figure at the caret. An unsaved document asks where to save first.
 - A References pane: import a `.bib`, search it and click to cite at the caret, with the bibliography
   added to the document when it has none.
 - References by DOI, and their check: citations with no entry and entries never cited are shown as

@@ -18,6 +18,9 @@ the licenses above.
 
 The message catalog code in src/i18n.rs is adapted from MK Perth (MIT OR Apache-2.0).
 
+vendor/winit is winit 0.30.13 (Apache-2.0), changed to receive dragged files under Wayland; vendor/README.md
+lists the changes.
+
 Typesetting is done by Typst (https://github.com/typst/typst), Apache-2.0. The function reference
 in the Documentation pane is the documentation Typst carries inside itself. Pearl is not made or
 endorsed by the Typst project.

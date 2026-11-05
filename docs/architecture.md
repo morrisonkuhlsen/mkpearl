@@ -38,6 +38,12 @@ One crate, by the owner's decision: nothing needs the split yet, and it would to
 The window never waits. The compiler and each session have threads of their own, and talk to the
 window through channels, waking it when there's something to show.
 
+## Windowing
+
+`vendor/winit` is winit 0.30 with Wayland drag and drop added, which that version lacks and eframe 0.37
+needs (#15). It reports files as the X11 backend does, so `receive_images` has one path for all systems.
+What changed, and when to drop the copy, is in `vendor/README.md`.
+
 ## Margins
 
 Typst keeps no margins on the pages it returns, and what's on a page says nothing reliable about

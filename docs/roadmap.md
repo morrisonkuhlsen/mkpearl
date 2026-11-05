@@ -15,7 +15,7 @@ Pearl's plan and progress log. Each section says what is done and its **Next:** 
 - *Done:* the typography watch (#27); layout variants (#25); fitting in a number of pages (#26); the accessibility check and PDF/UA-1 export (#30).
 - *Done:* the Documentation pane: lessons in both languages with live examples, a search, and a
   reference of every function from Typst itself.
-- Known: #4, #5, #15.
+- Known: #4, #5.
 
 ## Keeping the work
 - *Done:* autosave; version history, which also keeps a file changed outside Pearl before anything is written over it; comparing versions on the pages; a timeline with passages brought back (#32); recovery after a crash.

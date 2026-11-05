@@ -35,6 +35,11 @@ egui_kittest = { version = "0.37", features = ["wgpu"] }
 
 [workspace]
 members = ["xtask"]
+exclude = ["vendor/winit"]
+
+# Dragging files under Wayland (#15): see vendor/README.md.
+[patch.crates-io]
+winit = { path = "vendor/winit" }
 
 [profile.dev]
 opt-level = 1
