@@ -116,6 +116,7 @@ pub enum Icon {
     Ruler,
     PrintArea,
     Script,
+    Terminal,
     Pen,
     Share,
     Search,
@@ -254,6 +255,7 @@ impl Icon {
         Icon::Ruler,
         Icon::PrintArea,
         Icon::Script,
+        Icon::Terminal,
         Icon::Pen,
         Icon::Share,
         Icon::Search,
@@ -952,6 +954,12 @@ fn paint_with(p: &Painter, rect: Rect, icon: Icon, c: Color32, pal: &Palette) {
             g.frame(1.5, 2.5, 14.5, 13.5, c);
             g.line(&[(4.0, 6.0), (6.5, 8.0), (4.0, 10.0)], a, 1.2);
             g.stroke(&[(8.0, 10.5), (12.0, 10.5)], c);
+        }
+        Icon::Terminal => {
+            g.frame(1.5, 2.5, 14.5, 13.5, c);
+            g.stroke(&[(1.5, 5.0), (14.5, 5.0)], c);
+            g.line(&[(4.0, 7.5), (6.0, 9.25), (4.0, 11.0)], a, 1.2);
+            g.block(7.5, 10.0, 11.0, 11.5, a);
         }
         Icon::Pen => {
             g.closed(&[(2.0, 14.0), (2.5, 10.5), (10.5, 2.5), (13.5, 5.5), (5.5, 13.5)], c);

@@ -212,6 +212,31 @@ fn main() {
             std::thread::sleep(Duration::from_millis(10));
         }
     }
+    if args.iter().any(|a| a == "terminal") {
+        harness.state_mut().toggle_terminal();
+        harness.run_steps(5);
+    }
+    if let Some(typed) = args.iter().find_map(|a| a.strip_prefix("terminal=")) {
+        // A shell in the terminal pane, with `typed` run in it.
+        let ctx = harness.ctx.clone();
+        harness.state_mut().start_terminal(&ctx, pearl::terminal::Program::Shell);
+        harness.run_steps(5);
+        harness.state_mut().type_in_terminal(&format!("{typed}\r"));
+        for _ in 0..100 {
+            harness.step();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    if let Some(agent) = args.iter().find_map(|a| a.strip_prefix("agent=")) {
+        // Started only, nothing typed: what it shows on opening.
+        let program = if agent == "codex" { pearl::terminal::Program::Codex } else { pearl::terminal::Program::Claude };
+        let ctx = harness.ctx.clone();
+        harness.state_mut().start_terminal(&ctx, program);
+        for _ in 0..400 {
+            harness.step();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
     if args.iter().any(|a| a == "hover") {
         harness.event(egui::Event::PointerMoved(egui::pos2(8.0 + 44.0 + 46.0 + 4.0 + 3.0 * 7.8, 237.0)));
         for _ in 0..80 {

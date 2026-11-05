@@ -40,6 +40,7 @@ mod formulas;
 mod letterhead;
 mod multi_caret;
 mod references;
+mod terminal;
 mod timeline;
 mod typography;
 mod variants;
@@ -375,6 +376,8 @@ pub struct App {
     watcher: crate::watch::Watcher,
     /// Hashes of the last texts Pearl wrote, so the watcher seeing them isn't taken for someone else.
     own_writes: Vec<u64>,
+    /// The terminal pane beside the rail.
+    terminal: terminal::TerminalPane,
     /// The hash of the last outside text the user was asked about, so the watcher doesn't ask again.
     asked_about: Option<u64>,
     changed_at: f64,
@@ -538,6 +541,7 @@ impl App {
             outside_change: None,
             watcher: crate::watch::Watcher::new(),
             own_writes: Vec::new(),
+            terminal: terminal::TerminalPane::default(),
             asked_about: None,
             changed_at: 0.0,
             ribbon_collapsed: false,
@@ -2343,6 +2347,7 @@ impl App {
         self.compiler.max_side.store(ctx.input(|i| i.max_texture_side), std::sync::atomic::Ordering::Relaxed);
         self.poll(&ctx);
         self.follow_file(&ctx);
+        self.terminal_keys(&ctx);
         self.shortcuts(&ctx);
         if ctx.input(|i| i.viewport().close_requested()) && self.dirty && !self.quitting {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -2381,8 +2386,18 @@ impl App {
         let strip = Rect::from_min_max(pos2(main.right() - SIDE_STRIP, main.top()), main.max);
         let pane_w = if self.side.is_some() { SIDE_WIDTH.min((main.width() - RAIL_WIDTH - SIDE_STRIP - 200.0).max(0.0)) } else { 0.0 };
         let pane = Rect::from_min_max(pos2(strip.left() - pane_w, main.top()), pos2(strip.left(), main.bottom()));
-        let middle = Rect::from_min_max(pos2(rail.right(), main.top()), pos2(pane.left(), main.bottom()));
+        // The terminal beside the rail, leaving the source and pages room to be read.
+        let room = (pane.left() - rail.right() - 300.0).max(0.0);
+        let terminal_w = if self.terminal.open { self.terminal.width.max(terminal::MIN_WIDTH).min(room) } else { 0.0 };
+        let terminal = Rect::from_min_max(pos2(rail.right(), main.top()), pos2(rail.right() + terminal_w, main.bottom()));
+        let middle = Rect::from_min_max(pos2(terminal.right(), main.top()), pos2(pane.left(), main.bottom()));
         ui.scope_builder(egui::UiBuilder::new().max_rect(rail), |ui| self.view_rail(ui, rail, &t));
+        if terminal_w > 0.0 {
+            ui.scope_builder(egui::UiBuilder::new().max_rect(terminal), |ui| {
+                ui.shrink_clip_rect(terminal);
+                self.terminal_pane(ui, terminal, &t);
+            });
+        }
         ui.scope_builder(egui::UiBuilder::new().max_rect(strip), |ui| self.side_strip(ui, strip, &t));
         if let Some(side) = self.side.filter(|_| pane_w > 0.0) {
             ui.scope_builder(egui::UiBuilder::new().max_rect(pane), |ui| {
@@ -3206,6 +3221,24 @@ impl App {
         ui.painter().text(slot.center(), egui::Align2::CENTER_CENTER, "12", theme::ui_font(13.0), if shown { t.text } else { t.text_disabled });
         if resp.on_hover_text(if shown { tx("hide-line-numbers") } else { tx("show-line-numbers") }).clicked() {
             self.line_numbers = !shown;
+        }
+        // The terminal: a pane of its own, shown or hidden; a dot while a program runs in it.
+        let slot = Rect::from_min_size(pos2(rect.left(), top + 48.0), vec2(RAIL_WIDTH - 1.0, 40.0));
+        let open = self.terminal_open();
+        let resp = ui.interact(slot, ui.scope_id().with("rail-terminal"), Sense::click());
+        resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, open, tx("terminal")));
+        if open {
+            ui.painter().rect_filled(slot, 0.0, t.accent_soft);
+            ui.painter().rect_filled(Rect::from_min_size(slot.min, vec2(3.0, slot.height())), 0.0, t.accent);
+        } else if resp.hovered() {
+            ui.painter().rect_filled(slot, 0.0, t.hover);
+        }
+        crate::icons::paint(ui.painter(), Rect::from_center_size(slot.center(), vec2(20.0, 20.0)), Icon::Terminal, t.text);
+        if self.terminal.is_running() {
+            ui.painter().circle_filled(pos2(slot.right() - 9.0, slot.top() + 9.0), 3.0, t.accent);
+        }
+        if resp.on_hover_text(if open { tx("hide-the-terminal") } else { tx("show-the-terminal") }).clicked() {
+            self.toggle_terminal();
         }
     }
 

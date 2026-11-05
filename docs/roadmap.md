@@ -14,6 +14,7 @@ Pearl's plan and progress log. Each section says what is done and its **Next:** 
 - *Done:* a colour picker for text and highlight.
 - *Done:* dark paper for the preview.
 - *Done:* the pearl in the title bar.
+- *Done:* a terminal beside the document for Claude Code, Codex or a shell (#66).
 - *Done:* a calmer editor, and corners of 4 px by the owner's decision, where MK Matrix has square ones.
 - *Done:* a refinement of the look: the pages' shadow and desk, an icon strip, the File view's sheets, the ribbon's fields.
 - *Done:* ready-made formulas, with previews and a search.

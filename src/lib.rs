@@ -31,6 +31,7 @@ pub mod sample;
 pub mod spell;
 pub mod splash;
 pub mod templates;
+pub mod terminal;
 pub mod theme;
 pub mod timeline;
 pub mod typing;
