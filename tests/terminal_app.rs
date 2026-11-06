@@ -69,9 +69,11 @@ fn a_program_in_the_terminal_edits_the_document() {
     assert!(h.state().terminal_focused(&h.ctx), "the terminal takes the keyboard");
 
     // What's typed reaches the shell, in the document's folder; the editor gets none of it.
-    typed(&mut h, "echo pearl-$((40+2)) && pwd");
+    // Only the folder's name: a long temporary path, as on macOS, wraps in a narrow pane.
+    typed(&mut h, "echo pearl-$((40+2)) && basename \"$(pwd)\"");
     wait(&mut h, "the shell's answer", |h| screen_has(h, "pearl-42"));
-    assert!(screen_has(&h, root.file_name().unwrap().to_str().unwrap()));
+    let name = root.file_name().unwrap().to_str().unwrap().to_string();
+    wait(&mut h, "the shell's folder", |h| screen_has(h, &name));
     assert_eq!(h.state().text(), "antes\n");
 
     // Ctrl+C, which the window reads as copy, interrupts the program when nothing is selected.
