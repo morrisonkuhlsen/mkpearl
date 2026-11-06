@@ -34,5 +34,5 @@ Pearl's plan and progress log. Each section says what is done and its **Next:** 
 - **Next:** a relay for the internet (#13); images from guests (#16).
 
 ## Getting it to people
-- *Done:* the licences in the program; the gates and CI; the interface in English and Portuguese; packages and a release workflow, see `docs/releasing.md`.
+- *Done:* the licences in the program; the gates and CI; the interface in English and Portuguese; packages and a release workflow, see `docs/releasing.md`; the first release, 0.1.0 (November 2026).
 - **Next:** try what no person has tried (#7); document text in English (#14).

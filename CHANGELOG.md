@@ -2,9 +2,13 @@
 
 Every release of Pearl, newest first, in the spirit of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions follow
-[semantic versioning](https://semver.org/). Nothing is released yet.
+[semantic versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-11-06
+
+The first release.
 
 - An editor for Typst: source on the left, live pages on the right, a ribbon, the File view, a left
   rail and a right strip, zoom in the status bar, four themes and a splash screen.
