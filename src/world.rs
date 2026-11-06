@@ -182,21 +182,27 @@ impl typst_ide::IdeWorld for DocWorld {
 mod tests {
     use super::*;
 
+    /// An absolute path on any system: `/tmp/…` isn't absolute on Windows.
+    fn at(path: &str) -> PathBuf {
+        std::env::temp_dir().join(path)
+    }
+
     #[test]
     fn the_root_is_the_project_only_for_a_document_inside_it() {
-        let project = Path::new("/tmp/livro");
-        assert_eq!(root_for(Some(Path::new("/tmp/livro/cap/um.typ")), Some(project)), Some(project.to_path_buf()));
-        assert_eq!(root_for(Some(Path::new("/tmp/outro/a.typ")), Some(project)), Some(PathBuf::from("/tmp/outro")));
-        assert_eq!(root_for(Some(Path::new("/tmp/livro-2/a.typ")), Some(project)), Some(PathBuf::from("/tmp/livro-2")));
+        let project = at("livro");
+        let project = project.as_path();
+        assert_eq!(root_for(Some(&at("livro/cap/um.typ")), Some(project)), Some(project.to_path_buf()));
+        assert_eq!(root_for(Some(&at("outro/a.typ")), Some(project)), Some(at("outro")));
+        assert_eq!(root_for(Some(&at("livro-2/a.typ")), Some(project)), Some(at("livro-2")));
         assert_eq!(root_for(None, Some(project)), Some(project.to_path_buf()));
-        assert_eq!(root_for(Some(Path::new("/tmp/a.typ")), None), Some(PathBuf::from("/tmp")));
+        assert_eq!(root_for(Some(&at("a.typ")), None), Some(std::env::temp_dir()));
     }
 
     #[test]
     fn the_document_is_named_from_the_root() {
-        let id = main_id(Some(Path::new("/tmp/livro/cap/um.typ")), Path::new("/tmp/livro")).unwrap();
+        let id = main_id(Some(&at("livro/cap/um.typ")), &at("livro")).unwrap();
         assert_eq!(id.vpath().get_without_slash(), "cap/um.typ");
-        let id = main_id(None, Path::new("/tmp/livro")).unwrap();
+        let id = main_id(None, &at("livro")).unwrap();
         assert_eq!(id.vpath().get_without_slash(), "sem-titulo.typ");
     }
 }

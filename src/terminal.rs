@@ -108,6 +108,15 @@ fn window_size(columns: usize, lines: usize, cell: (u16, u16)) -> WindowSize {
 /// `PATH` an app started from the system menu lacks is there, and then through `sh`, so the check
 /// for a missing program reads the same in every shell. A shell stays when the program ends.
 fn shell_for(command: Option<&str>) -> Option<tty::Shell> {
+    // The user's own shell, started directly: left to itself, the emulator starts it on macOS
+    // through `/usr/bin/login`, which runs as root, so a shell that ignores the hang-up couldn't be
+    // ended with the terminal.
+    #[cfg(not(windows))]
+    let shell = std::env::var("SHELL").ok().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "/bin/sh".into());
+    #[cfg(not(windows))]
+    if command.is_none() {
+        return Some(tty::Shell::new(shell, vec!["-l".into()]));
+    }
     command?;
     #[cfg(windows)]
     {
@@ -117,7 +126,6 @@ fn shell_for(command: Option<&str>) -> Option<tty::Shell> {
     }
     #[cfg(not(windows))]
     {
-        let shell = std::env::var("SHELL").ok().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "/bin/sh".into());
         Some(tty::Shell::new(shell, vec!["-l".into(), "-i".into(), "-c".into(), "exec /bin/sh -c \"$PEARL_SCRIPT\"".into()]))
     }
 }
