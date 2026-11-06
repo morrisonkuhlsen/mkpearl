@@ -1,5 +1,5 @@
-//! `pearl [--no-splash] [documento.typ]` opens a document, or the sample without one, after the
-//! splash screen.
+//! `pearl [--no-splash] [documento.typ | pasta]` opens a document, a folder as a project, or the
+//! sample without either, after the splash screen.
 // Windows gives a console program a window of its own, and closing that ends Pearl without asking.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 #![forbid(unsafe_code)]

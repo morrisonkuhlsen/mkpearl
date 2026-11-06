@@ -80,6 +80,9 @@ impl App {
 
     /// Where programs start: the document's folder, or the home folder for a document with no file.
     fn terminal_folder(&self) -> PathBuf {
+        if let Some(root) = self.project_folder() {
+            return root.to_path_buf();
+        }
         let parent = self.path.as_deref().and_then(std::path::Path::parent).filter(|p| !p.as_os_str().is_empty()).map(PathBuf::from);
         let home = || std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from);
         let folder = parent.or_else(home).unwrap_or_else(|| PathBuf::from("."));

@@ -24,6 +24,7 @@ pub mod icons;
 pub mod images;
 pub mod letterhead;
 pub mod licenses;
+pub mod project;
 pub mod recent;
 pub mod recovery;
 pub mod ruler;

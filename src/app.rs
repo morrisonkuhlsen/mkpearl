@@ -39,6 +39,7 @@ mod fit;
 mod formulas;
 mod letterhead;
 mod multi_caret;
+mod project;
 mod references;
 mod terminal;
 mod timeline;
@@ -156,6 +157,8 @@ enum Layout {
 enum Pending {
     New,
     Open,
+    /// A folder to open as a project, chosen in a dialog.
+    OpenFolder,
     /// A document from the recent list. By its path: saving first can reorder the list.
     Recent(PathBuf),
     /// A new document from a template, by its place in the list.
@@ -378,6 +381,8 @@ pub struct App {
     own_writes: Vec<u64>,
     /// The terminal pane beside the rail.
     terminal: terminal::TerminalPane,
+    /// A folder opened as a project, and its pane.
+    project: project::ProjectPane,
     /// The hash of the last outside text the user was asked about, so the watcher doesn't ask again.
     asked_about: Option<u64>,
     changed_at: f64,
@@ -495,6 +500,12 @@ pub struct App {
 impl App {
     /// Opens `path`, or the sample document without one.
     pub fn new(path: Option<PathBuf>) -> Result<Self, String> {
+        // Remembered as given, a relative path would mean another file from another folder (#42).
+        let path = path.map(|p| std::path::absolute(&p).unwrap_or(p));
+        let (path, folder) = match path {
+            Some(p) if p.is_dir() => (None, Some(p)),
+            other => (other, None),
+        };
         let text = match &path {
             Some(p) if p.exists() => std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?,
             Some(_) => String::new(),
@@ -542,6 +553,7 @@ impl App {
             watcher: crate::watch::Watcher::new(),
             own_writes: Vec::new(),
             terminal: terminal::TerminalPane::default(),
+            project: project::ProjectPane::default(),
             asked_about: None,
             changed_at: 0.0,
             ribbon_collapsed: false,
@@ -634,6 +646,7 @@ impl App {
             recent_ages: std::sync::Arc::default(),
         };
         let mut app = app;
+        app.project.at_start = folder;
         app.remember_path();
         // What's in the file now, before anything can write over it.
         app.keep_version(history::Kind::Opened);
@@ -789,6 +802,16 @@ impl App {
 
     pub fn compiled_once(&self) -> bool {
         self.millis.is_some()
+    }
+
+    /// How many compiles have come back, for tests that wait for the next.
+    pub fn compile_count(&self) -> u64 {
+        self.compiles
+    }
+
+    /// The open document's file, if it has one.
+    pub fn document_path(&self) -> Option<&Path> {
+        self.path.as_deref()
     }
 
     pub fn status(&self) -> &str {
@@ -1022,7 +1045,7 @@ impl App {
 
     fn perform(&mut self, ctx: &egui::Context, action: Pending) {
         // Another document leaves the session; quitting does too, with the window.
-        if !matches!(action, Pending::Quit | Pending::Join | Pending::Open) {
+        if !matches!(action, Pending::Quit | Pending::Join | Pending::Open | Pending::OpenFolder) {
             self.session = None;
         }
         match action {
@@ -1039,6 +1062,12 @@ impl App {
                     self.open_path(ctx, path);
                 }
             }
+            Pending::OpenFolder => {
+                if let Some(dir) = self.dialog().pick_folder() {
+                    self.open_folder(ctx, dir);
+                }
+            }
+            Pending::Recent(path) if path.is_dir() => self.open_folder(ctx, path),
             Pending::Recent(path) => self.open_path(ctx, path),
             Pending::Quit => {
                 self.quitting = true;
@@ -1517,6 +1546,9 @@ impl App {
         }
         if pressed(Modifiers::COMMAND, Key::S) {
             self.save(false);
+        }
+        if pressed(Modifiers::COMMAND | Modifiers::SHIFT, Key::O) {
+            self.request(ctx, Pending::OpenFolder);
         }
         if pressed(Modifiers::COMMAND, Key::O) {
             self.request(ctx, Pending::Open);
@@ -2347,6 +2379,7 @@ impl App {
         self.compiler.max_side.store(ctx.input(|i| i.max_texture_side), std::sync::atomic::Ordering::Relaxed);
         self.poll(&ctx);
         self.follow_file(&ctx);
+        self.project_tick(&ctx);
         self.terminal_keys(&ctx);
         self.shortcuts(&ctx);
         if ctx.input(|i| i.viewport().close_requested()) && self.dirty && !self.quitting {
@@ -2386,10 +2419,18 @@ impl App {
         let strip = Rect::from_min_max(pos2(main.right() - SIDE_STRIP, main.top()), main.max);
         let pane_w = if self.side.is_some() { SIDE_WIDTH.min((main.width() - RAIL_WIDTH - SIDE_STRIP - 200.0).max(0.0)) } else { 0.0 };
         let pane = Rect::from_min_max(pos2(strip.left() - pane_w, main.top()), pos2(strip.left(), main.bottom()));
-        // The terminal beside the rail, leaving the source and pages room to be read.
-        let room = (pane.left() - rail.right() - 300.0).max(0.0);
+        // The project's tree and the terminal beside the rail, leaving the source and pages room.
+        let project_w = if self.project.open { project::WIDTH.min((pane.left() - rail.right() - 300.0).max(0.0)) } else { 0.0 };
+        let tree = Rect::from_min_max(pos2(rail.right(), main.top()), pos2(rail.right() + project_w, main.bottom()));
+        let room = (pane.left() - tree.right() - 300.0).max(0.0);
         let terminal_w = if self.terminal.open { self.terminal.width.max(terminal::MIN_WIDTH).min(room) } else { 0.0 };
-        let terminal = Rect::from_min_max(pos2(rail.right(), main.top()), pos2(rail.right() + terminal_w, main.bottom()));
+        let terminal = Rect::from_min_max(pos2(tree.right(), main.top()), pos2(tree.right() + terminal_w, main.bottom()));
+        if project_w > 0.0 {
+            ui.scope_builder(egui::UiBuilder::new().max_rect(tree), |ui| {
+                ui.shrink_clip_rect(tree);
+                self.project_pane(ui, tree, &t);
+            });
+        }
         let middle = Rect::from_min_max(pos2(terminal.right(), main.top()), pos2(pane.left(), main.bottom()));
         ui.scope_builder(egui::UiBuilder::new().max_rect(rail), |ui| self.view_rail(ui, rail, &t));
         if terminal_w > 0.0 {
@@ -2678,6 +2719,10 @@ impl App {
         }
         if item(ui, tx("open"), "Ctrl+O") {
             self.request(ctx, Pending::Open);
+            ui.close();
+        }
+        if item(ui, tx("open-folder"), "Ctrl+Shift+O") {
+            self.request(ctx, Pending::OpenFolder);
             ui.close();
         }
         ui.separator();
@@ -3222,8 +3267,23 @@ impl App {
         if resp.on_hover_text(if shown { tx("hide-line-numbers") } else { tx("show-line-numbers") }).clicked() {
             self.line_numbers = !shown;
         }
-        // The terminal: a pane of its own, shown or hidden; a dot while a program runs in it.
+        // The project's tree, shown or hidden.
         let slot = Rect::from_min_size(pos2(rect.left(), top + 48.0), vec2(RAIL_WIDTH - 1.0, 40.0));
+        let open = self.project_open();
+        let resp = ui.interact(slot, ui.scope_id().with("rail-project"), Sense::click());
+        resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, open, tx("project")));
+        if open {
+            ui.painter().rect_filled(slot, 0.0, t.accent_soft);
+            ui.painter().rect_filled(Rect::from_min_size(slot.min, vec2(3.0, slot.height())), 0.0, t.accent);
+        } else if resp.hovered() {
+            ui.painter().rect_filled(slot, 0.0, t.hover);
+        }
+        crate::icons::paint(ui.painter(), Rect::from_center_size(slot.center(), vec2(20.0, 20.0)), Icon::Folder, t.text);
+        if resp.on_hover_text(if open { tx("hide-the-project") } else { tx("show-the-project") }).clicked() {
+            self.toggle_project();
+        }
+        // The terminal: a pane of its own, shown or hidden; a dot while a program runs in it.
+        let slot = Rect::from_min_size(pos2(rect.left(), top + 90.0), vec2(RAIL_WIDTH - 1.0, 40.0));
         let open = self.terminal_open();
         let resp = ui.interact(slot, ui.scope_id().with("rail-terminal"), Sense::click());
         resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, open, tx("terminal")));

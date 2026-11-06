@@ -257,9 +257,14 @@ impl App {
                             }
                             Page::New => self.new_tiles(ui, &ctx),
                             Page::Open => {
-                                if square_button(ui, Icon::OpenFolder, tx("browse")).clicked() {
-                                    self.request(&ctx, Pending::Open);
-                                }
+                                ui.horizontal(|ui| {
+                                    if square_button(ui, Icon::OpenFolder, tx("browse")).clicked() {
+                                        self.request(&ctx, Pending::Open);
+                                    }
+                                    if square_button(ui, Icon::Folder, tx("open-folder")).clicked() {
+                                        self.request(&ctx, Pending::OpenFolder);
+                                    }
+                                });
                                 ui.add_space(18.0);
                                 section(ui, tx("recent"));
                                 self.recent_list(ui, &ctx, usize::MAX);
@@ -340,7 +345,8 @@ impl App {
             icons::paint_mono(
                 ui.painter(),
                 Rect::from_center_size(pos2(rect.left() + 20.0, rect.center().y), vec2(20.0, 20.0)),
-                Icon::FileName,
+                // A folder opened as a project is kept on the list too.
+                if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("typ")) { Icon::FileName } else { Icon::Folder },
                 t.text,
             );
             let text_right = rect.right() - MODIFIED_W - 8.0;

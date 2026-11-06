@@ -26,6 +26,7 @@ One crate, by the owner's decision: nothing needs the split yet, and it would to
 | `history` | versions, whole copies under the user's data folder |
 | `terminal`, `app/terminal` | a terminal pane: `alacritty_terminal` keeps the screen and the pseudoterminal on a thread of its own; keys become what programs expect, and the screen is painted cell by cell, box lines drawn in code. A program that won't hang up is killed |
 | `watch` | the open file, looked at on a thread of its own; a change is read once it holds still, and the window brings it in or asks |
+| `project`, `app/project` | a folder opened as a project: its tree, read on a thread of its own and again every two seconds, bounded and without following links; `world` takes its top as Typst's root |
 | `recovery` | copies of unsaved text beside a lock the system releases when a run ends |
 | `spell` | words from Typst's parser, checked by `spellbook` on a thread of its own |
 | `ruler` | drawing the rulers; `compiler` measures the margins |

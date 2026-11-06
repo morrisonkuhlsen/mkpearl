@@ -397,6 +397,8 @@ struct Worker {
     fit_wanted: Arc<AtomicU64>,
     doc: Option<PagedDocument>,
     rendered: HashMap<u128, Pixels>,
+    /// The project the worlds were made for (see `world::generation`).
+    generation: u64,
 }
 
 impl Worker {
@@ -419,6 +421,7 @@ impl Worker {
             fit_wanted: Arc::new(AtomicU64::new(0)),
             doc: None,
             rendered: HashMap::new(),
+            generation: 0,
         }
     }
 
@@ -431,6 +434,14 @@ impl Worker {
 
     fn run(mut self, jobs: Receiver<Job>) {
         while let Ok(first) = jobs.recv() {
+            // Another project opened: every world resolves paths from somewhere else now.
+            let generation = crate::world::generation();
+            if generation != self.generation {
+                self.generation = generation;
+                self.world = None;
+                self.probe_world = None;
+                self.compare_world = None;
+            }
             // Only the newest text matters; other jobs keep their order after it.
             let mut compile = None;
             let mut others = Vec::new();

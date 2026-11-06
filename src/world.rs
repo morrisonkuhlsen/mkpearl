@@ -1,7 +1,10 @@
 //! The Typst `World`: the editor's text as the main file, the project folder for everything else.
+//! The project is the folder the user opened, when the document is inside it, or else the
+//! document's own folder.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
 
 use chrono::{Datelike, Local, TimeDelta, Utc};
 use typst::diag::FileResult;
@@ -30,24 +33,64 @@ pub struct DocWorld {
     root: PathBuf,
 }
 
-fn main_id(path: Option<&Path>) -> Option<FileId> {
-    let name = path.and_then(Path::file_name).and_then(|n| n.to_str()).unwrap_or("sem-titulo.typ");
-    let vpath = VirtualPath::new(name).or_else(|_| VirtualPath::new("sem-titulo.typ")).ok()?;
+/// The folder opened as a project, if any.
+static PROJECT: RwLock<Option<PathBuf>> = RwLock::new(None);
+/// Counts changes of the project, so worlds made for the last one are made again.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// Opens `folder` as the project, or closes it. Give an absolute path.
+pub fn set_project(folder: Option<PathBuf>) {
+    if let Ok(mut project) = PROJECT.write() {
+        *project = folder;
+    }
+    GENERATION.fetch_add(1, Ordering::Relaxed);
+}
+
+pub fn project() -> Option<PathBuf> {
+    PROJECT.read().ok().and_then(|p| p.clone())
+}
+
+/// Changes with each project opened or closed.
+pub fn generation() -> u64 {
+    GENERATION.load(Ordering::Relaxed)
+}
+
+/// Where Typst's paths start for a document at `path`: the project, if the document is in it, or
+/// else its folder. An unsaved document uses the project, or the current folder.
+pub fn root_for(path: Option<&Path>, project: Option<&Path>) -> Option<PathBuf> {
+    let absolute = path.map(|p| std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf()));
+    match (absolute.as_deref(), project) {
+        (Some(file), Some(project)) if file.starts_with(project) => Some(project.to_path_buf()),
+        (Some(file), _) => file.parent().map(Path::to_path_buf).filter(|p| !p.as_os_str().is_empty()),
+        (None, Some(project)) => Some(project.to_path_buf()),
+        (None, None) => None,
+    }
+    .or_else(|| std::env::current_dir().ok())
+}
+
+/// The document's name for Typst: its path from the root, so that its own relative paths work.
+fn main_id(path: Option<&Path>, root: &Path) -> Option<FileId> {
+    let absolute = path.map(|p| std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf()));
+    let vpath = absolute
+        .as_deref()
+        .and_then(|file| VirtualPath::virtualize(root, file).ok())
+        .or_else(|| VirtualPath::new(path.and_then(Path::file_name).and_then(|n| n.to_str())?).ok())
+        .or_else(|| VirtualPath::new("sem-titulo.typ").ok())?;
     Some(RootedPath::new(VirtualRoot::Project, vpath).intern())
 }
 
 impl DocWorld {
-    /// A world for the document at `path`; an unsaved one resolves files in the current folder.
+    /// A world for the document at `path`; an unsaved one resolves files in the project, or the
+    /// current folder.
     pub fn new(fonts: Arc<FontStore>, path: Option<&Path>) -> Option<Self> {
-        let root: PathBuf =
-            path.and_then(Path::parent).map(Path::to_path_buf).filter(|p| !p.as_os_str().is_empty()).or_else(|| std::env::current_dir().ok())?;
+        let root = root_for(path, project().as_deref())?;
         let downloader = SystemDownloader::new(concat!("pearl/", env!("CARGO_PKG_VERSION")));
         let files = SystemFiles::new(FsRoot::new(root.clone()), SystemPackages::new(downloader));
         Some(Self {
             library: LazyHash::new(Library::default()),
             fonts,
             files: FileStore::new(files),
-            main: Source::new(main_id(path)?, String::new()),
+            main: Source::new(main_id(path, &root)?, String::new()),
             root,
         })
     }
@@ -132,5 +175,28 @@ impl typst_ide::IdeWorld for DocWorld {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_root_is_the_project_only_for_a_document_inside_it() {
+        let project = Path::new("/tmp/livro");
+        assert_eq!(root_for(Some(Path::new("/tmp/livro/cap/um.typ")), Some(project)), Some(project.to_path_buf()));
+        assert_eq!(root_for(Some(Path::new("/tmp/outro/a.typ")), Some(project)), Some(PathBuf::from("/tmp/outro")));
+        assert_eq!(root_for(Some(Path::new("/tmp/livro-2/a.typ")), Some(project)), Some(PathBuf::from("/tmp/livro-2")));
+        assert_eq!(root_for(None, Some(project)), Some(project.to_path_buf()));
+        assert_eq!(root_for(Some(Path::new("/tmp/a.typ")), None), Some(PathBuf::from("/tmp")));
+    }
+
+    #[test]
+    fn the_document_is_named_from_the_root() {
+        let id = main_id(Some(Path::new("/tmp/livro/cap/um.typ")), Path::new("/tmp/livro")).unwrap();
+        assert_eq!(id.vpath().get_without_slash(), "cap/um.typ");
+        let id = main_id(None, Path::new("/tmp/livro")).unwrap();
+        assert_eq!(id.vpath().get_without_slash(), "sem-titulo.typ");
     }
 }
