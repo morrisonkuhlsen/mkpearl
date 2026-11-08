@@ -81,29 +81,32 @@ fn dim(ui: &mut Ui, text: &str) {
     ui.label(RichText::new(text).font(theme::ui_font(12.5)).color(t.text_dim));
 }
 
-/// How tall a tile's sheet is: A4's proportions give its width.
-const SHEET_H: f32 = 128.0;
+/// How far in from the card's sides, and down from its top, the sheet sits.
+const SHEET_INSET: f32 = 14.0;
+/// The share of the page's width cut from each side when it's shown: mostly margin, so the writing
+/// comes out larger.
+const SHEET_SIDE: f32 = 0.09;
 
-/// A new-document tile: a small page over its name. A template's shows its own first page, once the
-/// compiler has drawn it; until then, and for the blank document, a page drawn in code, where
-/// `kind` varies the lines.
+/// A new-document tile: the top of a page rising from the card, over its name. A template's shows
+/// its own first page, enlarged, once the compiler has drawn it; until then, and for the blank
+/// document, a page drawn in code, where `kind` varies the lines.
 fn tile(ui: &mut Ui, label: &str, kind: Option<usize>, picture: Option<&egui::TextureHandle>) -> egui::Response {
     let t = Tokens::get(ui.ctx());
     let (rect, resp) = ui.allocate_exact_size(vec2(158.0, 186.0), Sense::click());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
-    let p = ui.painter();
     let thumb = Rect::from_min_size(rect.min, vec2(rect.width(), 152.0));
-    p.rect_filled(thumb, theme::RADIUS, if resp.hovered() { t.hover } else { t.desk });
-    // As tall as the A4 sheet drawn in code; as wide as the template's own page is, for its height.
-    let width = picture.map_or(SHEET_H / std::f32::consts::SQRT_2, |texture| {
-        let [w, h] = texture.size();
-        (SHEET_H * w as f32 / h.max(1) as f32).clamp(40.0, thumb.width() - 16.0)
-    });
-    let page = Rect::from_center_size(thumb.center(), vec2(width, SHEET_H));
-    theme::paint_sheet_shadow(p, page, &t);
+    ui.painter().rect_filled(thumb, theme::RADIUS, if resp.hovered() { t.hover } else { t.desk });
+    // The sheet runs on past the card's foot, which cuts it.
+    let p = ui.painter().with_clip_rect(thumb.intersect(ui.clip_rect()));
+    let page = Rect::from_min_max(thumb.min + vec2(SHEET_INSET, SHEET_INSET), pos2(thumb.right() - SHEET_INSET, thumb.bottom() + 8.0));
+    theme::paint_sheet_shadow(&p, page, &t);
     p.rect_filled(page, 0.0, Color32::WHITE);
     if let Some(texture) = picture {
-        p.image(texture.id(), page, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+        // As much of the page's height as fills the sheet at the width shown, from the top.
+        let [w, h] = texture.size();
+        let shown = 1.0 - 2.0 * SHEET_SIDE;
+        let down = (page.height() / page.width() * shown * w as f32 / h.max(1) as f32).clamp(0.05, 1.0);
+        p.image(texture.id(), page, Rect::from_min_max(pos2(SHEET_SIDE, 0.0), pos2(1.0 - SHEET_SIDE, down)), Color32::WHITE);
     }
     if resp.hovered() {
         p.rect_stroke(page, 0.0, egui::Stroke::new(1.5, t.accent), egui::StrokeKind::Outside);
@@ -119,8 +122,8 @@ fn tile(ui: &mut Ui, label: &str, kind: Option<usize>, picture: Option<&egui::Te
             p.rect_filled(Rect::from_min_size(pos2(inner.left(), y), vec2(inner.width() * share.min(1.0), 2.0)), 0.0, ink);
         }
     }
-    let galley = p.layout(label.to_string(), theme::ui_font(12.5), t.text, rect.width());
-    p.galley(pos2(rect.left(), thumb.bottom() + 6.0), galley, t.text);
+    let galley = ui.painter().layout(label.to_string(), theme::ui_font(12.5), t.text, rect.width());
+    ui.painter().galley(pos2(rect.left(), thumb.bottom() + 6.0), galley, t.text);
     resp
 }
 

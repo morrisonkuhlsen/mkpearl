@@ -352,9 +352,9 @@ pub enum Event {
     Failed(String),
 }
 
-/// Pixels per point for a template's tile: an A4 page comes out about 420 pixels tall, enough
-/// for the tile on a screen at three times the density.
-const THUMBNAIL_SCALE: f64 = 0.5;
+/// Pixels per point for a template's tile: an A4 page comes out about 670 pixels tall, enough for
+/// the top of it, enlarged in the tile, on a screen at twice the density.
+const THUMBNAIL_SCALE: f64 = 0.8;
 
 pub struct Compiler {
     jobs: Sender<Job>,
