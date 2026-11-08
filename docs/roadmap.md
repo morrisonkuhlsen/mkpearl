@@ -14,7 +14,7 @@ Pearl's plan and progress log. Each section says what is done and its **Next:** 
 - *Done:* a colour picker for text and highlight.
 - *Done:* a quieter look (November 2026): the mark [¶]; the ribbon in one row; rulers that show
   when the pointer nears them; pages on a warm desk with a soft shadow; templates shown in File ›
-  New by their own first page; icons in duotone by meaning, as MK Sigma's.
+  New by their own first page.
 - *Done:* dark paper for the preview.
 - *Done:* the pearl in the title bar.
 - *Done:* a terminal beside the document for Claude Code, Codex or a shell (#66).
