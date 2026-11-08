@@ -12,6 +12,7 @@ Every release of Pearl, newest first, in the spirit of
   icon and shows on the splash screen, in the File view and beside the document's name.
 - The ribbon takes one row: the groups' names no longer sit under the controls, and show when the
   pointer rests between them.
+- The pages sit on a warm desk, lifted by a wide, soft shadow as paper is.
 
 ### Fixed
 

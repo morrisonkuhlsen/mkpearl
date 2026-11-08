@@ -242,7 +242,7 @@ impl Tokens {
             separator: pick(dark, Color32::from_rgb(0xE0, 0xE0, 0xE0), Color32::from_rgb(0x2A, 0x2E, 0x37)),
             // The sheet: white in light mode; a graphite a step lighter than the ink in dark mode.
             grid_bg: pick(dark, Color32::WHITE, Color32::from_rgb(0x2B, 0x2F, 0x38)),
-            desk: pick(dark, Color32::from_rgb(0xE9, 0xE9, 0xE9), Color32::from_rgb(0x0F, 0x11, 0x15)),
+            desk: pick(dark, Color32::from_rgb(0xEB, 0xE8, 0xE3), Color32::from_rgb(0x0F, 0x11, 0x15)),
             gridline: pick(dark, Color32::from_rgb(0xE1, 0xE1, 0xE1), Color32::from_rgb(0x3A, 0x3F, 0x4A)),
             // The row and column headings sit on the window's own colour.
             header_bg: pick(dark, Color32::from_rgb(0xF3, 0xF3, 0xF3), Color32::from_rgb(0x14, 0x16, 0x1C)),
@@ -474,10 +474,13 @@ pub fn apply(ctx: &egui::Context, choice: ThemeChoice) {
     });
 }
 
-/// What lifts a sheet of paper off what's behind it: a soft shadow and a hairline round its edge.
+/// What lifts a sheet of paper off what's behind it, as light does: a wide, faint shadow from far
+/// above, a close one where it nearly touches, and a hairline round its edge.
 pub fn paint_sheet_shadow(p: &egui::Painter, sheet: egui::Rect, t: &Tokens) {
-    p.add(egui::epaint::Shadow { offset: [0, 3], blur: 18, spread: 0, color: t.shadow }.as_shape(sheet, 0.0));
-    p.rect_stroke(sheet, 0.0, egui::Stroke::new(1.0, Color32::from_black_alpha(24)), egui::StrokeKind::Outside);
+    let (far, close, edge) = if t.dark { (150, 110, 60) } else { (26, 34, 14) };
+    p.add(egui::epaint::Shadow { offset: [0, 10], blur: 36, spread: 0, color: Color32::from_black_alpha(far) }.as_shape(sheet, 0.0));
+    p.add(egui::epaint::Shadow { offset: [0, 1], blur: 3, spread: 0, color: Color32::from_black_alpha(close) }.as_shape(sheet, 0.0));
+    p.rect_stroke(sheet, 0.0, egui::Stroke::new(1.0, Color32::from_black_alpha(edge)), egui::StrokeKind::Outside);
 }
 
 #[cfg(test)]
