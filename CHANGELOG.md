@@ -6,6 +6,11 @@ Every release of Pearl, newest first, in the spirit of
 
 ## [Unreleased]
 
+### Fixed
+
+- More than 300 versions in one day no longer delete the older history: the day's extra versions go
+  first, and one per hour for a week and one per day for three months stay (#44).
+
 ## [0.1.0] - 2026-11-06
 
 The first release.

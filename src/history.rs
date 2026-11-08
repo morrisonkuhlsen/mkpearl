@@ -185,40 +185,44 @@ fn parse_name(name: &str) -> Option<(u64, Kind)> {
 
 /// Which versions go, from (stamp, bytes) newest first: all stay for a day, then one per hour for a
 /// week, then one per day for three months; after that only the newest few, and never so many or so
-/// large as to pass the limits.
+/// large as to pass the limits. When the limits bite, a busy day's extra versions go before the
+/// hourly and daily ones that span the weeks behind it.
 pub fn to_remove(versions: &[(u64, u64)], now: u64) -> HashSet<u64> {
     let mut removed = HashSet::new();
     let mut buckets = HashSet::new();
-    for (i, (stamp, _)) in versions.iter().enumerate() {
+    // The order in which the survivors claim room under the limits: the newest few, then one per
+    // hour or day (the newest in each), then the rest of the last day's, newest first.
+    let (mut newest, mut spread, mut rest) = (Vec::new(), Vec::new(), Vec::new());
+    for (i, &(stamp, bytes)) in versions.iter().enumerate() {
         if i < ALWAYS_KEEP {
+            newest.push((stamp, bytes));
             continue;
         }
-        let age = now.saturating_sub(*stamp);
-        let bucket = if age < DAY {
-            None
-        } else if age < 7 * DAY {
-            Some((0, stamp / HOUR))
+        let age = now.saturating_sub(stamp);
+        let bucket = if age < 7 * DAY {
+            (0, stamp / HOUR)
         } else if age < 90 * DAY {
-            Some((1, stamp / DAY))
+            (1, stamp / DAY)
         } else {
-            removed.insert(*stamp);
+            removed.insert(stamp);
             continue;
         };
-        if let Some(bucket) = bucket
-            && !buckets.insert(bucket)
-        {
-            removed.insert(*stamp);
+        if buckets.insert(bucket) {
+            spread.push((stamp, bytes));
+        } else if age < DAY {
+            rest.push((stamp, bytes));
+        } else {
+            removed.insert(stamp);
         }
     }
-    let (mut count, mut total) = (0, 0);
-    for (stamp, bytes) in versions {
-        if removed.contains(stamp) {
-            continue;
-        }
-        count += 1;
-        total += bytes;
-        if count > ALWAYS_KEEP && (count > MAX_VERSIONS || total > MAX_BYTES) {
-            removed.insert(*stamp);
+    let (mut count, mut total) = (0usize, 0u64);
+    for (stamp, bytes) in newest.into_iter().chain(spread).chain(rest) {
+        let fits = count < ALWAYS_KEEP || (count < MAX_VERSIONS && total.saturating_add(bytes) <= MAX_BYTES);
+        if fits {
+            count += 1;
+            total = total.saturating_add(bytes);
+        } else {
+            removed.insert(stamp);
         }
     }
     removed
@@ -415,6 +419,25 @@ mod tests {
         assert_eq!(to_remove(&many, now).len(), 100);
         let large: Vec<(u64, u64)> = (0..20).map(|i| (now - i, MAX_BYTES / 2)).collect();
         assert_eq!(to_remove(&large, now).len(), 10, "ten stay even over the size limit");
+    }
+
+    #[test]
+    fn a_busy_day_keeps_the_older_history() {
+        // #44: three hundred and more versions in one day took every older one with them.
+        let now = 400 * DAY;
+        let mut versions: Vec<(u64, u64)> = (0..500).map(|i| (now - 1 - i * 60_000, 10)).collect();
+        let hourly: Vec<u64> = (1..6 * 24).map(|h| now - DAY - h * HOUR).collect();
+        let daily: Vec<u64> = (8..80).map(|d| now - d * DAY).collect();
+        versions.extend(hourly.iter().chain(&daily).map(|&stamp| (stamp, 10)));
+        versions.sort_by_key(|a| std::cmp::Reverse(a.0));
+        let removed = to_remove(&versions, now);
+        assert_eq!(versions.len() - removed.len(), MAX_VERSIONS);
+        assert!(hourly.iter().chain(&daily).all(|s| !removed.contains(s)), "the hours and days behind stay");
+        assert!((0..ALWAYS_KEEP as u64).all(|i| !removed.contains(&(now - 1 - i * 60_000))), "the newest stay");
+        // Each of the day's hours keeps one.
+        let day_hours: HashSet<u64> = versions.iter().filter(|v| now - v.0 < DAY).map(|v| v.0 / HOUR).collect();
+        let kept_hours: HashSet<u64> = versions.iter().filter(|v| now - v.0 < DAY && !removed.contains(&v.0)).map(|v| v.0 / HOUR).collect();
+        assert_eq!(day_hours, kept_hours);
     }
 
     #[test]
