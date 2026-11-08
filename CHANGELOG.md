@@ -6,6 +6,11 @@ Every release of Pearl, newest first, in the spirit of
 
 ## [Unreleased]
 
+### Changed
+
+- A new mark, [¶]: a pilcrow in square brackets, in nacre, after MK Matrix's. It is the program's
+  icon and shows on the splash screen, in the File view and beside the document's name.
+
 ### Fixed
 
 - More than 300 versions in one day no longer delete the older history: the day's extra versions go

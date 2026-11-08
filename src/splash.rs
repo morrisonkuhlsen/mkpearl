@@ -510,7 +510,7 @@ fn paint(painter: &Painter, rect: Rect, progress: f32, picture: Option<&Scene>, 
 
     let left = words.left() + 36.0 * k;
     let width = words.width() - 72.0 * k;
-    pearl(painter, pos2(left + 23.0 * k, words.top() + 75.0 * k), 21.0 * k);
+    crate::mark::paint(painter, pos2(left + 23.0 * k, words.top() + 75.0 * k), 50.0 * k, false);
     painter.text(pos2(left + 58.0 * k, words.top() + 75.0 * k), Align2::LEFT_CENTER, NAME, FontId::proportional(34.0 * k), ON_INK);
     painter.text(pos2(left, words.top() + 128.0 * k), Align2::LEFT_CENTER, MOTTO, FontId::proportional(15.0 * k), ON_INK_SOFT);
     let tagline = painter.layout(tx(TAGLINE).to_string(), FontId::proportional(12.5 * k), ON_INK_SOFT, width);
@@ -545,83 +545,14 @@ fn paint(painter: &Painter, rect: Rect, progress: f32, picture: Option<&Scene>, 
     }
 }
 
-/// The colour of a sphere's point (`x`, `y` from -1 to 1 on the disc): nacre with a rose and aqua
-/// sheen, lit from the top left.
-fn nacre(x: f32, y: f32) -> [f32; 3] {
-    let z = (1.0 - x * x - y * y).max(0.0).sqrt();
-    let light = [-0.45_f32, -0.55, 0.70];
-    let diffuse = (x * light[0] + y * light[1] + z * light[2]).max(0.0);
-    let half = [light[0], light[1], light[2] + 1.0];
-    let norm = (half[0] * half[0] + half[1] * half[1] + half[2] * half[2]).sqrt();
-    let specular = ((x * half[0] + y * half[1] + z * half[2]) / norm).max(0.0).powi(70);
-    let sheen = (3.2 * (x - y) + 2.4 * z).sin() * 0.5 + 0.5;
-    let tint = [0.86 + 0.12 * sheen, 0.90 - 0.04 * sheen, 0.94 - 0.10 * sheen];
-    // The edge turns away and goes a little dark, with a touch of light bounced from below.
-    let shade = 0.62 + 0.42 * diffuse + 0.10 * (1.0 - z) * y.max(0.0);
-    [0.0, 1.0, 2.0].map(|c: f32| {
-        let c = c as usize;
-        let base = [0.93, 0.89, 0.83];
-        (base.get(c).copied().unwrap_or(1.0) * tint.get(c).copied().unwrap_or(1.0) * shade + 0.55 * specular).clamp(0.0, 1.0)
-    })
-}
-
-fn to_color([r, g, b]: [f32; 3]) -> Color32 {
-    let byte = |v: f32| (v * 255.0).round() as u8;
-    Color32::from_rgb(byte(r), byte(g), byte(b))
-}
-
-/// Pearl's mark: a shaded sphere, as a mesh of rings around its centre.
-pub fn pearl(painter: &Painter, center: Pos2, radius: f32) {
-    const RINGS: u32 = 28;
-    const SEGMENTS: u32 = 72;
-    // The antialiased edge; the mesh sits just inside it.
-    painter.circle_filled(center, radius, to_color(nacre(0.0, 0.998)));
-    let inner = (radius - 0.6).max(0.5);
-    let mut mesh = Mesh::default();
-    let vertex = |x: f32, y: f32| Vertex { pos: center + vec2(x, y) * inner, uv: egui::epaint::WHITE_UV, color: to_color(nacre(x, y)) };
-    mesh.vertices.push(vertex(0.0, 0.0));
-    for ring in 1..=RINGS {
-        // Rings crowd towards the edge, where the shading changes fastest.
-        let r = (ring as f32 / RINGS as f32 * std::f32::consts::FRAC_PI_2).sin();
-        for s in 0..SEGMENTS {
-            let a = s as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
-            mesh.vertices.push(vertex(r * a.cos(), r * a.sin()));
-        }
-    }
-    let at = |ring: u32, s: u32| 1 + (ring - 1) * SEGMENTS + s % SEGMENTS;
-    for s in 0..SEGMENTS {
-        mesh.add_triangle(0, at(1, s), at(1, s + 1));
-    }
-    for ring in 1..RINGS {
-        for s in 0..SEGMENTS {
-            mesh.add_triangle(at(ring, s), at(ring, s + 1), at(ring + 1, s));
-            mesh.add_triangle(at(ring, s + 1), at(ring + 1, s + 1), at(ring + 1, s));
-        }
-    }
-    painter.add(mesh);
-}
-
-/// The window icon: the same sphere on a clear ground.
+/// The window icon: Pearl's mark on a clear ground.
 pub fn icon() -> egui::IconData {
     icon_of_size(128)
 }
 
 /// The icon drawn at a size, for what needs several, as a Windows `.ico` does.
 pub fn icon_of_size(side: u32) -> egui::IconData {
-    let mut rgba = Vec::with_capacity((side * side * 4) as usize);
-    let half = side as f32 / 2.0;
-    let margin = half / 16.0;
-    for py in 0..side {
-        for px in 0..side {
-            let (x, y) = ((px as f32 + 0.5 - half) / (half - margin), (py as f32 + 0.5 - half) / (half - margin));
-            let d = (x * x + y * y).sqrt();
-            let alpha = ((1.0 - d) * (half - margin) + 0.5).clamp(0.0, 1.0);
-            let scale = if d > 0.999 { 0.999 / d } else { 1.0 };
-            let [r, g, b, _] = to_color(nacre(x * scale, y * scale)).to_array();
-            rgba.extend_from_slice(&[r, g, b, (alpha * 255.0) as u8]);
-        }
-    }
-    egui::IconData { rgba, width: side, height: side }
+    egui::IconData { rgba: crate::mark::pixels(side), width: side, height: side }
 }
 
 #[cfg(test)]
@@ -790,17 +721,6 @@ mod tests {
     fn the_wordmark_decodes_wide() {
         let image = decode_wordmark().unwrap();
         assert!(image.size[0] > image.size[1] * 2);
-    }
-
-    #[test]
-    fn nacre_stays_in_range_over_the_disc() {
-        for i in -20..=20 {
-            for j in -20..=20 {
-                for v in nacre(i as f32 / 20.0, j as f32 / 20.0) {
-                    assert!((0.0..=1.0).contains(&v));
-                }
-            }
-        }
     }
 
     #[test]

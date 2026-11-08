@@ -46,7 +46,7 @@
 </tr>
 <tr>
 <td width="50%" valign="top"><img src="docs/images/dark.png" alt="Pearl in its dark theme."><br><sub><b>Four themes</b>: system, light, dark and nacre.</sub></td>
-<td width="50%" valign="top"><img src="docs/images/splash.png" alt="The splash screen: the pearl, the name, the motto and a drawing of a lake."><br><sub><b>The splash screen</b>, shown while the program loads.</sub></td>
+<td width="50%" valign="top"><img src="docs/images/splash.png" alt="The splash screen: the mark [¶], the name, the motto and a drawing of a lake."><br><sub><b>The splash screen</b>, shown while the program loads.</sub></td>
 </tr>
 </table>
 

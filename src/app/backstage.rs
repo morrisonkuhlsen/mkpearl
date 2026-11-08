@@ -200,7 +200,7 @@ impl App {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 close |= nav_item(ui, Icon::Back, tx("back"), false).clicked();
                 let (rect, _) = ui.allocate_exact_size(vec2(NAV_W, 58.0), Sense::hover());
-                splash::pearl(ui.painter(), pos2(rect.left() + 32.0, rect.center().y), 13.0);
+                crate::mark::paint(ui.painter(), pos2(rect.left() + 30.0, rect.center().y), 32.0, false);
                 ui.painter().text(pos2(rect.left() + 54.0, rect.center().y), Align2::LEFT_CENTER, "Pearl", theme::ui_font(18.0), Color32::WHITE);
                 for item in [Page::Home, Page::New, Page::Open] {
                     if nav_item(ui, item.icon(), item.label(), page == item).clicked() {

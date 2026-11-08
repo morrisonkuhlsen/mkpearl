@@ -2611,9 +2611,9 @@ impl App {
                     job.wrap = egui::text::TextWrapping::truncate_at_width((2.0 * half).max(0.0));
                     let galley = ui.painter().layout_job(job);
                     let at = rect.center() - galley.size() / 2.0;
-                    // The pearl goes with the name, where there's room for them to be read.
+                    // The mark goes with the name, where there's room for them to be read.
                     if half > MARK {
-                        crate::splash::pearl(ui.painter(), pos2(at.x - 13.0, rect.center().y), 7.0);
+                        crate::mark::paint(ui.painter(), pos2(at.x - 13.0, rect.center().y), 20.0, !t.dark);
                     }
                     ui.painter().galley(at, galley, t.text);
                 });
