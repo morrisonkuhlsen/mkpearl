@@ -1,4 +1,4 @@
-//! The toolbar's controls: MK Matrix's single row of one-size icons, with the groups' names beneath.
+//! The toolbar's controls: MK Matrix's single row of one-size icons, its groups named on hover.
 //! Metrics and painting adapted from MK Matrix (MIT OR Apache-2.0); see NOTICE.
 
 use egui::{Align2, Color32, Rect, Response, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
@@ -6,7 +6,7 @@ use egui::{Align2, Color32, Rect, Response, Sense, Stroke, StrokeKind, Ui, pos2,
 use crate::icons::{self, Icon};
 use crate::theme::{self, Tokens};
 
-/// The height of the toolbar's single row of controls, above the groups' names.
+/// The height of the toolbar's single row of controls.
 pub const TOOL_ROW_H: f32 = 30.0;
 
 fn group_start_id() -> egui::Id {
@@ -19,23 +19,19 @@ pub fn group_begin(ui: &Ui) {
     ui.ctx().data_mut(|d| d.insert_temp(group_start_id(), x));
 }
 
-/// Names the group that ends here, centred under it in the row below the controls.
+/// Ends the group that started at the last mark. Its name isn't written under it, which would cost
+/// the toolbar a second row: it shows when the pointer rests on the group's own ground, between its
+/// controls. A screen reader has each control's own name, which often is the group's.
 pub fn group_end(ui: &mut Ui, name: &str) {
-    let t = Tokens::get(ui.ctx());
     let start = ui.ctx().data(|d| d.get_temp::<f32>(group_start_id())).unwrap_or(ui.max_rect().left());
-    let galley = ui.painter().layout_no_wrap(name.to_string(), theme::ui_font(11.0), t.text_dim);
-    // A group narrower than its name widens to fit it.
-    let short = galley.size().x + 12.0 - (ui.cursor().min.x - start);
-    if short > 0.0 {
-        ui.add_space(short);
-    }
     let end = ui.cursor().min.x;
-    let top = ui.max_rect().top() + TOOL_ROW_H;
-    let row = Rect::from_min_max(pos2(start, top), pos2(end, top + 16.0));
-    ui.painter().with_clip_rect(row.intersect(ui.clip_rect())).galley(row.center() - galley.size() / 2.0, galley, t.text_dim);
+    let top = ui.max_rect().top();
+    let group = Rect::from_min_max(pos2(start, top), pos2(end.max(start), top + TOOL_ROW_H));
+    let resp = ui.interact(group, ui.scope_id().with(("ribbon-group", name)), Sense::hover());
+    resp.on_hover_text(name);
 }
 
-/// Ends a group: its name under it, and a short, light line to the next.
+/// Ends a group, named on hover, with a short, light line to the next.
 pub fn sep(ui: &mut Ui, group: &str) {
     let t = Tokens::get(ui.ctx());
     group_end(ui, group);

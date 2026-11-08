@@ -182,7 +182,7 @@ fn resting_the_pointer_on_a_function_shows_what_it_does() {
         h.step();
     }
     // Over "align" on the first line: the frame, the rail, the line numbers, three characters in.
-    let over = egui::pos2(8.0 + 44.0 + 46.0 + 4.0 + 3.5 * 7.8, 132.0 + 8.0 + 8.0);
+    let over = egui::pos2(8.0 + 44.0 + 46.0 + 4.0 + 3.5 * 7.8, 114.0 + 8.0 + 8.0);
     h.event(Event::PointerMoved(over));
     until(&mut h, "the tip", |a| a.hover_words().is_some());
     assert!(h.state().hover_words().unwrap().to_lowercase().contains("align"), "{:?}", h.state().hover_words());

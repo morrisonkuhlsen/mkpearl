@@ -2624,8 +2624,8 @@ impl App {
     fn top_bar(&mut self, ui: &mut Ui, t: &Tokens) {
         let ctx = ui.ctx().clone();
         const MENU_H: f32 = 30.0;
-        const GAP: f32 = 8.0;
-        const ROW_H: f32 = 50.0;
+        const GAP: f32 = 6.0;
+        const ROW_H: f32 = 34.0;
         let h = MENU_H + if self.ribbon_collapsed { 0.0 } else { GAP + ROW_H + 2.0 };
         egui::Panel::top("ribbon")
             .resizable(false)
