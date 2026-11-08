@@ -81,21 +81,34 @@ fn dim(ui: &mut Ui, text: &str) {
     ui.label(RichText::new(text).font(theme::ui_font(12.5)).color(t.text_dim));
 }
 
-/// A new-document tile: a small page drawn in code over its name. `kind` varies the lines.
-fn tile(ui: &mut Ui, label: &str, kind: Option<usize>) -> egui::Response {
+/// How tall a tile's sheet is: A4's proportions give its width.
+const SHEET_H: f32 = 128.0;
+
+/// A new-document tile: a small page over its name. A template's shows its own first page, once the
+/// compiler has drawn it; until then, and for the blank document, a page drawn in code, where
+/// `kind` varies the lines.
+fn tile(ui: &mut Ui, label: &str, kind: Option<usize>, picture: Option<&egui::TextureHandle>) -> egui::Response {
     let t = Tokens::get(ui.ctx());
-    let (rect, resp) = ui.allocate_exact_size(vec2(158.0, 146.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(158.0, 186.0), Sense::click());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
     let p = ui.painter();
-    let thumb = Rect::from_min_size(rect.min, vec2(rect.width(), 112.0));
+    let thumb = Rect::from_min_size(rect.min, vec2(rect.width(), 152.0));
     p.rect_filled(thumb, theme::RADIUS, if resp.hovered() { t.hover } else { t.desk });
-    let page = Rect::from_center_size(thumb.center(), vec2(72.0, 96.0));
+    // As tall as the A4 sheet drawn in code; as wide as the template's own page is, for its height.
+    let width = picture.map_or(SHEET_H / std::f32::consts::SQRT_2, |texture| {
+        let [w, h] = texture.size();
+        (SHEET_H * w as f32 / h.max(1) as f32).clamp(40.0, thumb.width() - 16.0)
+    });
+    let page = Rect::from_center_size(thumb.center(), vec2(width, SHEET_H));
     theme::paint_sheet_shadow(p, page, &t);
     p.rect_filled(page, 0.0, Color32::WHITE);
+    if let Some(texture) = picture {
+        p.image(texture.id(), page, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+    }
     if resp.hovered() {
         p.rect_stroke(page, 0.0, egui::Stroke::new(1.5, t.accent), egui::StrokeKind::Outside);
     }
-    if let Some(i) = kind {
+    if let Some(i) = kind.filter(|_| picture.is_none()) {
         let inner = page.shrink(8.0);
         let ink = Color32::from_gray(150);
         // A title in the accent, and lines of text whose lengths differ from one template to the next.
@@ -169,6 +182,32 @@ impl App {
         self.backstage = Some(page);
         self.find = None;
         self.ask_modified();
+        self.ask_thumbnails();
+    }
+
+    /// Asks the compiler for each template's first page, the first time the File view opens.
+    fn ask_thumbnails(&mut self) {
+        if std::mem::replace(&mut self.thumbs_asked, true) {
+            return;
+        }
+        self.template_thumbs = vec![None; TEMPLATES.len()];
+        for (index, template) in TEMPLATES.iter().enumerate() {
+            self.compiler.send(crate::compiler::Job::Thumbnail { index, text: template.source.to_string() });
+        }
+    }
+
+    pub(super) fn receive_thumbnail(&mut self, ctx: &egui::Context, index: usize, pixels: Option<crate::compiler::Pixels>) {
+        let Some(pixels) = pixels else { return };
+        let Some(slot) = self.template_thumbs.get_mut(index) else { return };
+        let image = egui::ColorImage::from_rgba_unmultiplied(pixels.size, &pixels.rgba);
+        // Drawn several times smaller than it was rendered: mipmaps keep the lines of text whole.
+        let options = egui::TextureOptions { mipmap_mode: Some(egui::TextureFilter::Linear), ..egui::TextureOptions::LINEAR };
+        *slot = Some(ctx.load_texture(format!("template-{index}"), image, options));
+    }
+
+    /// Whether every template's tile shows its own first page.
+    pub fn template_thumbnails_ready(&self) -> bool {
+        self.template_thumbs.len() == TEMPLATES.len() && self.template_thumbs.iter().all(Option::is_some)
     }
 
     /// Asks when the recent documents last changed, on a thread of its own: a folder on a slow disk
@@ -312,11 +351,12 @@ impl App {
     fn new_tiles(&mut self, ui: &mut Ui, ctx: &egui::Context) {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(17.0, 14.0);
-            if tile(ui, tx("blank-document"), None).clicked() {
+            if tile(ui, tx("blank-document"), None, None).clicked() {
                 self.request(ctx, Pending::New);
             }
             for (i, template) in TEMPLATES.iter().enumerate() {
-                if tile(ui, tx(template.name), Some(i)).clicked() {
+                let picture = self.template_thumbs.get(i).and_then(Option::as_ref);
+                if tile(ui, tx(template.name), Some(i), picture).clicked() {
                     self.request(ctx, Pending::Template(i));
                 }
             }

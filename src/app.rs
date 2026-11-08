@@ -459,6 +459,9 @@ pub struct App {
     files: Vec<String>,
     /// The File view, when open, on this page.
     backstage: Option<FilePage>,
+    /// Each template's first page, drawn small for its tile in File › New; asked for once.
+    template_thumbs: Vec<Option<egui::TextureHandle>>,
+    thumbs_asked: bool,
     theme: ThemeChoice,
     hover: Hover,
     kept_selection: Option<Sel>,
@@ -613,6 +616,8 @@ impl App {
             page_rects: Vec::new(),
             files: Vec::new(),
             backstage: None,
+            template_thumbs: Vec::new(),
+            thumbs_asked: false,
             theme: ThemeChoice::load(),
             hover: Hover::default(),
             kept_selection: None,
@@ -868,6 +873,7 @@ impl App {
                 Event::Compared { request, result } => self.receive_comparison(ctx, request, result),
                 Event::DropTarget { block, byte, above } => self.finish_move(ctx, block, byte, above),
                 Event::ExampleDone { request, result } => self.docs.receive(ctx, request, result),
+                Event::Thumbnail { index, pixels } => self.receive_thumbnail(ctx, index, pixels),
                 Event::CaretAt { byte, page, x, y, size } => {
                     let moved = self.page_caret.is_none_or(|(p, old_x, old_y, _)| p != page || old_x != x || old_y != y);
                     self.follow_caret |= moved && self.page_typing;

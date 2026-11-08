@@ -83,6 +83,11 @@ pub enum Job {
         request: u64,
         text: String,
     },
+    /// Draws the first page of template `index` small, for its tile in File › New.
+    Thumbnail {
+        index: usize,
+        text: String,
+    },
     /// The document set in other ways, each on its own and off this thread, so it's never in the way
     /// of the compile that follows the typing. A newer request, or `CancelVariants`, ends an older one.
     Variants {
@@ -291,6 +296,11 @@ pub enum Event {
         request: u64,
         result: Result<Pixels, String>,
     },
+    /// The answer to [`Job::Thumbnail`]: nothing when the template doesn't compile.
+    Thumbnail {
+        index: usize,
+        pixels: Option<Pixels>,
+    },
     /// One of the answers to [`Job::Variants`], or why that variant doesn't compile.
     VariantDone {
         request: u64,
@@ -341,6 +351,10 @@ pub enum Event {
     ExportRefused(Vec<ExportProblem>),
     Failed(String),
 }
+
+/// Pixels per point for a template's tile: an A4 page comes out about 420 pixels tall, enough
+/// for the tile on a screen at three times the density.
+const THUMBNAIL_SCALE: f64 = 0.5;
 
 pub struct Compiler {
     jobs: Sender<Job>,
@@ -614,6 +628,10 @@ impl Worker {
             Job::Example { request, text } => {
                 let result = self.example(&text);
                 self.emit(Event::ExampleDone { request, result });
+            }
+            Job::Thumbnail { index, text } => {
+                let pixels = self.first_page(&text, THUMBNAIL_SCALE).ok();
+                self.emit(Event::Thumbnail { index, pixels });
             }
             Job::Variants { request, text, path, variants } => self.start_variants(request, text, path, variants),
             Job::CancelVariants => self.variants_wanted.store(0, Ordering::Relaxed),
@@ -947,12 +965,18 @@ impl Worker {
     /// An example, in a world of its own so the document's stays as it is, on a page the width of the pane.
     fn example(&mut self, text: &str) -> Result<Pixels, String> {
         const PAGE: &str = "#set page(width: 260pt, height: auto, margin: 8pt)\n";
-        const SCALE: f64 = 2.0;
+        self.first_page(&format!("{PAGE}{text}"), 2.0)
+    }
+
+    /// Compiles `text` on its own, out of the document's way, and draws its first page.
+    fn first_page(&mut self, text: &str, scale: f64) -> Result<Pixels, String> {
+        const SCALE_RANGE: std::ops::RangeInclusive<f64> = 0.05..=4.0;
+        let scale = scale.clamp(*SCALE_RANGE.start(), *SCALE_RANGE.end());
         if self.example_world.is_none() {
             self.example_world = DocWorld::new(Arc::clone(&self.fonts), None);
         }
         let world = self.example_world.as_mut().ok_or(tx("the-example-could-not-run"))?;
-        world.update(&format!("{PAGE}{text}"));
+        world.update(text);
         let world = &*world;
         let Ok(warned) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| typst::compile::<PagedDocument>(world))) else {
             self.example_world = None;
@@ -960,7 +984,10 @@ impl Worker {
         };
         let doc = warned.output.map_err(|errors| errors.first().map_or_else(String::new, |e| e.message.to_string()))?;
         let page = doc.pages().first().ok_or(tx("the-example-could-not-run"))?;
-        let options = RenderOptions { pixel_per_pt: typst::utils::Scalar::new(SCALE), render_bleed: false };
+        // A page too large to draw at this scale is drawn smaller: its pixels stay within bounds.
+        let size = page.frame.size();
+        let scale = scale.min(page_scale(size.x.to_pt(), size.y.to_pt(), SAFE_TEXTURE_SIDE));
+        let options = RenderOptions { pixel_per_pt: typst::utils::Scalar::new(scale), render_bleed: false };
         let map = typst_render::render(page, &options);
         Ok(Pixels { size: [map.width() as usize, map.height() as usize], rgba: Arc::new(map.take_demultiplied()) })
     }

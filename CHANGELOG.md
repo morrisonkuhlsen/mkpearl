@@ -14,6 +14,7 @@ Every release of Pearl, newest first, in the spirit of
   pointer rests between them.
 - The pages sit on a warm desk, lifted by a wide, soft shadow as paper is.
 - The rulers stay out of sight until the pointer comes near the edge they run along.
+- File › New shows each template by its own first page, drawn by Typst.
 
 ### Fixed
 
