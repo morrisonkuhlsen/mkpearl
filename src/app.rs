@@ -57,6 +57,8 @@ const PERSONAL_FILE: &str = "dictionary.txt";
 /// Seconds after the last change before the new words are checked.
 const SPELL_DELAY: f64 = 0.4;
 /// Holds "off" when the rulers are hidden.
+/// How near the rulers' edge, past them, the pointer brings them into sight.
+const RULER_REACH: f32 = 28.0;
 const RULER_FILE: &str = "ruler.txt";
 const DARK_PAPER_FILE: &str = "dark-paper.txt";
 /// Where a saved API key is kept, readable by this user alone.
@@ -4506,10 +4508,19 @@ impl App {
 
     /// The rulers follow the pages: the top one measures the page most in view, and the side one
     /// every page passing by.
+    /// They keep out of sight until the pointer comes near the edge they run along, or a margin is
+    /// being dragged; where they are, they still answer the pointer.
     fn paint_rulers(&mut self, ui: &Ui, area: Rect, view: Rect, placed: &[Rect], zoom: f32, t: &Tokens) {
         let top = Rect::from_min_max(pos2(view.left(), area.top()), pos2(view.right(), area.top() + RULER));
         let side = Rect::from_min_max(pos2(area.left(), view.top()), pos2(area.left() + RULER, view.bottom()));
-        let p = ui.painter();
+        let near = ui
+            .ctx()
+            .pointer_hover_pos()
+            .is_some_and(|at| area.contains(at) && (at.y < area.top() + RULER + RULER_REACH || at.x < area.left() + RULER + RULER_REACH));
+        let opacity = ui.ctx().animate_bool_with_time(ui.scope_id().with("rulers-shown"), near || self.margin_drag.is_some(), 0.15);
+        let mut p = ui.painter().clone();
+        p.set_opacity(opacity);
+        let p = &p;
         p.rect_filled(Rect::from_min_size(area.min, vec2(RULER, RULER)), 0.0, t.window);
         let shown = |rect: &&Rect| rect.intersect(view).height() > 0.0;
         let visible = |rect: &Rect| rect.intersect(view).height();
@@ -4523,8 +4534,10 @@ impl App {
             .filter(|(_, rect)| shown(rect))
             .map(|(page, rect)| ruler::Span::new(rect.top(), rect.bottom(), page.margins.map(|[_, _, a, b]| (a, b)), zoom))
             .collect();
-        ruler::paint(p, top, true, &across, zoom, t);
-        ruler::paint(p, side, false, &down, zoom, t);
+        if opacity > 0.0 {
+            ruler::paint(p, top, true, &across, zoom, t);
+            ruler::paint(p, side, false, &down, zoom, t);
+        }
         self.ruler_strips = Some((top, side));
         if self.previewing {
             return;

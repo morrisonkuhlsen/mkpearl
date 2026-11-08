@@ -13,6 +13,7 @@ Every release of Pearl, newest first, in the spirit of
 - The ribbon takes one row: the groups' names no longer sit under the controls, and show when the
   pointer rests between them.
 - The pages sit on a warm desk, lifted by a wide, soft shadow as paper is.
+- The rulers stay out of sight until the pointer comes near the edge they run along.
 
 ### Fixed
 
