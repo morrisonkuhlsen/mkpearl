@@ -358,6 +358,8 @@ ready-made-formulas = Ready-made formulas
 recent = Recent
 recover = Recover
 recover-documents = Recover documents
+recovery-failing = Couldn't write the recovery copy; trying again: { $error }
+recovery-resumed = The recovery copy is being written again.
 redo-shiftz = Redo (Ctrl+Shift+Z)
 reference-added = Reference added: { $key }. Click it to cite it.
 reference-to-a-label-rotulo = Reference to a label: @rotulo
@@ -379,6 +381,7 @@ reply = Reply
 report-abnt = Report (ABNT)
 resolve = Resolve
 restore = Restore
+restore-not-done = Nothing was restored: the current text couldn't be kept in the history first ({ $error }).
 restore-the-example = Restore
 review = Review
 review-on-the-pages = Mark up the finished pages, as suggestions to accept or decline
@@ -471,6 +474,7 @@ terminal-scrolled-back = { $lines } lines up
 terminal-starts-in = It starts in { $folder }. What it writes to the document shows on the pages, and the text before it stays in the version history.
 text = Text
 text-colour = Text colour
+text-unprotected = Text without a recovery copy
 that-is-not-a-doi = That doesn't look like a DOI: it starts with 10. and has a slash, as in 10.1038/nature14539.
 that-isnt-a-pearl-session-link = That isn't a Pearl session link.
 the-answer-got-too-long-and-was = The answer got too long and was cut off. Try asking in smaller parts.
@@ -659,7 +663,6 @@ recovery-entry = { $when }, { $n ->
     [one] { $n } line
    *[other] { $n } lines
  }
-recovery-stopped = The recovery copy stopped: { $error }
 saved-to = Saved to { $path }
 session-people = { $n ->
     [one] Session: { $n } person

@@ -358,6 +358,8 @@ ready-made-formulas = Fórmulas prontas
 recent = Recentes
 recover = Recuperar
 recover-documents = Recuperar documentos
+recovery-failing = Não foi possível gravar a cópia de segurança; tentando de novo: { $error }
+recovery-resumed = A cópia de segurança voltou a ser gravada.
 redo-shiftz = Refazer (Ctrl+Shift+Z)
 reference-added = Referência adicionada: { $key }. Clique nela para citá-la.
 reference-to-a-label-rotulo = Referência a um rótulo: @rotulo
@@ -379,6 +381,7 @@ reply = Responder
 report-abnt = Relatório (ABNT)
 resolve = Resolver
 restore = Restaurar
+restore-not-done = Nada foi restaurado: o texto atual não pôde ser guardado no histórico antes ({ $error }).
 restore-the-example = Restaurar
 review = Revisar
 review-on-the-pages = Marcar as páginas prontas, com sugestões para aceitar ou recusar
@@ -471,6 +474,7 @@ terminal-scrolled-back = { $lines } linhas acima
 terminal-starts-in = Ele começa em { $folder }. O que ele escrever no documento aparece nas páginas, e o texto anterior fica no histórico de versões.
 text = Texto
 text-colour = Cor do texto
+text-unprotected = Texto sem cópia de segurança
 that-is-not-a-doi = Isso não parece um DOI: ele começa com 10. e tem uma barra, como em 10.1038/nature14539.
 that-isnt-a-pearl-session-link = Esse não é um link de sessão do Pearl.
 the-answer-got-too-long-and-was = A resposta ficou longa demais e foi cortada. Tente pedir em partes menores.
@@ -659,7 +663,6 @@ recovery-entry = { $when }, { $n ->
     [one] { $n } linha
    *[other] { $n } linhas
  }
-recovery-stopped = A cópia de segurança parou: { $error }
 saved-to = Salvo em { $path }
 session-people = { $n ->
     [one] Sessão: { $n } pessoa

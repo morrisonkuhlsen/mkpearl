@@ -20,6 +20,9 @@ Every release of Pearl, newest first, in the spirit of
 
 - More than 300 versions in one day no longer delete the older history: the day's extra versions go
   first, and one per hour for a week and one per day for three months stay (#44).
+- Restoring a version stops, and says so, when the text it would replace can't be kept in the
+  history first. A failed recovery copy no longer turns recovery off: it's tried again every few
+  seconds, and the status bar says the text has no copy until one is written (#46).
 
 ## [0.1.0] - 2026-11-06
 

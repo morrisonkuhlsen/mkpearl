@@ -419,6 +419,10 @@ pub struct App {
     /// Whether a picture brought into an unsaved document asks where to save it.
     asks_to_save: bool,
     recovery_written_at: f64,
+    /// When writing the recovery copy last failed; it's tried again after the usual wait.
+    recovery_tried_at: f64,
+    /// Why the unsaved text has no current recovery copy, while it hasn't.
+    recovery_failure: Option<String>,
     orphans: Vec<Orphan>,
     orphans_later: bool,
     side: Option<Side>,
@@ -587,6 +591,8 @@ impl App {
             checking: None,
             asks_to_save: false,
             recovery_written_at: f64::NEG_INFINITY,
+            recovery_tried_at: f64::NEG_INFINITY,
+            recovery_failure: None,
             orphans: Vec::new(),
             orphans_later: false,
             side: None,
@@ -1767,16 +1773,21 @@ impl App {
     /// here says so but stops nothing: the document itself is saved apart from this. False when it
     /// failed, for what must not go on without the version.
     fn keep_version(&mut self, kind: history::Kind) -> bool {
-        let (Some(store), Some(path)) = (self.store(), self.path.clone()) else { return true };
-        let kept = store.keep(&path, &self.text, kind, history::now_ms());
-        self.versions = store.list();
-        match kept {
-            Ok(_) => true,
-            Err(e) => {
-                self.status = tr!("cant-keep-version", error = e.to_string());
+        match self.try_keep_version(kind) {
+            Ok(()) => true,
+            Err(error) => {
+                self.status = tr!("cant-keep-version", error = error);
                 false
             }
         }
+    }
+
+    /// Keeps the text as it is now in the history, or says why it couldn't.
+    fn try_keep_version(&mut self, kind: history::Kind) -> Result<(), String> {
+        let (Some(store), Some(path)) = (self.store(), self.path.clone()) else { return Ok(()) };
+        let kept = store.keep(&path, &self.text, kind, history::now_ms());
+        self.versions = store.list();
+        kept.map(|_| ()).map_err(|e| e.to_string())
     }
 
     fn end_viewing(&mut self) {
@@ -1817,7 +1828,12 @@ impl App {
     /// reaches everyone as any edit does, so this too can be undone.
     pub fn restore_version(&mut self, ctx: &egui::Context) {
         let Some(viewed) = self.viewed.take() else { return };
-        self.keep_version(history::Kind::BeforeRestore);
+        // What the restore replaces goes into the history first; if it can't, nothing is replaced.
+        if let Err(error) = self.try_keep_version(history::Kind::BeforeRestore) {
+            self.viewed = Some(viewed);
+            self.status = tr!("restore-not-done", error = error);
+            return;
+        }
         let when = history::describe(viewed.version.stamp, history::now_ms());
         self.edit(ctx, |text, _| {
             *text = viewed.text.clone();
@@ -3720,17 +3736,30 @@ impl App {
         }
     }
 
+    /// Why the unsaved text has no current recovery copy, while it hasn't.
+    pub fn recovery_failure(&self) -> Option<&str> {
+        self.recovery_failure.as_deref()
+    }
+
+    /// Writes the recovery copy. A failure doesn't stop the copies: the next is tried after the usual
+    /// wait, and until one is written the status bar says the text isn't protected.
     fn write_recovery(&mut self) -> bool {
         let Some(run) = self.recovery.as_mut() else { return false };
         match run.write(self.path.as_deref(), &self.text) {
             Ok(()) => {
                 self.recovery_written_at = self.time_now;
+                if self.recovery_failure.take().is_some() {
+                    self.status = tx("recovery-resumed").to_string();
+                }
                 true
             }
             Err(e) => {
-                // Said once, not every few seconds.
-                self.status = tr!("recovery-stopped", error = e.to_string());
-                self.recovery = None;
+                self.recovery_tried_at = self.time_now;
+                // Said once in the status, not every few seconds; the status bar keeps showing it.
+                if self.recovery_failure.is_none() {
+                    self.status = tr!("recovery-failing", error = e.to_string());
+                }
+                self.recovery_failure = Some(e.to_string());
                 false
             }
         }
@@ -3742,12 +3771,13 @@ impl App {
         if !self.dirty {
             run.clear();
             self.recovery_written_at = f64::NEG_INFINITY;
+            self.recovery_failure = None;
             return;
         }
         if self.changed_at <= self.recovery_written_at && run.is_written() {
             return;
         }
-        let wait = self.recovery_written_at + RECOVERY_EVERY - self.time_now;
+        let wait = self.recovery_written_at.max(self.recovery_tried_at) + RECOVERY_EVERY - self.time_now;
         if wait > 0.0 {
             ctx.request_repaint_after_secs(wait as f32);
         } else {
@@ -4674,6 +4704,10 @@ impl App {
             if let Some(session) = &self.session {
                 let others = session.others().len();
                 small(ui, &if session.is_waiting() { tx("connecting").to_string() } else { tr!("session-people", n = others + 1) });
+            }
+            if let Some(error) = &self.recovery_failure {
+                ui.label(egui::RichText::new(tx("text-unprotected")).font(theme::ui_bold(12.0)).color(t.danger))
+                    .on_hover_text(tr!("recovery-failing", error = error.as_str()));
             }
             small(ui, &self.status);
             ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
