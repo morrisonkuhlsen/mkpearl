@@ -15,6 +15,8 @@ Every release of Pearl, newest first, in the spirit of
 - The pages sit on a warm desk, lifted by a wide, soft shadow as paper is.
 - The rulers stay out of sight until the pointer comes near the edge they run along.
 - File › New shows each template by its own first page, drawn by Typst.
+- The icons are in colour by meaning, in duotone: each family of commands draws its objects in
+  its own ink over a soft tint of it; letters such as B and I keep the text's colour.
 
 ### Fixed
 

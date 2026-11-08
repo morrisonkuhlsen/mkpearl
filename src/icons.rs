@@ -1,5 +1,6 @@
 //! MK Matrix's icon set (MIT OR Apache-2.0; see NOTICE), drawn in code on a 16×16 design grid (original artwork; see
-//! ATTRIBUTION.md). Large ribbon icons use the same drawings at 32×32 with accent colours.
+//! ATTRIBUTION.md). Large ribbon icons use the same drawings at 32×32. In colour, in duotone by
+//! meaning as MK Sigma's are: each family of commands in its own ink.
 //! Accent and paper colours come from the theme tokens, so icons follow light and dark mode;
 //! icons placed on the sheet ([`paint_on_sheet`]) keep the light colours, as the sheet does.
 
@@ -282,6 +283,28 @@ impl Icon {
     ];
 }
 
+/// Whether a polygon turns the same way at every corner, so its inside can be filled as one.
+fn convex(pts: &[(f32, f32)]) -> bool {
+    let n = pts.len();
+    if n < 3 {
+        return false;
+    }
+    let mut sign = 0.0_f32;
+    for i in 0..n {
+        let (Some(a), Some(b), Some(c)) = (pts.get(i), pts.get((i + 1) % n), pts.get((i + 2) % n)) else { return false };
+        let cross = (b.0 - a.0) * (c.1 - b.1) - (b.1 - a.1) * (c.0 - b.0);
+        if cross.abs() < f32::EPSILON {
+            continue;
+        }
+        if sign == 0.0 {
+            sign = cross.signum();
+        } else if cross.signum() != sign {
+            return false;
+        }
+    }
+    sign != 0.0
+}
+
 /// The stroke every line in every icon is drawn with, in design-grid units: one pixel at 16
 /// points, two at 32, so the whole set reads as one weight at any size.
 const W: f32 = 1.0;
@@ -292,6 +315,8 @@ struct G<'a> {
     p: &'a Painter,
     r: Rect,
     s: f32,
+    /// How strongly a closed shape's colour tints its inside: 0 for line art alone.
+    tint: f32,
 }
 
 impl G<'_> {
@@ -310,9 +335,13 @@ impl G<'_> {
     fn stroke(&self, pts: &[(f32, f32)], c: Color32) {
         self.line(pts, c, W);
     }
-    /// A closed outline at the set's stroke.
+    /// A closed outline at the set's stroke, over a soft tint of its colour when the shape is
+    /// convex and the icon is drawn in duotone.
     fn closed(&self, pts: &[(f32, f32)], c: Color32) {
         let v: Vec<Pos2> = pts.iter().map(|(x, y)| self.pt(*x, *y)).collect();
+        if self.tint > 0.0 && convex(pts) {
+            self.p.add(PathShape::convex_polygon(v.clone(), c.gamma_multiply(self.tint), Stroke::NONE));
+        }
         self.p.add(PathShape::closed_line(v, PathStroke::new(self.width(W), c)));
     }
     /// A rectangle from (x0, y0) to (x1, y1), its outline centred on those lines.
@@ -329,6 +358,9 @@ impl G<'_> {
         self.p.add(PathShape::convex_polygon(v, fill, Stroke::NONE));
     }
     fn ring(&self, x: f32, y: f32, r: f32, c: Color32) {
+        if self.tint > 0.0 {
+            self.p.circle_filled(self.pt(x, y), r * self.s, c.gamma_multiply(self.tint));
+        }
         self.p.circle_stroke(self.pt(x, y), r * self.s, Stroke::new(self.width(W), c));
     }
     fn dot(&self, x: f32, y: f32, r: f32, c: Color32) {
@@ -460,19 +492,50 @@ pub fn paint_on_sheet(p: &Painter, rect: Rect, icon: Icon, c: Color32) {
     paint_with(p, rect, icon, c, &Palette::of(&Tokens::light()));
 }
 
+/// The colours one icon is drawn in.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Colours {
+    /// Its lines.
+    main: Color32,
+    /// How strongly a closed shape's colour tints its inside: 0 for line art alone.
+    tint: f32,
+    /// Its secondary lines.
+    muted: Color32,
+    /// The part that is its action.
+    action: Color32,
+}
+
+/// Duotone, as in MK Sigma: an icon of a family is drawn wholly in its ink, its shapes over a
+/// tint of it. Type is drawn as letters, which keep the colour asked for (the text's), so that a
+/// coloured B never reads as switched on; interface chrome keeps it too, with the accent.
+fn colours(icon: Icon, c: Color32, pal: &Palette) -> Colours {
+    let family = if pal.mono { None } else { icon.ink(pal.dark) };
+    let letters = matches!(icon, Icon::Bold | Icon::Italic | Icon::Underline | Icon::Strike | Icon::FontColor);
+    let ink = family.filter(|_| !letters);
+    let main = ink.unwrap_or(c);
+    let tint = match ink {
+        Some(_) if pal.dark => 0.28,
+        Some(_) => 0.16,
+        None => 0.0,
+    };
+    let muted = main.gamma_multiply(if ink.is_some() { 0.6 } else { 0.45 });
+    let action = if pal.mono { c } else { family.unwrap_or(pal.accent) };
+    Colours { main, tint, muted, action }
+}
+
 /// Draws `icon` into `rect` (square-ish), in colour `c`, with palette `pal`.
 ///
 /// One system for the whole set: line art at a single stroke weight ([`W`]) on a 16×16 grid whose
-/// live area runs from 1.5 to 14.5, square corners and ends, in the text colour; the part of the
-/// icon that is its action (the arrow, the new cell, the selected border) in MK Matrix's accent;
+/// live area runs from 1.5 to 14.5, square corners and ends, in the colours [`colours`] picks:
+/// objects in duotone in their family's ink, letters and chrome in the colour asked for with the
+/// part that is the icon's action (the arrow, the new cell, the selected border) in the ink;
 /// secondary lines (the cells around, the text on a page) muted.
 fn paint_with(p: &Painter, rect: Rect, icon: Icon, c: Color32, pal: &Palette) {
     use std::f32::consts::{FRAC_PI_2, PI};
     let side = rect.width().min(rect.height());
     let r = Rect::from_center_size(rect.center(), vec2(side, side));
-    let g = G { p, r, s: side / 16.0 };
-    let muted = c.gamma_multiply(0.45);
-    let a = if pal.mono { c } else { icon.ink(pal.dark).unwrap_or(pal.accent) };
+    let Colours { main: c, tint, muted, action: a } = colours(icon, c, pal);
+    let g = G { p, r, s: side / 16.0, tint };
     let wash = a.gamma_multiply(0.35);
     let (down, up, left, right) = (FRAC_PI_2, -FRAC_PI_2, PI, 0.0);
     // A page with a folded corner, the shape documents share.
@@ -1116,4 +1179,51 @@ pub const LIBRARY: &[(&str, Icon)] = &[
 
 pub fn from_name(name: &str) -> Option<Icon> {
     LIBRARY.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, i)| *i)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn palette(dark: bool, mono: bool) -> Palette {
+        Palette { accent: Color32::from_rgb(1, 2, 3), paper: Color32::WHITE, dark, mono }
+    }
+
+    #[test]
+    fn objects_are_drawn_in_their_family_ink_over_a_tint() {
+        let text = Color32::from_rgb(0x24, 0x24, 0x24);
+        for dark in [false, true] {
+            for (icon, ink) in [(Icon::Folder, ink::TERRACOTTA), (Icon::Picture, ink::OLIVE), (Icon::Fx, ink::OXBLOOD), (Icon::Margins, ink::SLATE)] {
+                let want = if dark { ink.1 } else { ink.0 };
+                let got = colours(icon, text, &palette(dark, false));
+                assert_eq!((got.main, got.action), (want, want), "{icon:?}");
+                assert!(got.tint > 0.0, "{icon:?} has a tint");
+            }
+        }
+    }
+
+    #[test]
+    fn letters_chrome_and_mono_keep_the_colour_asked_for() {
+        let text = Color32::from_rgb(0x24, 0x24, 0x24);
+        for icon in [Icon::Bold, Icon::Italic, Icon::Underline, Icon::Strike, Icon::FontColor, Icon::Close, Icon::Chevron, Icon::Plus] {
+            let got = colours(icon, text, &palette(false, false));
+            assert_eq!((got.main, got.tint), (text, 0.0), "{icon:?}");
+        }
+        // Underline's rule is still its family's.
+        assert_eq!(colours(Icon::Underline, text, &palette(false, false)).action, ink::SLATE.0);
+        let white = Color32::WHITE;
+        for &icon in Icon::ALL {
+            let got = colours(icon, white, &palette(false, true));
+            assert_eq!((got.main, got.action, got.tint), (white, white, 0.0), "{icon:?} in one colour");
+        }
+    }
+
+    #[test]
+    fn only_convex_outlines_are_filled() {
+        assert!(convex(&[(3.5, 1.5), (9.5, 1.5), (12.5, 4.5), (12.5, 14.5), (3.5, 14.5)]));
+        assert!(convex(&[(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (2.0, 2.0)]), "a straight run is no turn");
+        assert!(!convex(&[(0.0, 0.0), (4.0, 0.0), (2.0, 1.0), (4.0, 4.0), (0.0, 4.0)]));
+        assert!(!convex(&[(0.0, 0.0), (1.0, 1.0)]));
+        assert!(!convex(&[(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)]), "a line has no inside");
+    }
 }
