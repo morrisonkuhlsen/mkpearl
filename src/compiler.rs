@@ -183,6 +183,8 @@ pub enum PickRefusal {
     Nothing,
     /// The words there come out of the document's code, or elsewhere, with no text of their own to change.
     Generated,
+    /// The passage runs from one block to another, or through only part of some markup.
+    Structure,
 }
 
 /// A stretch of a range of the source on a page, in points from its top left.
@@ -817,7 +819,7 @@ impl Worker {
         let (Some(world), Some(doc)) = (&self.world, &self.doc) else { return Err(PickRefusal::Nothing) };
         let page = doc.pages().get(page).ok_or(PickRefusal::Nothing)?;
         let source = world.source();
-        let byte_at = |[x, y]: [f64; 2]| -> Result<usize, PickRefusal> {
+        let byte_at = |[x, y]: [f64; 2]| -> Result<(usize, std::ops::Range<usize>, bool), PickRefusal> {
             let mut nearest: Option<Nearest> = None;
             nearest_glyph(&page.frame, Transform::identity(), Point::new(Abs::pt(x), Abs::pt(y)), &|_| true, &mut nearest);
             let found = nearest.filter(|n| n.distance <= REACH).ok_or(PickRefusal::Nothing)?;
@@ -828,12 +830,13 @@ impl Worker {
             ) {
                 return Err(PickRefusal::Generated);
             }
-            Ok(node.offset() + usize::from(found.offset))
+            let wordy = matches!(node.kind(), SyntaxKind::Text | SyntaxKind::MathText | SyntaxKind::MathIdent);
+            Ok((node.offset() + usize::from(found.offset), node.range(), wordy))
         };
         let (a, b) = (byte_at(from)?, byte_at(to)?);
         let text = source.text();
         let word = |letter: char| letter.is_alphanumeric() || letter == '_';
-        let (low, high) = (a.min(b), a.max(b));
+        let ((low, low_node, low_wordy), (high, high_node, high_wordy)) = if a.0 <= b.0 { (a, b) } else { (b, a) };
         let start = text
             .get(..low)
             .map_or(low, |before| before.rfind(|c| !word(c)).map_or(0, |at| at + before[at..].chars().next().map_or(1, char::len_utf8)));
@@ -841,6 +844,10 @@ impl Worker {
         // On a letter that's no part of a word, as a stop, its own width is the end.
         let own = after.chars().next().map_or(0, char::len_utf8);
         let end = high + after.find(|c| !word(c)).map_or(after.len(), |at| at.max(own));
+        // A word stops where its node does: the `_` of `_muito_` counts as a letter, but it's markup. An
+        // escape or a shorthand is one thing, taken whole.
+        let start = if low_wordy { start.max(low_node.start) } else { low_node.start };
+        let end = if high_wordy { end.min(high_node.end) } else { high_node.end };
         (start < end && text.get(start..end).is_some()).then_some(start..end).ok_or(PickRefusal::Nothing)
     }
 
@@ -2291,6 +2298,24 @@ mod tests {
             let range = picked(REVIEWED, from, to).unwrap();
             assert_eq!(REVIEWED.get(range), Some("palavra errada, aqui"));
         }
+    }
+
+    #[test]
+    fn a_word_stops_at_the_markup_around_it() {
+        let text = "Algo _muito bom_ aqui.\n";
+        let place = places_of_range(text, "muito")[0];
+        let range = picked(text, middle(&place), middle(&place)).unwrap();
+        assert_eq!(text.get(range), Some("muito"), "the underscore is markup, not a letter");
+    }
+
+    #[test]
+    fn a_drag_across_markup_becomes_a_passage_that_can_be_marked() {
+        let text = "Isto é *muito* importante.\n";
+        let (a, b) = (places_of_range(text, "muito")[0], places_of_range(text, "importante")[0]);
+        let range = picked(text, middle(&a), middle(&b)).unwrap();
+        assert_eq!(text.get(range.clone()), Some("muito* importante"));
+        let whole = crate::edit::markable(text, range).unwrap();
+        assert_eq!(text.get(whole), Some("*muito* importante"));
     }
 
     #[test]

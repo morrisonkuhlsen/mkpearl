@@ -122,6 +122,68 @@ fn last_set_value(source: &str, function: &str, argument: &str, nested: bool) ->
     found
 }
 
+/// The passage a review mark can wrap or take out for this range: out to whole pieces of markup, so that
+/// no delimiter is left without its pair. `None` when it runs from one block to another, passes over a
+/// rule, or would need words that weren't asked for.
+pub fn markable(source: &str, range: Range<usize>) -> Option<Range<usize>> {
+    source.get(range.clone()).filter(|quote| !quote.is_empty())?;
+    let root = parse(source);
+    let top = LinkedNode::new(&root);
+    let mut node = top.leaf_at(range.start, Side::After)?;
+    while !(matches!(node.kind(), SyntaxKind::Markup | SyntaxKind::Math) && node.range().start <= range.start && node.range().end >= range.end) {
+        node = node.parent()?.clone();
+    }
+    let inside: Vec<LinkedNode> = node.children().filter(|c| c.range().start < range.end && c.range().end > range.start).collect();
+    let structural = |kind| {
+        matches!(
+            kind,
+            SyntaxKind::Heading
+                | SyntaxKind::ListItem
+                | SyntaxKind::EnumItem
+                | SyntaxKind::TermItem
+                | SyntaxKind::Parbreak
+                | SyntaxKind::SetRule
+                | SyntaxKind::ShowRule
+                | SyntaxKind::LetBinding
+                | SyntaxKind::ModuleImport
+                | SyntaxKind::ModuleInclude
+        )
+    };
+    if inside.iter().any(|child| structural(child.kind())) {
+        return None;
+    }
+    let splittable = |n: &LinkedNode| matches!(n.kind(), SyntaxKind::Text | SyntaxKind::MathText | SyntaxKind::MathIdent);
+    let (first, last) = (inside.first()?, inside.last()?);
+    let mut start = if splittable(first) { range.start } else { first.offset() };
+    if !splittable(first)
+        && let Some(hash) = first.prev_sibling().filter(|sibling| sibling.kind() == SyntaxKind::Hash)
+    {
+        start = hash.offset();
+    }
+    let end = if splittable(last) { range.end } else { last.range().end };
+    (!has_words(first, start..range.start) && !has_words(last, range.end..end)).then_some(start..end)
+}
+
+/// Whether any of the words under this node fall in this range.
+fn has_words(node: &LinkedNode, range: Range<usize>) -> bool {
+    if range.is_empty() {
+        return false;
+    }
+    let mut pending = vec![node.clone()];
+    while let Some(node) = pending.pop() {
+        let overlaps = node.range().start < range.end && node.range().end > range.start;
+        let word = matches!(
+            node.kind(),
+            SyntaxKind::Text | SyntaxKind::MathText | SyntaxKind::MathIdent | SyntaxKind::Escape | SyntaxKind::Shorthand | SyntaxKind::SmartQuote
+        );
+        if overlaps && word {
+            return true;
+        }
+        pending.extend(node.children());
+    }
+    false
+}
+
 /// An image call in the source, and the block on its own that holds it, where there is one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ImageCall {
@@ -731,6 +793,40 @@ mod tests {
             set("#set par(justify: false, leading: 1.05em, first-line-indent: 1.25cm)\nT", "par", "justify", "true"),
             "#set par(justify: true, leading: 1.05em, first-line-indent: 1.25cm)\nT"
         );
+    }
+
+    fn marked<'a>(text: &'a str, from: &str, to: &str) -> Option<&'a str> {
+        let (start, end) = (text.find(from).unwrap(), text.rfind(to).unwrap() + to.len());
+        text.get(markable(text, start..end)?)
+    }
+
+    #[test]
+    fn a_passage_to_mark_takes_markup_whole() {
+        assert_eq!(marked("Isto é *muito* importante.", "muito", "importante"), Some("*muito* importante"));
+        assert_eq!(marked("Isto é importante *muito*.", "importante", "muito"), Some("importante *muito*"));
+        assert_eq!(marked("Algo #text(red)[vermelho] aqui.", "vermelho", "aqui"), Some("#text(red)[vermelho] aqui"), "with its #");
+        assert_eq!(marked("= Um *dois* três\nT", "Um", "dois"), Some("Um *dois*"), "inside one heading");
+        assert_eq!(marked("um\ndois", "um", "dois"), Some("um\ndois"), "one paragraph over two lines");
+        assert_eq!(marked("Só *isto* fica.", "isto", "isto"), Some("isto"), "inside the markup, nothing to take in");
+    }
+
+    #[test]
+    fn a_passage_that_cant_be_marked_whole_is_refused() {
+        assert_eq!(marked("*muito bom* aqui", "bom", "aqui"), None, "it would take in a word not asked for");
+        assert_eq!(marked("$ x + y $ fim", "y", "fim"), None);
+        assert_eq!(marked("= Título\nTexto", "Título", "Texto"), None, "from a heading into the next line");
+        assert_eq!(marked("Um.\n\nDois.", "Um", "Dois"), None, "from one paragraph to another");
+        assert_eq!(marked("- um\n- dois", "um", "dois"), None);
+        assert_eq!(marked("Um\n#let a = 1\nDois", "Um", "Dois"), None, "a rule isn't text to mark");
+    }
+
+    #[test]
+    fn hostile_passages_to_mark_do_not_panic() {
+        assert_eq!(markable("ação", 2..3), None, "inside a letter");
+        assert_eq!(markable("ação", 99..999), None);
+        assert_eq!(markable("ação", 1..1), None);
+        let deep = format!("{}a{}", "*_".repeat(5000), "_*".repeat(5000));
+        let _ = markable(&deep, 0..deep.len());
     }
 
     #[test]

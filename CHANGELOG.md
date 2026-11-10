@@ -18,6 +18,9 @@ Every release of Pearl, newest first, in the spirit of
 
 ### Fixed
 
+- Accepting a highlight or strike across bold, italics or other markup no longer breaks the
+  document: the mark takes the markup in whole. A mark that would run from one block to another, or
+  take in words nobody marked, is refused and says why (#45).
 - The ribbon's page and paragraph settings change only the setting chosen: paper size no longer
   takes the margins and page numbers with it, and line spacing, justification and the like take
   effect in a document that already has its own rule (#43).

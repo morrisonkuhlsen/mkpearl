@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Range;
 
 use serde_json::{Value, json};
+use typst::syntax::parse;
 
 use crate::collab::doc::diff;
 use crate::edit;
@@ -204,6 +205,17 @@ pub fn apply_mark(thread: &Thread, range: Range<usize>, text: &mut String, sel: 
         }
     };
     edit::replace_keeping(text, sel, vec![change])
+}
+
+/// Whether accepting this mark leaves the document sound: its passage holds markup whole, and the result
+/// has no syntax error it didn't have. A mark can come from a peer, so nothing about it is taken on trust.
+pub fn mark_is_safe(thread: &Thread, range: Range<usize>, text: &str) -> bool {
+    if edit::markable(text, range.clone()).as_ref() != Some(&range) {
+        return false;
+    }
+    let mut after = text.to_string();
+    apply_mark(thread, range, &mut after, (0, 0));
+    parse(&after).errors_and_warnings().0.len() <= parse(text).errors_and_warnings().0.len()
 }
 
 /// Where a thread's passage is: the occurrence with most of what was around it, then the nearest.
@@ -721,6 +733,36 @@ mod tests {
         );
         assert_eq!(accepted("Uma palavra errada aqui.\n", "errada", MarkKind::Strike, "certa"), "Uma palavra certa aqui.\n");
         assert_eq!(accepted("Uma palavra errada aqui.\n", "palavra", MarkKind::Highlight, ""), "Uma #highlight[palavra] errada aqui.\n");
+    }
+
+    #[test]
+    fn a_mark_across_markup_leaves_a_document_that_compiles() {
+        let text = "Isto é *muito* importante.\n";
+        let part = "*muito* importante";
+        assert_eq!(accepted(text, part, MarkKind::Highlight, ""), "Isto é #highlight[*muito* importante].\n");
+        assert_eq!(accepted(text, part, MarkKind::Strike, ""), "Isto é .\n");
+        for kind in [MarkKind::Highlight, MarkKind::Strike] {
+            let (book, id) = with_mark(text, part, kind, "");
+            let (thread, range) = book.applicable(&id).unwrap();
+            assert!(mark_is_safe(&thread, range, text));
+        }
+    }
+
+    #[test]
+    fn a_mark_that_would_break_the_document_is_not_safe() {
+        let text = "Isto é *muito* importante.\n";
+        for kind in [MarkKind::Highlight, MarkKind::Strike] {
+            let (book, id) = with_mark(text, "muito* importante", kind, "");
+            let (thread, range) = book.applicable(&id).unwrap();
+            assert!(!mark_is_safe(&thread, range, text), "half of the markup");
+        }
+        let (book, id) = with_mark(text, "importante", MarkKind::Strike, "*aberto");
+        let (thread, range) = book.applicable(&id).unwrap();
+        assert!(!mark_is_safe(&thread, range, text), "what a peer asks to put in is checked too");
+        let heading = "= Título\nTexto\n";
+        let (book, id) = with_mark(heading, "Título\nTexto", MarkKind::Highlight, "");
+        let (thread, range) = book.applicable(&id).unwrap();
+        assert!(!mark_is_safe(&thread, range, heading), "from a heading into the next line");
     }
 
     #[test]

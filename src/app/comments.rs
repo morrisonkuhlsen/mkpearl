@@ -204,6 +204,12 @@ impl App {
         self.comments.picking = None;
         match result {
             Ok(range) => {
+                // A note changes nothing, so it can sit on any passage; a mark rewrites what it's on.
+                let range = if tool == ReviewTool::Note { Some(range) } else { edit::markable(&self.text, range) };
+                let Some(range) = range else {
+                    self.comments.refusal = Some(PickRefusal::Structure);
+                    return;
+                };
                 let quote = self.text.get(range.clone()).unwrap_or_default().to_string();
                 if quote.trim().is_empty() {
                     self.comments.refusal = Some(PickRefusal::Nothing);
@@ -256,6 +262,10 @@ impl App {
     pub fn accept_mark(&mut self, ctx: &egui::Context, index: usize) {
         let Some(id) = self.comments.book.threads().get(index).map(|t| t.id.clone()) else { return };
         let Some((thread, range)) = self.comments.book.applicable(&id) else { return };
+        if !comments::mark_is_safe(&thread, range.clone(), &self.text) {
+            self.status = tx("this-passage-cant-be-marked").into();
+            return;
+        }
         self.edit(ctx, |text, sel| comments::apply_mark(&thread, range, text, sel));
         self.comments.book.follow(&self.text);
         let made = self.comments.book.conclude(&id, Outcome::Accepted);
@@ -437,7 +447,11 @@ impl App {
             ui.colored_label(t.text_dim, tx("drag-over-the-pages-to-mark"));
         }
         if let Some(refusal) = self.comments.refusal {
-            let words = if refusal == PickRefusal::Generated { tx("this-comes-from-the-documents-code") } else { tx("there-is-no-text-there") };
+            let words = match refusal {
+                PickRefusal::Generated => tx("this-comes-from-the-documents-code"),
+                PickRefusal::Structure => tx("this-passage-crosses-the-documents-structure"),
+                PickRefusal::Nothing => tx("there-is-no-text-there"),
+            };
             ui.add(egui::Label::new(RichText::new(words).color(t.warning_ink)).wrap());
         }
         self.mark_composer(ui, t);

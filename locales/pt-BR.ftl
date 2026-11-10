@@ -531,6 +531,7 @@ there-are-no-other-files-in-the = Não há outros arquivos na pasta do documento
 there-is-no-text-there = Não há texto ali para marcar.
 thirdparty-licences = Licenças de terceiros
 this-comes-from-the-documents-code = Isto vem do código do documento, como um número ou uma referência, e não tem texto próprio para marcar. Comente no código.
+this-passage-crosses-the-documents-structure = Uma marca precisa ficar em um só parágrafo ou título e incluir por inteiro o negrito, o itálico e afins. Marque um trecho menor ou todo o trecho formatado.
 this-image-is-part-of-a-line = Esta imagem faz parte de uma linha maior, então não pode ser movida nem removida daqui.
 this-key-isnt-allowed-to-use-this = Esta chave não tem permissão para usar este modelo.
 this-passage-cant-be-marked = Este trecho não pode ser marcado: é longo demais ou não está mais no texto.

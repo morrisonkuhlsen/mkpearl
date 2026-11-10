@@ -531,6 +531,7 @@ there-are-no-other-files-in-the = There are no other files in the document's fol
 there-is-no-text-there = There is no text there to mark.
 thirdparty-licences = Third-party licences
 this-comes-from-the-documents-code = This comes from the document's code, such as a number or a reference, and has no text of its own to mark. Comment on the source instead.
+this-passage-crosses-the-documents-structure = A mark has to stay in one paragraph or heading, and take in bold, italics and the like whole. Mark a shorter passage, or all of the styled one.
 this-image-is-part-of-a-line = This image is part of a larger line, so it can't be moved or removed from here.
 this-key-isnt-allowed-to-use-this = This key isn't allowed to use this model.
 this-passage-cant-be-marked = This passage can't be marked: it's too long, or it's no longer in the text.
