@@ -997,8 +997,8 @@ impl App {
         self.edit(ctx, |t, s| edit::line_marker(t, s, marker));
     }
 
-    fn rule(&mut self, ctx: &egui::Context, key: &str, line: &str) {
-        self.edit(ctx, |t, s| edit::set_rule(t, s, key, line));
+    fn set_argument(&mut self, ctx: &egui::Context, function: &str, argument: &str, value: &str) {
+        self.edit(ctx, |t, s| edit::set_argument(t, s, function, argument, value));
     }
 
     fn undo(&mut self, ctx: &egui::Context, redo: bool) {
@@ -2781,10 +2781,7 @@ impl App {
 
     /// The font set by the document's `#set text(font: …)` rule, or Typst's default.
     fn current_font(&self) -> String {
-        self.text
-            .lines()
-            .find_map(|l| l.strip_prefix("#set text(font: \"")?.split('"').next().map(str::to_string))
-            .unwrap_or_else(|| "Libertinus Serif".to_string())
+        edit::document_font(&self.text).unwrap_or_else(|| "Libertinus Serif".to_string())
     }
 
     /// The caret line's style, from its heading marker.
@@ -2828,7 +2825,7 @@ impl App {
         field_menu(ui, &current, 135.0, tx("document-font"), |ui| {
             for font in ["Libertinus Serif", "New Computer Modern", "DejaVu Sans Mono"] {
                 if ui.selectable_label(current == font, font).clicked() {
-                    self.rule(&ctx, "#set text(font", &format!("#set text(font: \"{font}\")"));
+                    self.set_argument(&ctx, "text", "font", &format!("\"{font}\""));
                     ui.close();
                 }
             }
@@ -2890,7 +2887,7 @@ impl App {
             }
         }
         if tool(ui, Icon::Wrap, tx("justify-the-document")).clicked() {
-            self.rule(&ctx, "#set par(justify", "#set par(justify: true)");
+            self.set_argument(&ctx, "par", "justify", "true");
         }
         ui.add_space(6.0);
         if tool(ui, Icon::SheetList, tx("bulleted-list")).clicked() {
@@ -3030,18 +3027,18 @@ impl App {
         });
         tool_menu(ui, Icon::Orient, tx("page-orientation"), |ui| {
             if ui.button(tx("portrait")).clicked() {
-                self.rule(&ctx, "#set page(flipped", "#set page(flipped: false)");
+                self.set_argument(&ctx, "page", "flipped", "false");
                 ui.close();
             }
             if ui.button(tx("landscape")).clicked() {
-                self.rule(&ctx, "#set page(flipped", "#set page(flipped: true)");
+                self.set_argument(&ctx, "page", "flipped", "true");
                 ui.close();
             }
         });
         tool_menu(ui, Icon::Paper, tx("paper-size"), |ui| {
             for (name, paper) in [("A4", "a4"), ("A5", "a5"), (tx("letter"), "us-letter"), (tx("legal"), "us-legal")] {
                 if ui.button(name).clicked() {
-                    self.rule(&ctx, "#set page(paper", &format!("#set page(paper: \"{paper}\")"));
+                    self.set_argument(&ctx, "page", "paper", &format!("\"{paper}\""));
                     ui.close();
                 }
             }
@@ -3049,7 +3046,7 @@ impl App {
         tool_menu(ui, Icon::TextColumns, tx("document-columns"), |ui| {
             for n in 1..=3 {
                 if ui.button(format!("{n}")).clicked() {
-                    self.rule(&ctx, "#set page(columns", &format!("#set page(columns: {n})"));
+                    self.set_argument(&ctx, "page", "columns", &n.to_string());
                     ui.close();
                 }
             }
@@ -3067,7 +3064,7 @@ impl App {
         tool_menu(ui, Icon::PageNumber, tx("number-the-pages"), |ui| {
             for (name, format) in [("1", "1"), ("1 / N", "1 / 1"), ("i", "i")] {
                 if ui.button(name).clicked() {
-                    self.rule(&ctx, "#set page(numbering", &format!("#set page(numbering: \"{format}\")"));
+                    self.set_argument(&ctx, "page", "numbering", &format!("\"{format}\""));
                     ui.close();
                 }
             }
@@ -3075,7 +3072,7 @@ impl App {
         tool_menu(ui, Icon::Name, tx("number-the-headings"), |ui| {
             for format in ["1.", "1.1", "I.", "A."] {
                 if ui.button(format).clicked() {
-                    self.rule(&ctx, "#set heading(numbering", &format!("#set heading(numbering: \"{format}\")"));
+                    self.set_argument(&ctx, "heading", "numbering", &format!("\"{format}\""));
                     ui.close();
                 }
             }
@@ -3084,13 +3081,13 @@ impl App {
         tool_menu(ui, Icon::AlignMiddle, tx("line-spacing"), |ui| {
             for (name, leading) in [(tx("single"), "0.65em"), ("1,15", "0.8em"), ("1,5", "1.05em"), (tx("double"), "1.4em")] {
                 if ui.button(name).clicked() {
-                    self.rule(&ctx, "#set par(leading", &format!("#set par(leading: {leading})"));
+                    self.set_argument(&ctx, "par", "leading", leading);
                     ui.close();
                 }
             }
         });
         if glyphs(ui, "a-b", tx("hyphenate-the-document")).clicked() {
-            self.rule(&ctx, "#set text(hyphenate", "#set text(hyphenate: true)");
+            self.set_argument(&ctx, "text", "hyphenate", "true");
         }
         sep(ui, tx("paragraph"));
         if glyphs(ui, tx("two-col"), tx("passage-in-two-columns")).clicked() {

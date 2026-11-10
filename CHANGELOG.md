@@ -18,6 +18,9 @@ Every release of Pearl, newest first, in the spirit of
 
 ### Fixed
 
+- The ribbon's page and paragraph settings change only the setting chosen: paper size no longer
+  takes the margins and page numbers with it, and line spacing, justification and the like take
+  effect in a document that already has its own rule (#43).
 - More than 300 versions in one day no longer delete the older history: the day's extra versions go
   first, and one per hour for a week and one per day for three months stay (#44).
 - Restoring a version stops, and says so, when the text it would replace can't be kept in the

@@ -67,27 +67,6 @@ pub fn line_marker(text: &mut String, (a, b): Sel, marker: &str) -> Sel {
     (shift(a), shift(b))
 }
 
-/// Sets a document-wide rule: replaces the line starting with `key`, or adds `line` at the top.
-pub fn set_rule(text: &mut String, (a, b): Sel, key: &str, line: &str) -> Sel {
-    let mut offset = 0;
-    for l in text.split_inclusive('\n') {
-        if l.starts_with(key) {
-            let old = l.trim_end_matches('\n');
-            let delta = line.chars().count() as isize - old.chars().count() as isize;
-            let old_start_c = char_of(text, offset);
-            let old_end_c = old_start_c + old.chars().count();
-            let (start, end) = (offset, offset + old.len());
-            text.replace_range(start..end, line);
-            let shift = |c: usize| if c >= old_end_c { (c as isize + delta) as usize } else { c.min(old_start_c + line.chars().count()) };
-            return (shift(a), shift(b));
-        }
-        offset += l.len();
-    }
-    text.insert_str(0, &format!("{line}\n"));
-    let n = line.chars().count() + 1;
-    (a + n, b + n)
-}
-
 /// Sets the page's margins: replaces the value in the document's last `#set page(margin: …)`, whatever
 /// else that rule says and however it's written, or adds a rule at the top when there is none.
 pub fn set_page_margin(text: &mut String, sel: Sel, value: &str) -> Sel {
@@ -101,6 +80,12 @@ pub fn set_page_margin(text: &mut String, sel: Sel, value: &str) -> Sel {
 pub fn set_argument(text: &mut String, sel: Sel, function: &str, argument: &str, value: &str) -> Sel {
     let found = last_set_value(text, function, argument, false);
     write_set_value(text, sel, found, function, argument, value)
+}
+
+/// The font the document's rules give its text, the first one where they give a list.
+pub fn document_font(source: &str) -> Option<String> {
+    let value = source.get(last_set_value(source, "text", "font", false)?)?;
+    value.split('"').nth(1).map(str::to_string)
 }
 
 fn write_set_value(text: &mut String, sel: Sel, found: Option<Range<usize>>, function: &str, argument: &str, value: &str) -> Sel {
@@ -721,14 +706,51 @@ mod tests {
     }
 
     #[test]
-    fn set_rule_adds_then_replaces() {
+    fn an_argument_is_added_then_replaced() {
         let mut t = "ç\n".to_string();
-        let s = set_rule(&mut t, (1, 1), "#set page(paper", "#set page(paper: \"a4\")");
+        let s = set_argument(&mut t, (1, 1), "page", "paper", "\"a4\"");
         assert_eq!(t, "#set page(paper: \"a4\")\nç\n");
         assert_eq!(s, (24, 24));
-        let s = set_rule(&mut t, s, "#set page(paper", "#set page(paper: \"a5\")");
+        let s = set_argument(&mut t, s, "page", "paper", "\"a5\"");
         assert_eq!(t, "#set page(paper: \"a5\")\nç\n");
         assert_eq!(s, (24, 24));
+    }
+
+    #[test]
+    fn setting_an_argument_keeps_the_rest_of_its_rule() {
+        let set = |text: &str, function: &str, argument: &str, value: &str| {
+            let mut buffer = text.to_string();
+            set_argument(&mut buffer, (0, 0), function, argument, value);
+            buffer
+        };
+        assert_eq!(
+            set("#set page(paper: \"a4\", margin: 2.5cm, numbering: \"1\")\nT", "page", "paper", "\"a5\""),
+            "#set page(paper: \"a5\", margin: 2.5cm, numbering: \"1\")\nT"
+        );
+        assert_eq!(
+            set("#set par(justify: false, leading: 1.05em, first-line-indent: 1.25cm)\nT", "par", "justify", "true"),
+            "#set par(justify: true, leading: 1.05em, first-line-indent: 1.25cm)\nT"
+        );
+    }
+
+    #[test]
+    fn the_document_font_is_read_wherever_the_rule_keeps_it() {
+        assert_eq!(document_font("#set text(font: \"A\")\nT").as_deref(), Some("A"));
+        assert_eq!(document_font("#set text(size: 11pt, font: \"B\")\nT").as_deref(), Some("B"));
+        assert_eq!(document_font("#set text(font: (\"C\", \"D\"))\nT").as_deref(), Some("C"));
+        assert_eq!(document_font("#set text(font: \"A\")\n#set text(font: \"E\")\nT").as_deref(), Some("E"), "the last rule decides");
+        assert_eq!(document_font("// #set text(font: \"A\")\nT"), None);
+        assert_eq!(document_font("#set text(font: fonte)\nT"), None);
+    }
+
+    #[test]
+    fn a_setting_changes_the_rule_that_decides_it() {
+        let mut t = "#set par(justify: true, leading: 1.05em, first-line-indent: 1.25cm)\nT".to_string();
+        set_argument(&mut t, (0, 0), "par", "leading", "1.4em");
+        assert_eq!(t, "#set par(justify: true, leading: 1.4em, first-line-indent: 1.25cm)\nT", "not a new rule above, which this one would override");
+        let mut t = "#set text(size: 11pt)\nA\n#set text(font: \"X\", size: 12pt)\nB".to_string();
+        set_argument(&mut t, (0, 0), "text", "font", "\"Y\"");
+        assert_eq!(t, "#set text(size: 11pt)\nA\n#set text(font: \"Y\", size: 12pt)\nB");
     }
 
     const FIGURE: &str = "#figure(\n  image(\"a.png\"),\n  caption: [Legenda],\n) <fig>";
