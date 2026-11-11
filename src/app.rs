@@ -737,6 +737,10 @@ impl App {
         self.completions.as_ref().map_or_else(Vec::new, |c| c.suggestions.iter().map(|s| s.label.clone()).collect())
     }
 
+    pub fn in_session(&self) -> bool {
+        self.session.is_some()
+    }
+
     /// The people here besides this one, when in a session.
     pub fn session_others(&self) -> Vec<String> {
         self.session.as_ref().map_or_else(Vec::new, Session::others)
@@ -1061,8 +1065,9 @@ impl App {
     }
 
     fn perform(&mut self, ctx: &egui::Context, action: Pending) {
-        // Another document leaves the session; quitting does too, with the window.
-        if !matches!(action, Pending::Quit | Pending::Join | Pending::Open | Pending::OpenFolder) {
+        // Another document leaves the session; quitting does too, with the window. The ones that
+        // may open nothing leave it only once something comes in.
+        if !matches!(action, Pending::Quit | Pending::Join | Pending::Open | Pending::OpenFolder | Pending::Recent(_)) {
             self.session = None;
         }
         match action {
@@ -1085,7 +1090,13 @@ impl App {
                 }
             }
             Pending::Recent(path) if path.is_dir() => self.open_folder(ctx, path),
-            Pending::Recent(path) => self.open_path(ctx, path),
+            Pending::Recent(path) => {
+                // A recent file may be gone or unreadable: then nothing opens, and the session goes on.
+                let session = self.session.take();
+                if !self.open_path(ctx, path) {
+                    self.session = session;
+                }
+            }
             Pending::Quit => {
                 self.quitting = true;
                 // Answered already: autosave has no business writing it on the way out.
@@ -1113,7 +1124,8 @@ impl App {
         self.compile();
     }
 
-    pub fn open_path(&mut self, ctx: &egui::Context, path: PathBuf) {
+    /// Opens the document at `path`; false, with the status saying why, when it can't be read.
+    pub fn open_path(&mut self, ctx: &egui::Context, path: PathBuf) -> bool {
         match std::fs::read_to_string(&path) {
             Ok(text) => {
                 self.disk_text = Some(text.clone().into_bytes());
@@ -1129,8 +1141,12 @@ impl App {
                 self.keep_version(history::Kind::Opened);
                 self.reset_editor(ctx);
                 self.compile();
+                true
             }
-            Err(e) => self.status = tr!("cant-open", path = path.display().to_string(), error = e.to_string()),
+            Err(e) => {
+                self.status = tr!("cant-open", path = path.display().to_string(), error = e.to_string());
+                false
+            }
         }
     }
 
