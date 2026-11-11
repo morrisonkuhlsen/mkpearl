@@ -18,6 +18,8 @@ Every release of Pearl, newest first, in the spirit of
 
 ### Fixed
 
+- `#datetime.today(offset: …)` with an offset of more than a few thousand centuries gives `none`
+  instead of failing the whole compile (#54).
 - The timeline and the comparison close when another document is opened, started or joined, so
   "Bring back" can no longer paste the last document's passages into this one. Joining a session
   also stops looking at a version, which could otherwise be restored into the session (#41).

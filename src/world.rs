@@ -137,7 +137,8 @@ impl World for DocWorld {
     fn today(&self, offset: Option<Duration>) -> Option<Datetime> {
         let date = match offset {
             None => Local::now().date_naive(),
-            Some(o) => (Utc::now() + TimeDelta::try_seconds(o.seconds() as i64)?).date_naive(),
+            // `+` panics past chrono's range, and the offset is the document's to choose.
+            Some(o) => Utc::now().checked_add_signed(TimeDelta::try_seconds(o.seconds() as i64)?)?.date_naive(),
         };
         Datetime::from_ymd(date.year(), date.month().try_into().ok()?, date.day().try_into().ok()?)
     }
@@ -204,5 +205,17 @@ mod tests {
         assert_eq!(id.vpath().get_without_slash(), "cap/um.typ");
         let id = main_id(None, &at("livro")).unwrap();
         assert_eq!(id.vpath().get_without_slash(), "sem-titulo.typ");
+    }
+
+    #[test]
+    fn a_huge_offset_for_today_is_an_error_not_a_panic() {
+        let mut world = DocWorld::new(load_fonts(), None).unwrap();
+        for offset in ["1000000000000", "-1000000000000", "duration(weeks: 100000000000)"] {
+            world.update(&format!("#datetime.today(offset: {offset})"));
+            // Outside `catch_unwind`, so a panic fails the test.
+            let _ = typst::compile::<typst_layout::PagedDocument>(&world).output;
+        }
+        world.update("#datetime.today(offset: 3).year()");
+        assert!(typst::compile::<typst_layout::PagedDocument>(&world).output.is_ok());
     }
 }
