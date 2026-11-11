@@ -509,9 +509,12 @@ pub fn delete(text: &mut String, (a, b): Sel) -> Sel {
 
 /// Comments out the selected lines with `// `, or takes it away when they all have it.
 pub fn toggle_comment(text: &mut String, (a, b): Sel) -> Sel {
+    let (a, b) = (a.min(b), a.max(b));
+    // Lines selected whole end at the start of the next one, which isn't part of them.
+    let b = if b > a && byte_of(text, b) > 0 && text.as_bytes().get(byte_of(text, b) - 1) == Some(&b'\n') { b - 1 } else { b };
     let (start, _) = line_bounds(text, byte_of(text, a));
     let (_, end) = line_bounds(text, byte_of(text, b));
-    let block = &text[start..end];
+    let block = text.get(start..end).unwrap_or_default();
     let off = block.lines().filter(|l| !l.trim().is_empty()).all(|l| l.starts_with("//")) && !block.trim().is_empty();
     let changed: Vec<String> = block
         .split('\n')
@@ -1053,6 +1056,23 @@ mod tests {
         assert_eq!(t, "// ação\n\n// fim\nresto");
         toggle_comment(&mut t, s);
         assert_eq!(t, "ação\n\nfim\nresto");
+    }
+
+    #[test]
+    fn comments_leave_out_the_line_a_whole_line_selection_ends_on() {
+        // Shift+Down twice from the start of "ação": the selection ends at the start of "resto".
+        let mut t = "ação\nfim\nresto".to_string();
+        let s = toggle_comment(&mut t, (0, 9));
+        assert_eq!(t, "// ação\n// fim\nresto");
+        toggle_comment(&mut t, s);
+        assert_eq!(t, "ação\nfim\nresto");
+        // Made upwards, the same selection.
+        toggle_comment(&mut t, (9, 0));
+        assert_eq!(t, "// ação\n// fim\nresto");
+        // A caret alone at a line's start still takes its own line.
+        let mut t = "ação\nfim".to_string();
+        toggle_comment(&mut t, (5, 5));
+        assert_eq!(t, "ação\n// fim");
     }
 
     #[test]

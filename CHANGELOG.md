@@ -22,6 +22,8 @@ Every release of Pearl, newest first, in the spirit of
   instead of failing the whole compile (#54).
 - Clicking a recent document that is gone or can't be read no longer ends the session: nothing
   opens, the status says why, and the session goes on (#62).
+- Toggle comment on lines selected whole, as Shift+Down selects them, no longer comments the line
+  after them too (#56).
 - The timeline and the comparison close when another document is opened, started or joined, so
   "Bring back" can no longer paste the last document's passages into this one. Joining a session
   also stops looking at a version, which could otherwise be restored into the session (#41).
