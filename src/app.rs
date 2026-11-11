@@ -949,9 +949,12 @@ impl App {
     }
 
     /// Another document is in the editor: the caret goes to its top, and the history it had goes
-    /// too. It holds whole texts, and an undo would put the last document's into this one's file.
+    /// too. It holds whole texts, and an undo would put the last document's into this one's file. The
+    /// timeline and the comparison were about that document as well.
     fn reset_editor(&mut self, ctx: &egui::Context) {
         self.multi = None;
+        self.timeline = None;
+        self.comparing = None;
         egui::TextEdit::store_state(ctx, Id::unique(EDITOR), egui::text_edit::TextEditState::default());
         self.set_selection(ctx, (0, 0));
     }
@@ -2275,6 +2278,8 @@ impl App {
                 self.pages.clear();
                 self.textures.clear();
                 self.backstage = None;
+                self.end_viewing();
+                self.versions.clear();
                 self.reset_editor(ctx);
                 self.share_dialog = Some(ShareDialog::Running { copied: false });
                 self.status = tx("connecting-to-the-session").into();

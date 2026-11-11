@@ -109,6 +109,44 @@ fn a_past_passage_comes_back_and_the_slider_changes_nothing() {
     assert!(h.state().timeline_position().is_none());
     assert_eq!(h.state().text(), NOW);
 
+    // Another document takes the editor: what was on show was about the last one, and closes with it.
+    let ctx = h.ctx.clone();
+    let (first, other) = (root.join("doc.typ"), root.join("outro.typ"));
+    std::fs::write(&other, "Outro documento.\n").unwrap();
+    h.state_mut().open_timeline();
+    until(&mut h, "the timeline before leaving", |a| a.timeline_passages().is_some());
+    h.state_mut().open_path(&ctx, other.clone());
+    h.run_steps(3);
+    assert!(h.state().timeline_position().is_none(), "opening a file closes the timeline");
+    assert!(h.query_by_label("Trazer de volta").is_none());
+    assert_eq!(h.state().text(), "Outro documento.\n");
+
+    h.state_mut().compare_with_text("Antes.\n");
+    until(&mut h, "the comparison", |a| a.comparison_summary().is_some());
+    h.state_mut().open_path(&ctx, first.clone());
+    h.run_steps(3);
+    assert!(h.state().comparison_summary().is_none(), "opening a file ends the comparison");
+
+    h.state_mut().open_timeline();
+    until(&mut h, "the timeline before a new document", |a| a.timeline_passages().is_some());
+    h.state_mut().start_document(&ctx, "Novo.\n".to_string());
+    h.run_steps(3);
+    assert!(h.state().timeline_position().is_none(), "a new document closes the timeline");
+
+    // Joining a session too, and the version being looked at can't be restored into it.
+    h.state_mut().open_path(&ctx, first);
+    h.state_mut().open_timeline();
+    until(&mut h, "the timeline before joining", |a| a.timeline_passages().is_some());
+    h.state_mut().view_version(0);
+    let mut host = App::new(None).unwrap();
+    host.set_text("do anfitrião\n");
+    let link = host.host_session_on("127.0.0.1:0", "Ana").unwrap();
+    h.state_mut().join_session_link(&ctx, &link, "Beto");
+    assert!(h.state().timeline_position().is_none(), "joining closes the timeline");
+    h.state_mut().restore_version(&ctx);
+    assert_eq!(h.state().text(), "", "the last document's version stays out of the session");
+
+    drop(host);
     drop(h);
     std::fs::remove_dir_all(root).unwrap();
 }

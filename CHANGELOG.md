@@ -18,6 +18,9 @@ Every release of Pearl, newest first, in the spirit of
 
 ### Fixed
 
+- The timeline and the comparison close when another document is opened, started or joined, so
+  "Bring back" can no longer paste the last document's passages into this one. Joining a session
+  also stops looking at a version, which could otherwise be restored into the session (#41).
 - Accepting a highlight or strike across bold, italics or other markup no longer breaks the
   document: the mark takes the markup in whole. A mark that would run from one block to another, or
   take in words nobody marked, is refused and says why (#45).
