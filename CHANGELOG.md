@@ -18,6 +18,9 @@ Every release of Pearl, newest first, in the spirit of
 
 ### Fixed
 
+- In English, the save, copy and export dialogs suggest `document.typ`, `copy.typ` and
+  `document.pdf`, a table inserted as a figure gets `[Caption]`, and an API error without a message
+  says "unknown error", instead of their Portuguese words (#58).
 - `#datetime.today(offset: …)` with an offset of more than a few thousand centuries gives `none`
   instead of failing the whole compile (#54).
 - The timeline and the comparison close when another document is opened, started or joined, so

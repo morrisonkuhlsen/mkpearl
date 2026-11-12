@@ -253,7 +253,7 @@ impl Assembler {
                 self.turn.usage.cache_write = last.cache_write.max(self.turn.usage.cache_write);
             }
             "error" => {
-                let message = data["error"]["message"].as_str().unwrap_or("erro desconhecido");
+                let message = data["error"]["message"].as_str().unwrap_or_else(|| tx("unknown-error"));
                 return Err(format!("{}: {message}", data["error"]["type"].as_str().unwrap_or("error")));
             }
             _ => {}
@@ -439,6 +439,15 @@ mod tests {
         let mut a = Assembler::default();
         let err = a.event(&json!({"type": "error", "error": {"type": "overloaded_error", "message": "cheio"}}));
         assert_eq!(err, Err("overloaded_error: cheio".to_string()));
+    }
+
+    #[test]
+    fn a_stream_error_without_a_message_says_so_in_the_chosen_language() {
+        let mut a = Assembler::default();
+        let err = a.event(&json!({"type": "error", "error": {"type": "overloaded_error"}}));
+        assert_eq!(err, Err(format!("overloaded_error: {}", tx("unknown-error"))));
+        let english = crate::i18n::message_in(crate::i18n::Lang::En, "unknown-error", &[]);
+        assert_eq!(english, "unknown error");
     }
 
     #[test]

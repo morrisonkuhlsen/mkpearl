@@ -1213,7 +1213,7 @@ impl App {
     fn save(&mut self, save_as: bool) -> bool {
         let target = match (&self.path, save_as) {
             (Some(p), false) => Some(p.clone()),
-            _ => self.dialog().add_filter("Typst", &["typ"]).set_file_name("documento.typ").save_file(),
+            _ => self.dialog().add_filter("Typst", &["typ"]).set_file_name(format!("{}.typ", tx("default-file-name"))).save_file(),
         };
         let Some(path) = target else { return false };
         // Another file chosen in the dialog was the user's to write over; this one may have moved on.
@@ -1459,7 +1459,11 @@ impl App {
 
     fn choose_where_to_export(&mut self, accessible: bool) {
         let chosen = self.export_check.target.clone().or_else(|| {
-            let name = self.path.as_deref().and_then(Path::file_stem).map_or_else(|| "documento".to_string(), |s| s.to_string_lossy().into_owned());
+            let name = self
+                .path
+                .as_deref()
+                .and_then(Path::file_stem)
+                .map_or_else(|| tx("default-file-name").to_string(), |s| s.to_string_lossy().into_owned());
             self.dialog().add_filter("PDF", &["pdf"]).set_file_name(format!("{name}.pdf")).save_file()
         });
         if let Some(path) = chosen {
@@ -3666,7 +3670,9 @@ impl App {
 
     /// Saves the source to a file of the user's choice, leaving the open document as it is.
     fn save_copy(&mut self) {
-        let Some(path) = self.dialog().add_filter("Typst", &["typ"]).set_file_name("copia.typ").save_file() else { return };
+        let Some(path) = self.dialog().add_filter("Typst", &["typ"]).set_file_name(format!("{}.typ", tx("default-copy-name"))).save_file() else {
+            return;
+        };
         self.status = match crate::compiler::write_whole(&path, self.text.as_bytes()) {
             Ok(()) => tr!("copy-saved", path = path.display().to_string()),
             Err(e) => tr!("cant-save", error = e.to_string()),
@@ -4911,7 +4917,7 @@ impl App {
                 let table = edit::table_snippet(dialog.rows, dialog.cols, dialog.header);
                 let snippet = if dialog.figure {
                     let body = table.trim_start_matches('#').trim_end().replace('\n', "\n  ");
-                    format!("#figure(\n  {body},\n  caption: [Legenda],\n)\n")
+                    format!("#figure(\n  {body},\n  caption: [{}],\n)\n", tx("default-caption"))
                 } else {
                     table
                 };
