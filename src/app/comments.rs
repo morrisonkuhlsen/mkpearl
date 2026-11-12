@@ -125,6 +125,15 @@ impl App {
         }
     }
 
+    /// A new document with no file: the last one's comments stay with it. Going from no file to no
+    /// file isn't a change of path, so the frame wouldn't see it, and Save As would take them along.
+    pub(super) fn comments_start_afresh(&mut self) {
+        self.comments.path = self.path.clone();
+        self.comments.book.replace_entries(Default::default(), &self.text);
+        self.comments.unwritten = false;
+        self.comments.replies.clear();
+    }
+
     fn comments_changed_document(&mut self) {
         let path = self.path.clone();
         let same_document = self.comments.book.known_text() == self.text;
