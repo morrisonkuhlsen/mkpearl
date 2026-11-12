@@ -18,6 +18,8 @@ Every release of Pearl, newest first, in the spirit of
 
 ### Fixed
 
+- A new document with no file starts without the comments of the last one, which showed as
+  passages no longer in the text and were written beside the file it was saved as (#48).
 - `#datetime.today(offset: …)` with an offset of more than a few thousand centuries gives `none`
   instead of failing the whole compile (#54).
 - The timeline and the comparison close when another document is opened, started or joined, so

@@ -1109,6 +1109,7 @@ impl App {
         self.want_focus = true;
         self.end_viewing();
         self.versions.clear();
+        self.comments_start_afresh();
         self.reset_editor(ctx);
         self.compile();
     }
